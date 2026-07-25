@@ -17,6 +17,9 @@ client/dist/
 client/test-results/
 client/playwright-report/
 client/e2e/.data/
+# Intermediate PNG frames for the demo GIFs; the demos script deletes these on
+# success, so anything here is the residue of a run that died partway.
+client/e2e/.frames/
 client/coverage/
 electron/node_modules/
 electron/dist/

@@ -34,6 +34,20 @@ desktop app is also available.
 Data stays on your server. There is no external account and no third-party
 service.
 
+## Demos
+
+Recorded from the running app, not mocked up.
+
+| Themes and looks |
+| --- |
+| ![Cycling through themes and looks](docs/demos/themes.gif) |
+| The same feed under seven theme and look pairings. A theme sets the palette, a look sets surfaces, typography and shape, and the two compose freely. |
+
+| To-do board |
+| --- |
+| ![Checking off tasks and switching to the agenda](docs/demos/todos.gif) |
+| Checking items off a task list, then switching to the agenda, which collects what is still due across every list. Ocean theme, Slate-soft look. |
+
 ## Screenshots
 
 No two shots below use the same appearance. Each one names the theme and look
@@ -249,6 +263,7 @@ Commands run from the repository root, which delegates into each sub-project.
 | `npm run typecheck` | `tsc --noEmit` over the client |
 | `npm run e2e` | Playwright end-to-end tests |
 | `cd client && npm run screenshots` | Regenerate the README screenshots |
+| `cd client && npm run demos` | Regenerate the README demo GIFs (needs ffmpeg) |
 
 The screenshots are produced from the running app. A Playwright script
 ([`client/e2e/screenshots.spec.ts`](client/e2e/screenshots.spec.ts)) starts a
@@ -256,6 +271,15 @@ fresh server, seeds sample content over the REST API, and captures each surface
 into `docs/screenshots/`. It also sets a different theme and look before each
 capture; those pairings are named in the captions above, so changing one in the
 script means changing the matching caption here.
+
+The demo GIFs come from a sibling script
+([`client/e2e/demos.spec.ts`](client/e2e/demos.spec.ts)), which captures PNG
+frames the same way and hands them to ffmpeg for a two-pass palette encode into
+`docs/demos/`. ffmpeg has to be on `PATH`; without it the script skips rather
+than failing the suite. GIF caps out at 256 colours and stores whole frames, so
+the clips are deliberately short and mostly static: continuous motion such as
+panning the canvas repaints every pixel of every frame and multiplies the file
+size for it.
 
 A few things to know before making changes:
 
