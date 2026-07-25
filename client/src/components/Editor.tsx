@@ -1144,9 +1144,12 @@ const EmbedPicker: Component<{ kind: SlashKind; onPick: (id: string) => void; on
                                             'hover:bg-element-accent': active() !== index(),
                                         }}
                                     >
-                                        <span class="text-main text-sm font-bold truncate">{it.title}</span>
+                                        {/* w-full: Chromium 130 (Electron 33) does not stretch a
+                                            column-flex <button>'s children, so truncate has nothing
+                                            finite to clip against unless the width is explicit. */}
+                                        <span class="text-main w-full min-w-0 truncate text-sm font-bold">{it.title}</span>
                                         <Show when={it.sub}>
-                                            <span class="text-sub line-clamp-1 text-xs">{it.sub}</span>
+                                            <span class="text-sub w-full min-w-0 line-clamp-1 text-xs">{it.sub}</span>
                                         </Show>
                                     </button>
                                 )}

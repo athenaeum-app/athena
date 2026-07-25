@@ -316,18 +316,21 @@ export const Feed: Component<FeedProps> = (props) => {
             class="group hover:bg-element-accent border-element-accent flex h-full flex-col gap-2 rounded border p-3 text-left transition-all"
             classList={{ 'border-highlight bg-element-accent/40': p.moment.pinned }}
         >
-            <div class="flex items-center justify-between gap-2">
+            {/* w-full: Chromium 130 (Electron 33) does not stretch a column-flex
+                <button>'s children, so truncate/line-clamp have nothing finite to
+                clip against unless the width is explicit. */}
+            <div class="flex w-full min-w-0 items-center justify-between gap-2">
                 <Show when={archiveName(p.moment)} fallback={<span />}>
-                    <span class="text-highlight-strong truncate text-[10px] font-bold uppercase tracking-widest">{archiveName(p.moment)}</span>
+                    <span class="text-highlight-strong min-w-0 truncate text-[10px] font-bold uppercase tracking-widest">{archiveName(p.moment)}</span>
                 </Show>
                 <Show when={p.moment.pinned}>
                     <span class="material-symbols-outlined text-highlight-strongest text-sm">push_pin</span>
                 </Show>
             </div>
-            <span class="text-sub text-[11px] font-semibold tracking-wider">{formatDate(p.moment.timestamp)}</span>
-            <span class="text-main text-lg font-black break-words line-clamp-2">{p.moment.title || 'Untitled'}</span>
+            <span class="text-sub w-full min-w-0 text-[11px] font-semibold tracking-wider">{formatDate(p.moment.timestamp)}</span>
+            <span class="text-main w-full min-w-0 text-lg font-black break-words line-clamp-2">{p.moment.title || 'Untitled'}</span>
             <Show when={(p.moment.tag_ids || []).length > 0}>
-                <div class="mt-auto flex flex-wrap gap-1">
+                <div class="mt-auto flex w-full min-w-0 flex-wrap gap-1">
                     <For each={p.moment.tag_ids || []}>
                         {(tagId) => {
                             const tag = props.tags.find((t) => t.id === tagId)

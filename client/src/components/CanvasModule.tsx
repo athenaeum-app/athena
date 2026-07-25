@@ -1525,11 +1525,14 @@ const MomentRefCard: Component<{ uuid: string; onOpen?: (id: string) => void }> 
                             onClick={() => props.onOpen?.(m().id)}
                             class="hover:bg-element flex h-full w-full flex-col gap-1 p-3 text-left transition-colors hover:cursor-pointer"
                         >
-                            <div class="flex items-center gap-1">
+                            {/* w-full: Chromium 130 (Electron 33) does not stretch a column-flex
+                                <button>'s children, so truncate has nothing finite to clip
+                                against unless the width is explicit. */}
+                            <div class="flex w-full min-w-0 items-center gap-1">
                                 <span class="material-symbols-outlined text-highlight text-sm">bookmark</span>
-                                <span class="text-main text-sm font-bold truncate">{m().title || 'Untitled'}</span>
+                                <span class="text-main min-w-0 truncate text-sm font-bold">{m().title || 'Untitled'}</span>
                             </div>
-                            <p class="text-sub line-clamp-3 text-xs leading-snug">{m().content}</p>
+                            <p class="text-sub w-full min-w-0 line-clamp-3 text-xs leading-snug">{m().content}</p>
                         </button>
                     )}
                 </Show>
@@ -1858,8 +1861,11 @@ const MomentPicker: Component<{ onPick: (m: Moment) => void; onClose: () => void
                                         'hover:bg-element-accent': nav.active() !== index(),
                                     }}
                                 >
-                                    <span class="text-main text-sm font-bold truncate">{m.title || 'Untitled'}</span>
-                                    <span class="text-sub line-clamp-1 text-xs">{m.content}</span>
+                                    {/* w-full: Chromium 130 (Electron 33) does not stretch a
+                                        column-flex <button>'s children, so truncate has nothing
+                                        finite to clip against unless the width is explicit. */}
+                                    <span class="text-main w-full min-w-0 truncate text-sm font-bold">{m.title || 'Untitled'}</span>
+                                    <span class="text-sub w-full min-w-0 line-clamp-1 text-xs">{m.content}</span>
                                 </button>
                             )}
                         </For>

@@ -1464,8 +1464,11 @@ const MomentPickerLite: Component<{ onPick: (id: string) => void; onCreate?: () 
                                             'hover:bg-element-accent': nav.active() !== index(),
                                         }}
                                     >
-                                        <span class="text-main text-sm font-bold truncate">{m.title}</span>
-                                        <span class="text-sub line-clamp-1 text-xs">{m.content}</span>
+                                        {/* w-full: Chromium 130 (Electron 33) does not stretch a
+                                            column-flex <button>'s children, so truncate has nothing
+                                            finite to clip against unless the width is explicit. */}
+                                        <span class="text-main w-full min-w-0 truncate text-sm font-bold">{m.title}</span>
+                                        <span class="text-sub w-full min-w-0 line-clamp-1 text-xs">{m.content}</span>
                                     </button>
                                 )}
                             </For>

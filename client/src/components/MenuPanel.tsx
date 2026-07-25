@@ -89,6 +89,22 @@ export const MenuPanel: Component<MenuPanelProps> = (props) => {
     // messages, so the column stays uncluttered; click it to open the full
     // ChatModal. Opting in to prefs.chatWidgetFull docks the full panel +
     // composer instead.
+    //
+    // w-full on both children is load-bearing, not decoration. Electron 33
+    // ships Chromium 130, which does not stretch a column-flex <button>'s
+    // children to the button's own width: they lay out at max-content and
+    // spill straight out of the button box. A single long chat line then
+    // measured ~6200px inside a 278px card, and the widget stack above
+    // (lg:overflow-y-auto, which makes overflow-x auto too) grew a horizontal
+    // scrollbar across the whole Menu column. Newer Chromium stretches
+    // correctly, so this never reproduced in a browser or in the Playwright
+    // e2e run, only in the desktop app. Sizing the children explicitly gives
+    // the truncate below something finite to clip against everywhere.
+    //
+    // Clipping the button with overflow-hidden looks like the obvious belt to
+    // add here; it is not. On the same Chromium it also stops the button
+    // sizing to its own content, collapsing the card to the header row and
+    // hiding the preview entirely. The explicit widths are the whole fix.
     const ChatCard = () => (
         <Show
             when={prefs().chatWidgetFull}
@@ -98,11 +114,11 @@ export const MenuPanel: Component<MenuPanelProps> = (props) => {
                     onClick={props.onOpenChat}
                     class="bg-element-matte border-element-accent hover:border-highlight flex w-full flex-col rounded-lg border text-left transition-colors hover:cursor-pointer"
                 >
-                    <p class="text-sub border-element-accent flex items-center justify-between gap-2 border-b px-3 py-2 text-[11px] font-bold uppercase tracking-widest">
+                    <p class="text-sub border-element-accent flex w-full items-center justify-between gap-2 border-b px-3 py-2 text-[11px] font-bold uppercase tracking-widest">
                         <span>Chat</span>
                         <span class="material-symbols-outlined text-sm opacity-50">open_in_new</span>
                     </p>
-                    <div class="p-3">
+                    <div class="w-full min-w-0 p-3">
                         <ChatPreview />
                     </div>
                 </button>
