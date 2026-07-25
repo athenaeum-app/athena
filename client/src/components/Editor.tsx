@@ -99,6 +99,13 @@ export function clearDraft(key: string): void {
 
 type SlashKind = 'moment' | 'todo' | 'canvas'
 
+// How many ranked tag suggestions the composer offers at once. The point of the
+// list is to replace typing, so it wants to show the whole vocabulary of a
+// normal library rather than a teaser: at six it fitted two rows of three and
+// anyone with more tags than that was back to typing names out. The cap is a
+// rendering bound, not an editorial one; the popover scrolls past it.
+const TAG_SUGGESTION_LIMIT = 40
+
 const SLASH_ITEMS: { kind: SlashKind; icon: string; label: string; hint: string }[] = [
     { kind: 'moment', icon: 'description', label: 'Moment', hint: 'link a moment' },
     { kind: 'todo', icon: 'checklist', label: 'To-do list', hint: 'embed a list' },
@@ -560,9 +567,9 @@ export const Editor: Component<EditorProps> = (props) => {
         const matching = (props.tags || []).filter(
             (t) => !selectedIds.has(t.id) && (q === '' || t.name.toLowerCase().includes(q)),
         )
-        // Rank before slicing, or the six shown are just the first six the
-        // server happened to return.
-        return rankTags(matching, props.moments || [], [...selectedIds]).slice(0, 6)
+        // Rank before slicing, or the ones shown are just the first the server
+        // happened to return.
+        return rankTags(matching, props.moments || [], [...selectedIds]).slice(0, TAG_SUGGESTION_LIMIT)
     })
 
     // Whether to offer suggestions at all. Deliberately true for an empty
@@ -591,6 +598,15 @@ export const Editor: Component<EditorProps> = (props) => {
     createEffect(() => {
         tagSuggestions()
         setTagActive(0)
+    })
+
+    // The list scrolls now that it holds more than a couple of rows, so arrowing
+    // through it has to bring the highlight along or the selection walks off
+    // screen. -1 indexes nothing, which is the no-op we want.
+    let tagListRef: HTMLDivElement | undefined
+    createEffect(() => {
+        const el = tagListRef?.children[tagActive()] as HTMLElement | undefined
+        el?.scrollIntoView({ block: 'nearest' })
     })
 
     const addTag = (tag: Tag) => {
@@ -921,7 +937,22 @@ export const Editor: Component<EditorProps> = (props) => {
                 class="bg-element text-main border-element-accent w-full min-w-0 rounded-md border px-3 py-2 text-sm focus:outline-none focus:border-highlight"
             />
             <Show when={suggestingTags()}>
-                <div class="bg-element-matte border-element-accent absolute left-0 top-full z-50 mt-1 flex w-full max-w-sm flex-wrap gap-2 rounded-xl border p-2 shadow-2xl">
+                {/* Full composer width, not max-w-sm: this is a pick-list, so
+                    the more chips fit per row the fewer names get typed. Capped
+                    height with a scroll so a large library can't run it off the
+                    bottom of the screen.
+
+                    In the layout flow rather than floating over it. As a
+                    six-chip hint an overlay was fine; at full width it is tall
+                    enough to cover the Post button underneath, which left
+                    anyone with a real tag vocabulary unable to submit without
+                    dismissing it first. Taking up space pushes the controls
+                    down instead. */}
+                <div
+                    ref={tagListRef}
+                    data-testid="tag-suggestions"
+                    class="bg-element-matte border-element-accent mt-1 flex max-h-48 w-full flex-wrap gap-2 overflow-y-auto rounded-xl border p-2"
+                >
                     <For each={tagSuggestions()}>
                         {(tag, index) => (
                             <button

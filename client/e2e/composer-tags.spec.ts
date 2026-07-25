@@ -51,9 +51,7 @@ async function seed(page: Page) {
 }
 
 const tagField = (page: Page) => page.getByPlaceholder(/Add tags/)
-// The suggestion popover is the only absolutely-positioned block under the
-// tag input, so this pins the list without depending on its styling.
-const suggestionList = (page: Page) => page.locator('div.absolute.top-full button')
+const suggestionList = (page: Page) => page.getByTestId('tag-suggestions').locator('button')
 
 async function suggested(page: Page): Promise<string[]> {
     const names = await suggestionList(page).allInnerTexts()
@@ -76,9 +74,9 @@ test.describe('composer tag suggestions', () => {
         await expect.poll(() => suggested(page)).not.toHaveLength(0)
 
         // The tags that share every gaming moment are the ones being offered.
-        // Exact ordering is left to src/tagRank.test.ts: the list is capped at
-        // six and ranked across the whole library, so asserting positions here
-        // would depend on tags other spec files happen to have created.
+        // Exact ordering is left to src/tagRank.test.ts: the list is ranked
+        // across the whole library, so asserting positions here would depend on
+        // tags other spec files happen to have created.
         const names = await suggested(page)
         expect(names).toContain('coding')
         expect(names).toContain('studio')
