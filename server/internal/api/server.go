@@ -156,8 +156,12 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/v1/settings", auth.RequireAuth(http.HandlerFunc(s.handleGetSettings)))
 	s.mux.Handle("PATCH /api/v1/settings", auth.RequirePermission(permissions.ManageServer)(http.HandlerFunc(s.handleUpdateSettings)))
 
-	// Server stats
-	s.mux.Handle("GET /api/v1/stats", auth.RequirePermission(permissions.ManageServer)(http.HandlerFunc(s.handleGetStats)))
+	// Server stats. Any member of the library can read these: they are counts
+	// of content everyone with VIEW_MOMENTS can already see, plus database and
+	// upload sizes. Nothing here describes the host. It was gated on
+	// ManageServer, which meant the Menu's stats widget only ever loaded for
+	// the owner and silently failed for everyone they shared the library with.
+	s.mux.Handle("GET /api/v1/stats", auth.RequireAuth(http.HandlerFunc(s.handleGetStats)))
 
 	// Legacy stats (no auth, matches athena-server v1 behavior): kept for
 	// external tools such as a homeserver dashboard already polling the old

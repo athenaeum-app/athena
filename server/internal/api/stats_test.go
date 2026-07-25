@@ -46,7 +46,7 @@ func TestLegacyStatsUnauthenticated(t *testing.T) {
 	}
 }
 
-func TestStatsRequiresManageServerPermission(t *testing.T) {
+func TestStatsRequiresAuthentication(t *testing.T) {
 	env := newTestEnv(t)
 	env.registerOwner(t)
 
@@ -56,6 +56,23 @@ func TestStatsRequiresManageServerPermission(t *testing.T) {
 	status, _ := anon.do(t, "GET", "/api/v1/stats", nil)
 	if status != http.StatusUnauthorized {
 		t.Errorf("expected 401 for unauthenticated /api/v1/stats, got %d", status)
+	}
+}
+
+// Stats are library counts, not host details, and the Menu widget that shows
+// them is on by default for everyone. An invited member holding the default
+// role (no admin permissions) has to be able to read them.
+func TestStatsReadableByOrdinaryMember(t *testing.T) {
+	env := newTestEnv(t)
+	env.registerOwner(t)
+	member := env.invite(t, "mia")
+
+	status, body := member.do(t, "GET", "/api/v1/stats", nil)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200 for a member reading stats, got %d %v", status, body)
+	}
+	if _, ok := body["stats"].(map[string]any); !ok {
+		t.Errorf("expected a stats object, got %v", body)
 	}
 }
 
