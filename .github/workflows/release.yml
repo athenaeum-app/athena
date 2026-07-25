@@ -61,14 +61,27 @@ jobs:
       # Pre-create the release so the matrix jobs below don't race to create
       # it themselves, since electron-builder would otherwise have each platform
       # create its own separate draft release for the same tag.
+      #
+      # --target pins the release to the exact commit the tag points to.
+      # Without it, gh has to resolve the tag itself, and right after a tag
+      # push GitHub's Releases API can lag behind the git ref, causing it to
+      # silently fall back to a phantom "untagged-<hash>" release instead of
+      # the real one, which then never gets the electron-builder assets.
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
+          if output=$(gh release create "${{ github.ref_name }}" \
             --repo athenaeum-app/athena \
-            --draft --title "${{ github.ref_name }}" --generate-notes \
-            || echo "Release already exists, continuing"
+            --target "${{ github.sha }}" \
+            --draft --title "${{ github.ref_name }}" --generate-notes 2>&1); then
+            echo "$output"
+          elif echo "$output" | grep -qi "already exists"; then
+            echo "Release already exists, continuing"
+          else
+            echo "$output" >&2
+            exit 1
+          fi
 
   electron:
     name: Desktop app (${{ matrix.os }})
