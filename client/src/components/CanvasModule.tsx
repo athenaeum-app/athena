@@ -179,6 +179,40 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
         }
     }
 
+    // Inline rename in the sidebar list. Held by id rather than as a flag on
+    // the canvas so only one row is ever editable at a time.
+    const [renamingId, setRenamingId] = createSignal<string | null>(null)
+    const [renameDraft, setRenameDraft] = createSignal('')
+
+    const startRename = (canvas: Canvas) => {
+        setRenamingId(canvas.id)
+        setRenameDraft(canvas.title)
+    }
+
+    const commitRename = async () => {
+        const id = renamingId()
+        if (!id) return
+        setRenamingId(null)
+        const before = canvases().find((c) => c.id === id)
+        const title = renameDraft().trim()
+        // An empty title would render an unclickable blank row, so treat it as
+        // a cancel rather than saving it.
+        if (!before || !title || title === before.title) return
+
+        const apply = (t: string) => {
+            setCanvases((prev) => prev.map((c) => (c.id === id ? { ...c, title: t } : c)))
+            if (active()?.id === id) setCanvasStore('c', (c) => (c ? { ...c, title: t } : c))
+        }
+        apply(title) // optimistic; the list is the only place the title shows
+        try {
+            await api.updateCanvas(id, title)
+        } catch (err) {
+            console.error('Failed to rename canvas:', err)
+            apply(before.title)
+            ui.toast('Could not rename canvas.', 'error')
+        }
+    }
+
     const removeCanvas = async (canvas: Canvas) => {
         const ok = await ui.confirm({
             title: 'Delete canvas?',
@@ -798,25 +832,61 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                                     <For each={canvases()}>
                                         {(canvas) => (
                                             <div class="group flex items-center gap-1">
-                                                <button
-                                                    onClick={() => openCanvas(canvas.id)}
-                                                    class="flex-1 rounded-lg px-2 py-1.5 text-left text-sm font-bold truncate transition-colors"
-                                                    classList={{
-                                                        'bg-highlight-strongest text-white': active()?.id === canvas.id,
-                                                        'text-sub hover:bg-element-accent hover:text-main':
-                                                            active()?.id !== canvas.id,
-                                                    }}
+                                                <Show
+                                                    when={renamingId() === canvas.id}
+                                                    fallback={
+                                                        <>
+                                                            <button
+                                                                onClick={() => openCanvas(canvas.id)}
+                                                                onDblClick={() => props.canManage && startRename(canvas)}
+                                                                class="flex-1 rounded-lg px-2 py-1.5 text-left text-sm font-bold truncate transition-colors"
+                                                                classList={{
+                                                                    'bg-highlight-strongest text-white': active()?.id === canvas.id,
+                                                                    'text-sub hover:bg-element-accent hover:text-main':
+                                                                        active()?.id !== canvas.id,
+                                                                }}
+                                                            >
+                                                                {canvas.title}
+                                                            </button>
+                                                            <Show when={props.canManage}>
+                                                                <button
+                                                                    onClick={() => startRename(canvas)}
+                                                                    title="Rename canvas"
+                                                                    class="text-sub hover:text-highlight-strongest shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:cursor-pointer"
+                                                                >
+                                                                    <span class="material-symbols-outlined text-base">edit</span>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => removeCanvas(canvas)}
+                                                                    title="Delete canvas"
+                                                                    class="text-sub hover:text-danger shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:cursor-pointer"
+                                                                >
+                                                                    <span class="material-symbols-outlined text-base">delete</span>
+                                                                </button>
+                                                            </Show>
+                                                        </>
+                                                    }
                                                 >
-                                                    {canvas.title}
-                                                </button>
-                                                <Show when={props.canManage}>
-                                                    <button
-                                                        onClick={() => removeCanvas(canvas)}
-                                                        title="Delete canvas"
-                                                        class="text-sub hover:text-danger shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:cursor-pointer"
-                                                    >
-                                                        <span class="material-symbols-outlined text-base">delete</span>
-                                                    </button>
+                                                    <input
+                                                        value={renameDraft()}
+                                                        ref={(el) => queueMicrotask(() => { el.focus(); el.select() })}
+                                                        onInput={(e) => setRenameDraft(e.currentTarget.value)}
+                                                        onBlur={() => void commitRename()}
+                                                        // stopPropagation because the module has a window-level
+                                                        // keydown handler: Escape there closes the whole board.
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                void commitRename()
+                                                            } else if (e.key === 'Escape') {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                setRenamingId(null)
+                                                            }
+                                                        }}
+                                                        class="bg-element-matte text-main border-highlight w-full min-w-0 rounded-lg border px-2 py-1.5 text-sm font-bold focus:outline-none"
+                                                    />
                                                 </Show>
                                             </div>
                                         )}
