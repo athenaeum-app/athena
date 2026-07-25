@@ -532,6 +532,28 @@ input[type='checkbox']:not(.native-checkbox):focus-visible {
 }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* Tailwind Typography ships its own colour palette, and MarkdownText used to
+   ask for the inverted (light-on-dark) one unconditionally. Most elements never
+   showed it, because the component overrides headings, links, strong and code
+   with theme classes and the caller sets the body colour. Blockquotes were not
+   overridden, so on a light theme they rendered near-white on white and the
+   quote was effectively invisible.
+   Binding the plugin's variables to the active theme fixes that class of bug
+   rather than just the one element: whatever theme is selected, prose follows
+   it, and no theme added later can reintroduce this. */
+.prose {
+    --tw-prose-body: var(--theme-text-sub);
+    --tw-prose-lead: var(--theme-text-sub);
+    --tw-prose-quotes: var(--theme-text-main);
+    --tw-prose-quote-borders: var(--theme-highlight);
+    --tw-prose-bullets: var(--theme-text-sub);
+    --tw-prose-counters: var(--theme-text-sub);
+    --tw-prose-hr: var(--theme-element-accent);
+    --tw-prose-captions: var(--theme-text-sub);
+    --tw-prose-th-borders: var(--theme-element-accent);
+    --tw-prose-td-borders: var(--theme-element-accent);
+}
+
 /* Content images are clickable (open the Lightbox). */
 .prose img { cursor: zoom-in; }
 
