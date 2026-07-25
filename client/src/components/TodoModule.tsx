@@ -6,6 +6,7 @@ import { backdropDismiss } from '../dismiss'
 import { createListboxNav } from '../listboxNav'
 import { prefs, setPref } from '../prefs'
 import { notifyTodoChanged } from '../todoBus'
+import { serializeLists, parseLists, type ParsedItem } from '../todoTransfer'
 
 // Todo module (ADR-0013): server-synced, library-shared to-do
 // lists as a Trello-style board. v2.3 adds per-item due dates, priority,
@@ -93,6 +94,64 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
 
     // Column drag-reorder: id of the column being dragged.
     const [colDrag, setColDrag] = createSignal<string | null>(null)
+
+    // Export / import as text (issue #4).
+    const [showTransfer, setShowTransfer] = createSignal(false)
+    const [transferText, setTransferText] = createSignal('')
+    const [transferError, setTransferError] = createSignal('')
+    const [importing, setImporting] = createSignal(false)
+
+    // Import always ADDS lists; it never edits or removes what is already on
+    // the board. Reconciling an edited paste against existing rows would mean
+    // guessing which task a reworded line used to be, and guessing wrong
+    // deletes someone's data. Adding is unambiguous and reversible: delete the
+    // old list once the new one looks right.
+    const importText = async () => {
+        const parsed = parseLists(transferText())
+        if (!parsed.length) {
+            setTransferError('Nothing to import. Expected lines like "# My list (general)" and "- [ ] A task".')
+            return
+        }
+        setImporting(true)
+        setTransferError('')
+        try {
+            for (const list of parsed) {
+                const created = await api.createTodoList(list.kind, list.title || 'Imported list')
+                if (list.notes) await api.updateTodoList(created.id, { notes: list.notes })
+                for (const item of list.items) {
+                    const root = await api.createTodoItem(created.id, item.text)
+                    await applyImportedFields(root.id, item)
+                    for (const sub of item.subtasks) {
+                        const child = await api.createTodoItem(created.id, sub.text, root.id)
+                        await applyImportedFields(child.id, sub)
+                    }
+                }
+            }
+            await load()
+            setShowTransfer(false)
+            ui.toast(`Imported ${parsed.length} list${parsed.length === 1 ? '' : 's'}.`, 'success')
+        } catch (err) {
+            console.error('Failed to import lists:', err)
+            setTransferError('Import failed part way through. Some lists may already have been created.')
+        } finally {
+            setImporting(false)
+        }
+    }
+
+    // Creation only takes the text, so everything else is a follow-up patch.
+    // Done is applied last: marking a recurring item done schedules its next
+    // occurrence, which needs the recurrence to already be set.
+    const applyImportedFields = async (id: string, item: ParsedItem) => {
+        const patch: Parameters<typeof api.updateTodoItem>[1] = {}
+        if (item.priority) patch.priority = item.priority
+        if (item.dueDate) patch.due_at = new Date(`${item.dueDate}T00:00:00`).toISOString()
+        if (item.recurrence) {
+            patch.recurrence = item.recurrence
+            patch.reset_mode = item.resetMode
+        }
+        if (Object.keys(patch).length) await api.updateTodoItem(id, patch)
+        if (item.done) await api.updateTodoItem(id, { done: true })
+    }
 
     // Every mutation path funnels through withList/withItem (or explicitly
     // notifies below for the few that don't), so any live-embedded card for
@@ -429,6 +488,17 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                                 <option value="priority">By priority</option>
                             </select>
                         </Show>
+                        <button
+                            onClick={() => {
+                                setTransferText(serializeLists(lists))
+                                setTransferError('')
+                                setShowTransfer(true)
+                            }}
+                            class="text-sub hover:text-main transition-colors hover:cursor-pointer"
+                            title="Export or import lists as text"
+                        >
+                            <span class="material-symbols-outlined">import_export</span>
+                        </button>
                         <button onClick={props.onClose} class="text-sub hover:text-main transition-colors" title="Close">
                             <span class="material-symbols-outlined">close</span>
                         </button>
@@ -562,6 +632,56 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                     onCreate={props.onRequestNewMoment ? createMomentForLink : undefined}
                     onClose={() => setMomentPicker(null)}
                 />
+            </Show>
+
+            <Show when={showTransfer()}>
+                <div
+                    class="animate-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                    {...backdropDismiss(() => setShowTransfer(false))}
+                >
+                    <div class="bg-element-matte border-element-accent flex max-h-[85vh] w-full max-w-2xl flex-col gap-3 rounded-2xl border p-5">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-main font-serif text-lg">Export / import</h3>
+                            <button onClick={() => setShowTransfer(false)} class="text-sub hover:text-main hover:cursor-pointer" title="Close">
+                                <span class="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+                        <p class="text-sub text-xs leading-relaxed">
+                            The whole board as plain text. Copy it out, edit it anywhere, paste it back. Importing
+                            <strong class="text-main"> adds new lists</strong> and never changes or deletes the ones already here, so
+                            delete the originals yourself once the result looks right.
+                        </p>
+                        <textarea
+                            value={transferText()}
+                            onInput={(e) => setTransferText(e.currentTarget.value)}
+                            spellcheck={false}
+                            class="bg-element text-main border-element-accent focus:border-highlight min-h-[18rem] flex-1 resize-y rounded-lg border p-3 font-mono text-xs focus:outline-none"
+                        />
+                        <Show when={transferError()}>
+                            <p class="text-danger text-xs">{transferError()}</p>
+                        </Show>
+                        <div class="flex items-center justify-end gap-2">
+                            <button
+                                onClick={() => {
+                                    void navigator.clipboard.writeText(transferText())
+                                    ui.toast('Copied to the clipboard.', 'success')
+                                }}
+                                class="border-element-accent text-sub hover:text-main rounded-lg border px-3 py-2 text-xs font-bold transition-colors hover:cursor-pointer"
+                            >
+                                Copy
+                            </button>
+                            <Show when={props.canManage}>
+                                <button
+                                    onClick={() => void importText()}
+                                    disabled={importing()}
+                                    class="bg-highlight-strongest rounded-lg px-3 py-2 text-xs font-bold text-white transition-[filter] hover:brightness-110 disabled:opacity-50 hover:cursor-pointer"
+                                >
+                                    {importing() ? 'Importing…' : 'Import as new lists'}
+                                </button>
+                            </Show>
+                        </div>
+                    </div>
+                </div>
             </Show>
         </div>
     )
