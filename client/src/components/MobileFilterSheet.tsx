@@ -5,6 +5,7 @@ import { contrastingTextColor, randomTagColor } from '../tagColors'
 import { useUI } from '../ui'
 import { createLongPress } from '../longPress'
 import { EMPTY_FEED_FILTERS, activeFilterCount, type FeedFilters } from './Feed'
+import { visibleTags } from '../tagFacets'
 
 // Preset tag palette, mirrored from TagBar so mobile tag creation offers the
 // same swatches as desktop.
@@ -26,8 +27,12 @@ export const MobileFilterSheet: Component<{
     canManageTags: boolean
     filters: FeedFilters
     onChangeFilters: (f: FeedFilters) => void
+    // Tags that still match at least one moment under the current filter; see
+    // tagFacets.ts. null until the first facet response lands.
+    availableTagIds?: Set<string> | null
 }> = (props) => {
     const ui = useUI()
+    const shown = () => visibleTags(props.tags, props.availableTagIds, props.selectedTagIds)
     const [creating, setCreating] = createSignal(false)
     const [name, setName] = createSignal('')
     const [color, setColor] = createSignal(PRESET_COLORS[0])
@@ -62,7 +67,7 @@ export const MobileFilterSheet: Component<{
                 Tags: tap to filter{props.canManageTags ? ' · long-press to manage' : ''}
             </div>
             <div class="flex flex-wrap gap-2">
-                <For each={props.tags}>
+                <For each={shown()}>
                     {(tag) => {
                         const lp = createLongPress(() => props.canManageTags && tagActions(tag))
                         const selected = () => props.selectedTagIds.includes(tag.id)

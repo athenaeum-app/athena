@@ -147,6 +147,25 @@ export const api = {
 
     // Tags
     listTags: () => request<Tag[]>('/api/v1/tags'),
+
+    // Which tags still lead somewhere under the current filter. Tag filtering
+    // is AND, so a tag absent from this map would empty the feed if selected;
+    // the filter surfaces hide those rather than offer a dead end. Takes the
+    // same parameters as listMoments, plus the tags already selected.
+    getTagFacets: (
+        params: { archive?: string; q?: string; tags?: string[]; from?: string; to?: string; media?: boolean; link?: boolean } = {},
+    ) => {
+        const searchParams = new URLSearchParams()
+        if (params.archive) searchParams.set('archive', params.archive)
+        if (params.q) searchParams.set('q', params.q)
+        if (params.tags?.length) searchParams.set('tags', params.tags.join(','))
+        if (params.from) searchParams.set('from', params.from)
+        if (params.to) searchParams.set('to', params.to)
+        if (params.media) searchParams.set('media', '1')
+        if (params.link) searchParams.set('link', '1')
+        const queryString = searchParams.toString()
+        return request<{ counts: Record<string, number> }>(`/api/v1/tags/facets${queryString ? '?' + queryString : ''}`)
+    },
     createTag: (name: string, color: string) =>
         request<Tag>('/api/v1/tags', { method: 'POST', body: JSON.stringify({ name, color }) }),
     updateTag: (id: string, name?: string, color?: string) =>

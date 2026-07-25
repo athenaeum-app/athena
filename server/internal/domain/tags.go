@@ -139,3 +139,77 @@ func DeleteTag(id string) error {
 	}
 	return nil
 }
+
+// TagFacets returns, for every tag that still appears on at least one moment
+// matching the given filters, how many of those moments carry it.
+//
+// This exists because tag filtering is AND, not OR: with #games and #cooking
+// both selected a moment must carry both, so it is easy to assemble a
+// combination no moment satisfies and land on an empty feed with no clue which
+// choice was the wrong one. The client uses this to only offer tags that keep
+// the result set non-empty, so every click narrows rather than gambles.
+//
+// It deliberately counts across the whole library rather than the loaded page.
+// The feed pages in at 100 moments, so a facet set derived client-side would
+// omit tags used only on older entries and then grow as the reader scrolled,
+// which reads as tags flickering into existence.
+//
+// selectedTagIDs are the tags already chosen, applied with the same AND
+// semantics the feed uses. They come back in the result (they are on every
+// surviving moment by definition), which is what lets the caller keep showing
+// them so they can be deselected.
+func TagFacets(archiveID *string, search string, selectedTagIDs []string, filter *MomentFilter) (map[string]int, error) {
+	// The two moment sources differ only in their FROM clause; both alias the
+	// moments table to `moment` so one filter prefix serves both.
+	var base string
+	args := []any{}
+	if search != "" {
+		base = `SELECT moment.id
+		        FROM moments_fts fts
+		        JOIN moments moment ON moment.rowid = fts.rowid
+		        WHERE moments_fts MATCH ? AND moment.deleted_at IS NULL`
+		args = append(args, search)
+	} else {
+		base = `SELECT moment.id FROM moments moment WHERE moment.deleted_at IS NULL`
+	}
+	if archiveID != nil {
+		base += ` AND moment.archive_id = ?`
+		args = append(args, *archiveID)
+	}
+	base, args = appendMomentFilter(base, args, filter, "moment.")
+
+	// AND over the selected tags: a moment qualifies only if it carries all of
+	// them, which is what HAVING COUNT(DISTINCT ...) = len checks.
+	if len(selectedTagIDs) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(selectedTagIDs)), ",")
+		base += ` AND moment.id IN (
+		            SELECT moment_id FROM moment_tags
+		            WHERE tag_id IN (` + placeholders + `)
+		            GROUP BY moment_id
+		            HAVING COUNT(DISTINCT tag_id) = ?)`
+		for _, id := range selectedTagIDs {
+			args = append(args, id)
+		}
+		args = append(args, len(selectedTagIDs))
+	}
+
+	rows, err := db.DB.Query(
+		`SELECT mt.tag_id, COUNT(*) FROM moment_tags mt WHERE mt.moment_id IN (`+base+`) GROUP BY mt.tag_id`,
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("tag facets: %w", err)
+	}
+	defer rows.Close()
+
+	counts := map[string]int{}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, fmt.Errorf("scan tag facet: %w", err)
+		}
+		counts[id] = n
+	}
+	return counts, rows.Err()
+}

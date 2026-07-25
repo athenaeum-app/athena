@@ -2,6 +2,7 @@ import { For, Show, createSignal, type Component } from 'solid-js'
 import type { Tag } from '../api'
 import { prefs } from '../prefs'
 import { contrastingTextColor, randomTagColor } from '../tagColors'
+import { visibleTags } from '../tagFacets'
 
 interface TagBarProps {
     tags: Tag[]
@@ -13,6 +14,9 @@ interface TagBarProps {
     // Whether the current user may create/delete tags. When false, the create
     // button and per-tag delete affordance are hidden (view/filter only).
     canManage: boolean
+    // Tags that still match at least one moment under the current filter, from
+    // the server's facet endpoint. null means the answer has not arrived yet.
+    availableTagIds?: Set<string> | null
 }
 
 // A small palette of preset tag colors. Picked to be distinguishable across
@@ -34,6 +38,8 @@ const PRESET_COLORS = [
 ]
 
 export const TagBar: Component<TagBarProps> = (props) => {
+    const shown = () => visibleTags(props.tags, props.availableTagIds, props.selectedTagIds)
+
     const [creating, setCreating] = createSignal(false)
     const [name, setName] = createSignal('')
     const [color, setColor] = createSignal(PRESET_COLORS[0])
@@ -73,11 +79,11 @@ export const TagBar: Component<TagBarProps> = (props) => {
     }
 
     return (
-        <div class="bg-element z-10 flex w-full flex-wrap items-center justify-center gap-2 p-2 backdrop-blur-md transition-all lg:max-h-[20vh] lg:overflow-y-auto lg:p-6">
+        <div data-testid="tag-bar" class="bg-element z-10 flex w-full flex-wrap items-center justify-center gap-2 p-2 backdrop-blur-md transition-all lg:max-h-[20vh] lg:overflow-y-auto lg:p-6">
             <span class="text-sub text-xs font-black tracking-widest uppercase">
                 Tags:
             </span>
-            <For each={props.tags}>
+            <For each={shown()}>
                 {(tag) => (
                     <div class="group relative">
                         <button

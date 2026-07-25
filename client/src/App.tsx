@@ -75,6 +75,42 @@ export const App: Component = () => {
     const [searchQuery, setSearchQuery] = createSignal('')
     // Server-side feed filters (v2.2): date range + media/source heuristics.
     const [feedFilters, setFeedFilters] = createSignal<FeedFilters>({ ...EMPTY_FEED_FILTERS })
+
+    // --- Tag facets ---
+    //
+    // Tag filtering is AND (see filteredMoments), so selecting two tags that
+    // never appear together lands on an empty feed with nothing to say which
+    // choice was wrong. The server answers which tags still match at least one
+    // moment under the current archive/search/date/media filters plus the
+    // current selection, and the filter surfaces offer only those.
+    //
+    // Keyed under qk.tags on purpose: refetchTags() already runs at every site
+    // that creates, edits, retags or deletes a moment, and invalidation is by
+    // key prefix, so the facets follow the library without a second set of
+    // invalidation calls to keep in sync.
+    const facetParams = () => {
+        const filters = feedFilters()
+        const params: Parameters<typeof api.getTagFacets>[0] = {}
+        if (selectedArchive()) params.archive = selectedArchive()!
+        if (searchQuery()) params.q = searchQuery()
+        if (selectedTagIds().length) params.tags = selectedTagIds()
+        if (filters.from) params.from = new Date(`${filters.from}T00:00:00`).toISOString()
+        if (filters.to) params.to = new Date(`${filters.to}T23:59:59.999`).toISOString()
+        if (filters.media) params.media = true
+        if (filters.link) params.link = true
+        return params
+    }
+    const facetsQuery = useQuery(() => ({
+        queryKey: [...qk.tags, 'facets', facetParams()],
+        queryFn: () => api.getTagFacets(facetParams()),
+    }))
+
+    // null while the first response is outstanding, which the tag surfaces read
+    // as "no answer yet, show everything". Hiding on a missing answer would
+    // blank the tag bar on every cold load and every filter change.
+    const availableTagIds = (): Set<string> | null =>
+        facetsQuery.data ? new Set(Object.keys(facetsQuery.data.counts)) : null
+
     const [moments, setMoments] = createSignal<Moment[]>([])
     const [pinnedMoments, setPinnedMoments] = createSignal<Moment[]>([])
     const [loadingMoments, setLoadingMoments] = createSignal(false)
@@ -599,6 +635,7 @@ export const App: Component = () => {
                 {...menuActionProps()}
                 pinnedMoments={filteredPinned()}
                 tags={tags() || []}
+                availableTagIds={availableTagIds()}
                 selectedTagIds={selectedTagIds()}
                 onToggleTag={(id) =>
                     setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
@@ -726,6 +763,7 @@ export const App: Component = () => {
             <Sheet open={mobileSheet() === 'filter'} title="Filter" onClose={() => setMobileSheet(null)}>
                 <MobileFilterSheet
                     tags={tags() || []}
+                    availableTagIds={availableTagIds()}
                     selectedTagIds={selectedTagIds()}
                     onToggleTag={(id) =>
                         setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
@@ -803,6 +841,7 @@ export const App: Component = () => {
             <Show when={auth.user() && isDesktop()}>
                 <TagBar
                     tags={tags() || []}
+                    availableTagIds={availableTagIds()}
                     selectedTagIds={selectedTagIds()}
                     onToggleTag={(id) => {
                         setSelectedTagIds((prev) =>

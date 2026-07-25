@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/athenaeum-app/athena/server/internal/auth"
@@ -415,6 +416,35 @@ func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, tags)
+}
+
+// handleTagFacets answers "which tags can still be added to this filter
+// without emptying the feed". Takes the same archive/search/date/media
+// parameters as GET /api/v1/moments, plus `tags` (comma-separated) for the
+// selection already applied, so the answer matches the feed the caller is
+// looking at.
+func (s *Server) handleTagFacets(w http.ResponseWriter, r *http.Request) {
+	archiveID := r.URL.Query().Get("archive")
+	var archiveIDPtr *string
+	if archiveID != "" {
+		archiveIDPtr = &archiveID
+	}
+
+	var selected []string
+	if raw := r.URL.Query().Get("tags"); raw != "" {
+		for _, id := range strings.Split(raw, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				selected = append(selected, id)
+			}
+		}
+	}
+
+	counts, err := domain.TagFacets(archiveIDPtr, r.URL.Query().Get("q"), selected, parseMomentFilter(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to compute tag facets")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"counts": counts})
 }
 
 type createTagRequest struct {

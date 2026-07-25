@@ -5,6 +5,7 @@ import { users, loadUsers } from '../users'
 import { useAuth } from '../auth'
 import { ChatPanel } from './ChatPanel'
 import { ChatPreview } from './ChatPreview'
+import { visibleTags } from '../tagFacets'
 
 // Rich desktop Menu (§ Menu revamp). A full-height panel: a sticky nav hub of
 // actions + identity, then a scrollable stack of toggleable widgets whose order
@@ -31,6 +32,9 @@ interface MenuPanelProps {
     onOpenMoment: (id: string) => void
     onOpenTodoEmbed: (id: string) => void
     onOpenCanvasEmbed: (id: string) => void
+    // Tags that still match at least one moment under the current filter; see
+    // tagFacets.ts. null until the first facet response lands.
+    availableTagIds?: Set<string> | null
 }
 
 const initials = (name: string) => name.trim().slice(0, 2).toUpperCase() || '?'
@@ -223,10 +227,14 @@ export const MenuPanel: Component<MenuPanelProps> = (props) => {
     }
 
     // --- Tags (quick filter chips) ---
-    const TagsCard = () => (
+    // Same offerable-tag rule as the desktop TagBar and the mobile filter
+    // sheet: these chips drive the same selectedTagIds, so they must agree.
+    const TagsCard = () => {
+        const shown = () => visibleTags(props.tags, props.availableTagIds, props.selectedTagIds)
+        return (
         <Card title="Tags" bodyClass="flex flex-wrap gap-1.5">
-            <Show when={props.tags.length > 0} fallback={<p class="text-sub/60 text-xs italic">No tags yet.</p>}>
-                <For each={props.tags}>
+            <Show when={shown().length > 0} fallback={<p class="text-sub/60 text-xs italic">No tags to filter by.</p>}>
+                <For each={shown()}>
                     {(t) => {
                         const selected = () => props.selectedTagIds.includes(t.id)
                         return (
@@ -244,7 +252,8 @@ export const MenuPanel: Component<MenuPanelProps> = (props) => {
                 </For>
             </Show>
         </Card>
-    )
+        )
+    }
 
     const renderWidget = (id: MenuWidgetId): JSX.Element => {
         switch (id) {

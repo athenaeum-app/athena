@@ -104,6 +104,7 @@ func (s *Server) routes() {
 
 	// Tags
 	s.mux.Handle("GET /api/v1/tags", auth.RequirePermission(permissions.ViewMoments)(http.HandlerFunc(s.handleListTags)))
+	s.mux.Handle("GET /api/v1/tags/facets", auth.RequirePermission(permissions.ViewMoments)(http.HandlerFunc(s.handleTagFacets)))
 	s.mux.Handle("POST /api/v1/tags", auth.RequirePermission(permissions.ManageTags)(http.HandlerFunc(s.handleCreateTag)))
 	s.mux.Handle("POST /api/v1/tags/recolor", auth.RequirePermission(permissions.ManageTags)(http.HandlerFunc(s.handleRecolorTags)))
 	s.mux.Handle("PATCH /api/v1/tags/{id}", auth.RequirePermission(permissions.ManageTags)(http.HandlerFunc(s.handleUpdateTag)))
