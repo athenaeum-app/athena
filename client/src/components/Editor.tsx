@@ -2,6 +2,7 @@ import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup, 
 import { Portal } from 'solid-js/web'
 import { api, type Archive, type Tag, type Moment } from '../api'
 import { contrastingTextColor, randomTagColor } from '../tagColors'
+import { rankTags } from '../tagRank'
 import { keybinds, matchEvent } from '../keybinds'
 import { backdropDismiss } from '../dismiss'
 import { useIsDesktop } from '../media'
@@ -30,6 +31,9 @@ export interface EditorProps {
     moment?: Moment | null
     archives?: Archive[]
     tags?: Tag[]
+    // Feeds tag-suggestion ranking (see tagRank). Only tag_ids is read, so the
+    // loaded page of moments is enough; suggestions get better as more load.
+    moments?: Moment[]
     defaultArchive?: string | null
     momentIndex?: { id: string; title: string }[]
     // Persist. tagIds/archiveId are empty for chat.
@@ -145,8 +149,10 @@ export const Editor: Component<EditorProps> = (props) => {
     })
     const [tagInput, setTagInput] = createSignal('')
     // -1 means "typing" (Enter commits/creates the typed text); 0+ highlights a
-    // suggestion (Enter accepts it). Arrow keys move between them.
-    const [tagActive, setTagActive] = createSignal(-1)
+    // suggestion (Enter accepts it). Arrow keys move between them. Starts on
+    // the top suggestion; comma always commits the raw text, so creating a tag
+    // whose name is a prefix of an existing one stays a single keystroke.
+    const [tagActive, setTagActive] = createSignal(0)
 
     const [saving, setSaving] = createSignal(false)
     const [error, setError] = createSignal('')
@@ -549,16 +555,33 @@ export const Editor: Component<EditorProps> = (props) => {
 
     const tagSuggestions = createMemo(() => {
         const q = tagInput().trim().toLowerCase()
-        const selectedIds = new Set(selectedTags().map((t) => t.id))
-        return (props.tags || [])
-            .filter((t) => !selectedIds.has(t.id) && (q === '' || t.name.toLowerCase().includes(q)))
-            .slice(0, 6)
+        const selected = selectedTags()
+        const selectedIds = new Set(selected.map((t) => t.id))
+        const matching = (props.tags || []).filter(
+            (t) => !selectedIds.has(t.id) && (q === '' || t.name.toLowerCase().includes(q)),
+        )
+        // Rank before slicing, or the six shown are just the first six the
+        // server happened to return.
+        return rankTags(matching, props.moments || [], [...selectedIds]).slice(0, 6)
     })
 
-    // Reset the highlight whenever the suggestion set changes.
+    // Whether to offer suggestions at all. Deliberately true for an empty
+    // field: the whole point of ranking them is that the tags you want are
+    // usually already at the front, so making you type a letter first just
+    // hides the answer. Gated on the composer having *something* in it, so an
+    // untouched inline composer doesn't sit under a permanent tag menu.
+    const suggestingTags = createMemo(
+        () =>
+            tagSuggestions().length > 0 &&
+            (tagInput().trim() !== '' || title().trim() !== '' || content().trim() !== ''),
+    )
+
+    // Highlight the top suggestion whenever the set changes, so Enter takes it
+    // without an ArrowDown first. -1 (nothing highlighted, Enter commits the
+    // raw text) is reachable by arrowing back up past the first entry.
     createEffect(() => {
         tagSuggestions()
-        setTagActive(-1)
+        setTagActive(0)
     })
 
     const addTag = (tag: Tag) => {
@@ -589,7 +612,7 @@ export const Editor: Component<EditorProps> = (props) => {
 
     const handleTagKeyDown = (e: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
         const suggestions = tagSuggestions()
-        const suggesting = tagInput().trim() !== '' && suggestions.length > 0
+        const suggesting = suggestingTags()
         if (e.key === 'ArrowDown' && suggesting) {
             e.preventDefault()
             setTagActive((a) => Math.min(a + 1, suggestions.length - 1))
@@ -880,10 +903,10 @@ export const Editor: Component<EditorProps> = (props) => {
                 value={tagInput()}
                 onInput={(e) => setTagInput(e.currentTarget.value)}
                 onKeyDown={handleTagKeyDown}
-                placeholder="Add tags (Enter or comma to add, creates new if unmatched)"
+                placeholder="Add tags (Enter takes the suggestion, comma adds what you typed)"
                 class="bg-element text-main border-element-accent w-full min-w-0 rounded-md border px-3 py-2 text-sm focus:outline-none focus:border-highlight"
             />
-            <Show when={tagInput().trim() !== '' && tagSuggestions().length > 0}>
+            <Show when={suggestingTags()}>
                 <div class="bg-element-matte border-element-accent absolute left-0 top-full z-50 mt-1 flex w-full max-w-sm flex-wrap gap-2 rounded-xl border p-2 shadow-2xl">
                     <For each={tagSuggestions()}>
                         {(tag, index) => (

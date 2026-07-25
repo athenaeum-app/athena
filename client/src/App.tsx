@@ -647,6 +647,7 @@ export const App: Component = () => {
                         draftKey="inline-moment"
                         archives={archives() || []}
                         tags={tags() || []}
+                        moments={moments()}
                         defaultArchive={selectedArchive()}
                         onSubmit={handleInlineCreate}
                         onCreateTag={handleInlineCreateTag}
@@ -1012,6 +1013,7 @@ export const App: Component = () => {
                     draftKey="inline-moment"
                     archives={archives() || []}
                     tags={tags() || []}
+                    moments={moments()}
                     defaultArchive={selectedArchive()}
                     momentIndex={momentIndex()}
                     onSubmit={handleSaveMoment}
