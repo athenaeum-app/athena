@@ -108,4 +108,7 @@ const EditorPerms Flag = ViewMoments | CreateMoment | EditOwnMoment |
 // Chat is the exception, and deliberately so: talking is not the same as
 // writing to the library. A member who cannot post a moment can still ask
 // about one, which is most of the point of having them in the library at all.
-const ViewerPerms Flag = ViewMoments | ViewChat | SendChatMessage
+// That includes fixing a typo or retracting what they just said: being able to
+// post but not unpost is not a coherent floor, and it is their own message
+// either way. Editing or deleting anyone else's still takes a wider role.
+const ViewerPerms Flag = ViewMoments | ViewChat | SendChatMessage | EditOwnChatMessage | DeleteOwnChatMessage

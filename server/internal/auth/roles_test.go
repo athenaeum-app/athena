@@ -183,7 +183,10 @@ func TestPresetRoleMigrationMatchesConstants(t *testing.T) {
 		flag    permissions.Flag
 		literal uint32
 	}{
-		"role_viewer": {permissions.ViewerPerms, 769},
+		// 0007 wrote 769; 0011 raised it to 3841 when Viewer gained edit and
+		// delete over its own chat messages. The literal here tracks the last
+		// migration to write the value, which is what a fresh install ends at.
+		"role_viewer": {permissions.ViewerPerms, 3841},
 		"role_editor": {permissions.EditorPerms, 12247},
 		"role_admin":  {permissions.AdminPerms, 16187391},
 		"role_owner":  {permissions.OwnerPerms, 16777215},

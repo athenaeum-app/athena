@@ -119,12 +119,12 @@ func TestPresetBundles(t *testing.T) {
 
 	// Viewer is the default role, so it is also the library's floor: it reads
 	// everything and takes part in chat, but adds nothing to the library.
-	for _, f := range []Flag{ViewMoments, ViewChat, SendChatMessage} {
+	for _, f := range []Flag{ViewMoments, ViewChat, SendChatMessage, EditOwnChatMessage, DeleteOwnChatMessage} {
 		if !Has(ViewerPerms, f) {
 			t.Errorf("ViewerPerms should grant flag %d", f)
 		}
 	}
-	for _, f := range []Flag{CreateMoment, UploadAsset, EditOwnMoment, ManageTags, ManageArchives} {
+	for _, f := range []Flag{CreateMoment, UploadAsset, EditOwnMoment, ManageTags, ManageArchives, DeleteAnyChatMessage} {
 		if Has(ViewerPerms, f) {
 			t.Errorf("ViewerPerms grants flag %d; the default role must not add to the library", f)
 		}
