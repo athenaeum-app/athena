@@ -7,6 +7,8 @@ desktop app is also available.
 
 ![The Athena feed](docs/screenshots/feed.png)
 
+<sub>Legacy theme, Legacy look</sub>
+
 ## Features
 
 - **Moments.** Notes with a title, a Markdown body, colored tags, and file
@@ -34,28 +36,34 @@ service.
 
 ## Screenshots
 
+No two shots below use the same appearance. Each one names the theme and look
+it was captured under, so the gallery doubles as a tour of what the appearance
+system does. Nothing else differs between them: it is the same library, the
+same content, and the same build throughout.
+
 | To-do board | Agenda |
 | --- | --- |
-| ![To-do board](docs/screenshots/todos.png) | ![Agenda view](docs/screenshots/agenda.png) |
+| ![To-do board](docs/screenshots/todos.png)<br><sub>Ocean theme, Slate-soft look</sub> | ![Agenda view](docs/screenshots/agenda.png)<br><sub>Royal Blue theme, Ink look</sub> |
 
 | Canvas | Chat |
 | --- | --- |
-| ![Canvas](docs/screenshots/canvas.png) | ![Chat](docs/screenshots/chat.png) |
+| ![Canvas](docs/screenshots/canvas.png)<br><sub>Sunset theme, Aurora look</sub> | ![Chat](docs/screenshots/chat.png)<br><sub>Arctic theme, Slate-soft look</sub> |
 
 | Focused reader | Appearance settings |
 | --- | --- |
-| ![Focused moment reader](docs/screenshots/focused-moment.png) | ![Appearance settings](docs/screenshots/settings.png) |
+| ![Focused moment reader](docs/screenshots/focused-moment.png)<br><sub>Neutral theme, Editorial look</sub> | ![Appearance settings](docs/screenshots/settings.png)<br><sub>Rosewood theme, Legacy look</sub> |
 
 The web client is a PWA and installs to a phone. On mobile, moments read one
 at a time as swipeable cards, draggable anywhere on the card and not just the
 edges, with neighbouring cards peeking in. A bottom nav (Archives, Filter,
 New, Chat, More) replaces the desktop tag bar and side menu with sheets that
 slide up over the feed, and long-pressing a card, message, or canvas node
-opens its actions (edit, delete, pin) as a touch-friendly action sheet:
+opens its actions (edit, delete, pin) as a touch-friendly action sheet. Themes
+and looks are not a desktop-only feature, so these are themed separately again:
 
 | Mobile feed | Mobile filter | Mobile chat |
 | --- | --- | --- |
-| ![Mobile layout: the feed and bottom nav](docs/screenshots/mobile-feed.png) | ![Mobile layout: the filter sheet](docs/screenshots/mobile-filter.png) | ![Mobile layout: chat](docs/screenshots/mobile-chat.png) |
+| ![Mobile layout: the feed and bottom nav](docs/screenshots/mobile-feed.png)<br><sub>Valentine theme, Editorial look</sub> | ![Mobile layout: the filter sheet](docs/screenshots/mobile-filter.png)<br><sub>Dark theme, Glass look</sub> | ![Mobile layout: chat](docs/screenshots/mobile-chat.png)<br><sub>Light theme, Ink look</sub> |
 
 ### Looks and themes
 
@@ -63,19 +71,19 @@ A **theme** sets the colour palette. A **look** sets surfaces, typography, and
 shape. The two are independent, so any look composes with any theme, and both
 ship with an editor for making your own.
 
-| Look | Treatment |
-| --- | --- |
-| Legacy | Inter sans, chunky radii, neon shadows |
-| Editorial | Warm parchment, full serif, hairline rules |
-| Glass | Translucent frosted surfaces |
-| Ink | Near-black, sharp corners, mono metadata |
-| Aurora | Layered gradient backdrop, glowing accents |
-| Slate-soft | Borderless, soft shadows, large radii |
+| Look | Treatment | Seen above in |
+| --- | --- | --- |
+| Legacy | Inter sans, chunky radii, neon shadows | Feed, appearance settings |
+| Editorial | Warm parchment, full serif, hairline rules | Focused reader, mobile feed |
+| Glass | Translucent frosted surfaces | Mobile filter |
+| Ink | Near-black, sharp corners, mono metadata | Agenda, mobile chat |
+| Aurora | Layered gradient backdrop, glowing accents | Canvas |
+| Slate-soft | Borderless, soft shadows, large radii | To-do board, chat |
 
 Eleven themes ship: Legacy, Dark, Light, Neutral, Rose, Valentine, Ocean, Royal
-Blue, Sunset, Arctic, and Rosewood. A custom theme exports as a single
-shareable string, and a theme can be pinned per archive so a given archive
-always opens in its own colours.
+Blue, Sunset, Arctic, and Rosewood. Nine of them appear in the screenshots
+above. A custom theme exports as a single shareable string, and a theme can be
+pinned per archive so a given archive always opens in its own colours.
 
 ## Getting started
 
@@ -245,7 +253,9 @@ Commands run from the repository root, which delegates into each sub-project.
 The screenshots are produced from the running app. A Playwright script
 ([`client/e2e/screenshots.spec.ts`](client/e2e/screenshots.spec.ts)) starts a
 fresh server, seeds sample content over the REST API, and captures each surface
-into `docs/screenshots/`.
+into `docs/screenshots/`. It also sets a different theme and look before each
+capture; those pairings are named in the captions above, so changing one in the
+script means changing the matching caption here.
 
 A few things to know before making changes:
 

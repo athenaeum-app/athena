@@ -129,48 +129,77 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     }
 
     // ---------- Capture ----------
+    //
+    // Every surface is shot under a different theme + look pairing, so the
+    // README gallery doubles as a tour of the appearance system rather than
+    // eleven pictures of the same palette. The active theme and look are plain
+    // localStorage strings (themes.ts / looks.ts) read once on boot, so
+    // switching means writing both keys and loading the page again.
+    //
+    // Reloading between surfaces also means no modal state carries over, which
+    // is why nothing here presses Escape to unwind: each capture starts from a
+    // clean feed. The README names the pairing under each shot; if you change a
+    // pairing here, change the caption there too.
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/')
 
-    // Feed
-    await expect(page.getByText('On keeping a commonplace book')).toBeVisible()
-    await page.waitForTimeout(500)
-    await page.screenshot({ path: resolve(SHOT_DIR, 'feed.png') })
-
-    // Helper: open a menu module via its icon-only HubButton (matched by its
-    // aria-label/title, since the hub icons carry no visible text), shoot,
-    // then Escape out.
-    const captureModal = async (label: string, file: string, ready?: () => Promise<void>) => {
-        await page.getByRole('button', { name: label, exact: true }).first().click()
-        if (ready) await ready()
-        await page.waitForTimeout(700)
-        await page.screenshot({ path: resolve(SHOT_DIR, file) })
+    const appearance = async (theme: string, look: string) => {
+        await page.evaluate(
+            ([t, l]) => {
+                localStorage.setItem('athena-active-theme', t)
+                localStorage.setItem('athena-active-look', l)
+            },
+            [theme, look],
+        )
+        await page.goto('/')
+        // The feed having rendered is the signal that the reload finished and
+        // the new palette has been applied. .first() because the mobile swiper
+        // renders neighbouring cards too.
+        await expect(page.getByText('On keeping a commonplace book').first()).toBeVisible()
+        await page.waitForTimeout(500)
     }
 
+    // Open a menu module via its icon-only HubButton, matched by its
+    // aria-label/title since the hub icons carry no visible text.
+    const openModule = (label: string) => page.getByRole('button', { name: label, exact: true }).first().click()
+
+    // Feed: the shipped defaults, so the hero shot stays the canonical one.
+    await appearance('legacy', 'legacy')
+    await page.screenshot({ path: resolve(SHOT_DIR, 'feed.png') })
+
     // To-Do board
-    await captureModal('Todos', 'todos.png', async () => {
-        await expect(page.getByRole('heading', { name: 'To-Do Board' })).toBeVisible()
-    })
+    await appearance('ocean', 'slate-soft')
+    await openModule('Todos')
+    await expect(page.getByRole('heading', { name: 'To-Do Board' })).toBeVisible()
+    await page.waitForTimeout(700)
+    await page.screenshot({ path: resolve(SHOT_DIR, 'todos.png') })
 
     // Focused moment reader: open the moment linked to the "Ship…" task.
+    // Editorial is the reading-oriented look, which is the point of this
+    // surface. Paired with Neutral rather than Light because Light renders
+    // blockquotes at very low contrast and this moment contains one.
+    await appearance('neutral', 'editorial')
+    await openModule('Todos')
     await page.getByTitle('Open linked moment').first().click()
     await expect(page.getByRole('heading', { name: 'On keeping a commonplace book' })).toBeVisible()
     await page.waitForTimeout(600)
     await page.screenshot({ path: resolve(SHOT_DIR, 'focused-moment.png') })
-    await page.keyboard.press('Escape') // close the reader; the board stays open
-    await page.waitForTimeout(300)
 
-    // Agenda view (toggle inside the still-open board). The toggle's label is a
-    // bare text node beside an icon, so match on the button's accessible name.
-    await page.getByRole('button', { name: 'Agenda' }).click()
+    // Agenda view (a toggle inside the board). Matched on its title rather than
+    // its accessible name: the docked chat widget previews a seeded message
+    // containing the word "agenda", which makes a name match ambiguous.
+    await appearance('royal blue', 'ink')
+    await openModule('Todos')
+    await expect(page.getByRole('heading', { name: 'To-Do Board' })).toBeVisible()
+    await page.getByTitle('Agenda view').click()
     await page.waitForTimeout(600)
     await page.screenshot({ path: resolve(SHOT_DIR, 'agenda.png') })
-    await page.keyboard.press('Escape')
-    await page.waitForTimeout(300)
 
     // Canvas: open the module, then select the seeded canvas so the board
-    // (not the "select a canvas" placeholder) is what gets captured.
-    await page.getByRole('button', { name: 'Canvas', exact: true }).first().click()
+    // (not the "select a canvas" placeholder) is what gets captured. The
+    // context menu below shares this pairing because it is the same session.
+    await appearance('sunset', 'aurora')
+    await openModule('Canvas')
     await page.getByText('Roadmap sketch', { exact: true }).click()
     await expect(page.getByText('Foundation:')).toBeVisible()
     await page.waitForTimeout(700)
@@ -182,50 +211,46 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     await expect(page.getByText('Add node', { exact: true })).toBeVisible()
     await page.waitForTimeout(300)
     await page.screenshot({ path: resolve(SHOT_DIR, 'canvas-menu.png') })
-    await page.keyboard.press('Escape')
-    await page.keyboard.press('Escape')
-    await page.waitForTimeout(300)
 
-    // Chat
-    await captureModal('Chat', 'chat.png', async () => {
-        await expect(page.getByText('Optimistic mutations are in. The checkmark lag is gone.')).toBeVisible()
-    })
-    // The composer autofocuses, so the first Escape only blurs it; the second
-    // closes the overlay (see Editor.tsx's chat Escape handling).
-    await page.keyboard.press('Escape')
-    await page.keyboard.press('Escape')
-    await page.waitForTimeout(300)
+    // Chat. Deliberately not Glass: the feed's inline composer sits directly
+    // behind this overlay, and frosting it makes the shot look like a render
+    // bug. Glass gets its showcase on the mobile filter sheet instead.
+    await appearance('arctic', 'slate-soft')
+    await openModule('Chat')
+    // .first() because the docked menu chat widget previews the same messages.
+    await expect(page.getByText('Optimistic mutations are in. The checkmark lag is gone.').first()).toBeVisible()
+    await page.waitForTimeout(700)
+    await page.screenshot({ path: resolve(SHOT_DIR, 'chat.png') })
 
     // Settings: land on the Appearance tab, where the Looks/theme system lives.
-    await page.getByRole('button', { name: 'Settings', exact: true }).first().click()
+    await appearance('rosewood', 'legacy')
+    await openModule('Settings')
     await page.getByRole('button', { name: 'Appearance' }).click()
     await page.waitForTimeout(700)
     await page.screenshot({ path: resolve(SHOT_DIR, 'settings.png') })
-    await page.keyboard.press('Escape')
-    await page.waitForTimeout(300)
 
     // --- Mobile app-shell: reuses the same seeded library, just at a phone
-    //     viewport, to show the swiper feed + bottom nav + sheets. ---
+    //     viewport, to show the swiper feed + bottom nav + sheets. Themed
+    //     separately again, to show the palettes are not desktop-only. ---
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto('/')
-    await expect(page.getByText('On keeping a commonplace book')).toBeVisible()
-    await page.waitForTimeout(500)
+
     // The feed as swipeable cards, with the bottom nav (Archives/Filter/New/Chat/More).
+    await appearance('valentine', 'editorial')
     await page.screenshot({ path: resolve(SHOT_DIR, 'mobile-feed.png') })
 
     // Filter sheet: tags, date range, and media/link filters slide up from the
-    // bottom nav instead of a tag bar stacked above the feed.
+    // bottom nav instead of a tag bar stacked above the feed. A sheet over a
+    // plain card feed is the cleanest place to show Glass's frosting.
+    await appearance('dark', 'glass')
     await page.getByRole('button', { name: 'Filter' }).click()
     await expect(page.getByRole('button', { name: '#reading', exact: true })).toBeVisible()
     await page.waitForTimeout(500)
     await page.screenshot({ path: resolve(SHOT_DIR, 'mobile-filter.png') })
-    // Sheets close via their own Close button / backdrop tap, not Escape.
-    await page.getByRole('button', { name: 'Close', exact: true }).click()
-    await page.waitForTimeout(300)
 
     // Chat, opened from the bottom nav.
+    await appearance('light', 'ink')
     await page.getByRole('button', { name: 'Chat' }).click()
-    await expect(page.getByText('Optimistic mutations are in. The checkmark lag is gone.')).toBeVisible()
+    await expect(page.getByText('Optimistic mutations are in. The checkmark lag is gone.').first()).toBeVisible()
     await page.waitForTimeout(600)
     await page.screenshot({ path: resolve(SHOT_DIR, 'mobile-chat.png') })
 })
