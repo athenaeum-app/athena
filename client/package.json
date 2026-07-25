@@ -1,6 +1,6 @@
 {
     "name": "athena-web",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "description": "Athena PWA client",
     "license": "AGPL-3.0-only",
     "private": true,
@@ -12,7 +12,8 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "e2e": "playwright test",
-        "screenshots": "playwright test screenshots.spec.ts"
+        "screenshots": "playwright test screenshots.spec.ts",
+        "demos": "playwright test demos.spec.ts"
     },
     "dependencies": {
         "@exercism/highlightjs-gdscript": "^0.0.1",
