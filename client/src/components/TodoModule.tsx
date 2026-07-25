@@ -938,18 +938,33 @@ const ListColumn: Component<ListColumnProps> = (props) => {
 
             {/* Add item */}
             <Show when={props.canManage}>
-                <div class="border-element-accent border-t p-3">
+                {/* A form, not a bare input: a touch keyboard's go key submits
+                    the enclosing form, and with no form to submit it did
+                    nothing here. preventDefault stops the browser navigating
+                    to the form action, which is what made Enter look like it
+                    was leaving the board. enterkeyhint labels the key. */}
+                <form
+                    class="border-element-accent border-t p-3"
+                    onSubmit={(e) => {
+                        e.preventDefault()
+                        submitDraft()
+                    }}
+                >
                     <input
                         type="text"
                         value={draft()}
+                        enterkeyhint="done"
                         onInput={(e) => setDraft(e.currentTarget.value)}
                         onKeyDown={(e) => {
-                            if (e.key === 'Enter') submitDraft()
+                            if (e.key === 'Enter') {
+                                e.preventDefault()
+                                submitDraft()
+                            }
                         }}
                         placeholder="Add an item…"
                         class="bg-element-matte text-main border-element-accent focus:border-highlight w-full rounded-md border px-2 py-1.5 text-sm focus:outline-none"
                     />
-                </div>
+                </form>
             </Show>
         </div>
     )
@@ -1187,20 +1202,32 @@ const SubtaskAdder: Component<{ onAdd: (text: string) => void }> = (props) => {
         props.onAdd(text)
         setDraft('')
     }
+    // Same reason as the add-item field above: a form so a touch keyboard's go
+    // key has something to submit.
     return (
-        <div class="flex items-center gap-1">
+        <form
+            class="flex items-center gap-1"
+            onSubmit={(e) => {
+                e.preventDefault()
+                submit()
+            }}
+        >
             <span class="material-symbols-outlined text-sub/40 text-sm">subdirectory_arrow_right</span>
             <input
                 type="text"
                 value={draft()}
+                enterkeyhint="done"
                 onInput={(e) => setDraft(e.currentTarget.value)}
                 onKeyDown={(e) => {
-                    if (e.key === 'Enter') submit()
+                    if (e.key === 'Enter') {
+                        e.preventDefault()
+                        submit()
+                    }
                 }}
                 placeholder="Add a subtask…"
                 class="bg-element-matte text-main border-element-accent focus:border-highlight w-full rounded border px-2 py-1 text-xs focus:outline-none"
             />
-        </div>
+        </form>
     )
 }
 
