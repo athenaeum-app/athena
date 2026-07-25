@@ -209,7 +209,7 @@ function openExternally(url) {
 // Navigation within the origin a view is already on stays in the view: login
 // redirects, OAuth bounces and client-side routes are all same-origin. For the
 // shell and overlay (loaded via loadFile) both sides are `file:`, whose origin
-// is the opaque "null" — equal to itself, so their internal navigation is
+// is the opaque "null", equal to itself, so their internal navigation is
 // likewise left alone.
 function isSameOrigin(url, baseUrl) {
     if (!baseUrl) return false
