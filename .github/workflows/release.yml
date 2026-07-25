@@ -117,7 +117,32 @@ jobs:
       # electron-builder.yml declares the GitHub publish provider. Each
       # matrix OS uploads its installers to the release for this tag.
       # Builds are currently unsigned (no code-signing secrets configured).
+      #
+      # This intentionally leaves the release as a draft (electron-builder's
+      # default). If it published straight to live, the first platform to
+      # finish would flip the release out of draft while the other two are
+      # still mid-upload, and their uploads would then hit the same
+      # existingType/publishingType mismatch that skipped v2.0.1's assets.
+      # publish-release below flips it live only once every platform, plus
+      # the server image, is confirmed done.
       - name: Build & publish
         run: npm run build -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-release:
+    name: Publish release
+    needs: [docker, create-release, electron]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Everything (server image + all three desktop builds) succeeded, so
+      # take the release out of draft and mark it the latest release.
+      - name: Publish and mark latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" \
+            --repo athenaeum-app/athena \
+            --draft=false --latest
