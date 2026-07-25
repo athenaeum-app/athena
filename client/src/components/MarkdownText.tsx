@@ -186,6 +186,13 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
         containerRef?.removeEventListener('click', onImageClick)
     })
 
+    // prose-p:my-3: paragraph spacing has to read as a paragraph break. At
+    // my-1 the gap was 4px against a 20px line-height, so a blank line typed in
+    // the composer came out narrower than a quarter of a line and consecutive
+    // paragraphs ran together as one block. 12px separates them clearly while
+    // staying tighter than the typography plugin's airy 1.25em default, which
+    // matters because chat messages render through this same component.
+    //
     // break-words: an unbreakable run of characters (a pasted URL is the
     // common one, and GFM autolinks it into a single <a>) has no wrap
     // opportunity, so it renders at its full width and overflows whatever
@@ -196,7 +203,7 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
     return (
         <div
             ref={containerRef}
-            class={`prose prose-invert max-w-none break-words prose-p:my-1 prose-headings:my-2 prose-pre:my-2 prose-pre:bg-element-matte prose-pre:p-3 prose-pre:border prose-pre:border-element-accent prose-pre:rounded-lg prose-img:rounded-lg prose-img:border prose-img:border-element-accent prose-a:text-highlight-strongest prose-a:underline prose-strong:text-md-strong prose-h1:text-md-heading prose-h2:text-md-heading prose-h3:text-md-heading prose-code:text-sub prose-code:bg-element-accent prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none ${props.class || ''}`}
+            class={`prose prose-invert max-w-none break-words prose-p:my-3 prose-headings:my-2 prose-pre:my-2 prose-pre:bg-element-matte prose-pre:p-3 prose-pre:border prose-pre:border-element-accent prose-pre:rounded-lg prose-img:rounded-lg prose-img:border prose-img:border-element-accent prose-a:text-highlight-strongest prose-a:underline prose-strong:text-md-strong prose-h1:text-md-heading prose-h2:text-md-heading prose-h3:text-md-heading prose-code:text-sub prose-code:bg-element-accent prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none ${props.class || ''}`}
         />
     )
 }
