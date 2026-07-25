@@ -24,7 +24,7 @@
 // dependencies (electron-store v10) are ESM-only and can no longer be
 // require()d from CommonJS.
 
-import { app, BrowserWindow, WebContentsView, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, WebContentsView, ipcMain, Menu, shell } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Store from 'electron-store'
@@ -155,6 +155,7 @@ function createWindow() {
     // Hide the menu bar; the shell provides its own UI.
     mainWindow.setMenuBarVisibility(false)
     mainWindow.loadFile(path.join(__dirname, 'shell.html'))
+    routeExternalLinks(mainWindow.webContents, () => mainWindow.webContents.getURL())
 
     // Keep the embedded content view (and the modal overlay, when shown) sized
     // to the window as it resizes.
@@ -177,6 +178,62 @@ function createWindow() {
 // the health pinger get an absolute URL.
 function normalizeUrl(url) {
     return /^https?:\/\//i.test(url) ? url : 'http://' + url
+}
+
+// --- external links --------------------------------------------------------
+//
+// No view here should ever navigate to, or spawn a window for, a site outside
+// the library it is showing. Without this, Electron's defaults apply: a
+// `target="_blank"` link in a moment opens a bare, chrome-less BrowserWindow
+// that reads as a second copy of Athena, and a plain markdown link navigates
+// the embedded PWA away from the library entirely. Both belong in the user's
+// real browser instead.
+
+// Only web-ish schemes are handed to the OS. Moment content is user data and
+// can carry any URL, so `file:`, `javascript:` and friends must never reach
+// shell.openExternal.
+const EXTERNAL_SCHEMES = new Set(['http:', 'https:', 'mailto:'])
+
+function openExternally(url) {
+    let parsed
+    try {
+        parsed = new URL(url)
+    } catch {
+        return false
+    }
+    if (!EXTERNAL_SCHEMES.has(parsed.protocol)) return false
+    shell.openExternal(url)
+    return true
+}
+
+// Navigation within the origin a view is already on stays in the view: login
+// redirects, OAuth bounces and client-side routes are all same-origin. For the
+// shell and overlay (loaded via loadFile) both sides are `file:`, whose origin
+// is the opaque "null" — equal to itself, so their internal navigation is
+// likewise left alone.
+function isSameOrigin(url, baseUrl) {
+    if (!baseUrl) return false
+    try {
+        return new URL(url).origin === new URL(baseUrl).origin
+    } catch {
+        return false
+    }
+}
+
+// routeExternalLinks sends window.open/target=_blank and every off-origin
+// navigation to the default browser. `baseUrl()` is a thunk because the shell's
+// own URL is only known after it loads.
+function routeExternalLinks(webContents, baseUrl) {
+    webContents.setWindowOpenHandler(({ url }) => {
+        openExternally(url)
+        return { action: 'deny' }
+    })
+
+    webContents.on('will-navigate', (event, url) => {
+        if (isSameOrigin(url, baseUrl())) return
+        event.preventDefault()
+        openExternally(url)
+    })
 }
 
 // updateContentBounds positions the embedded PWA view to fill the window to
@@ -223,6 +280,7 @@ function ensureOverlay() {
     // Transparent so the dim backdrop darkens the library showing through.
     view.setBackgroundColor('#00000000')
     view.webContents.loadFile(path.join(__dirname, 'modal-overlay.html'))
+    routeExternalLinks(view.webContents, () => view.webContents.getURL())
     overlayView = view
     return view
 }
@@ -294,6 +352,9 @@ function setActiveServer(server) {
 
     mainWindow.contentView.addChildView(view)
     updateContentBounds()
+    // Pinned to the profile's URL rather than the view's live URL: the origin a
+    // library view is allowed to stay on is fixed for the life of the view.
+    routeExternalLinks(view.webContents, () => normalizeUrl(server.url))
     view.webContents.loadURL(normalizeUrl(server.url))
 
     // Open devtools for the dev server only when explicitly asked (ATHENA_DEVTOOLS).
