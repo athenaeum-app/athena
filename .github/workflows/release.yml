@@ -107,6 +107,13 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # electron-builder reads its own version from this package.json, not
+      # from the git tag, so it has to be synced to the tag here or it will
+      # keep targeting whatever version it was last bumped to and silently
+      # skip publishing once that release is no longer a draft.
+      - name: Sync package version to tag
+        run: npm version --no-git-tag-version "${GITHUB_REF_NAME#v}"
+
       # electron-builder.yml declares the GitHub publish provider. Each
       # matrix OS uploads its installers to the release for this tag.
       # Builds are currently unsigned (no code-signing secrets configured).
