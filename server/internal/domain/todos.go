@@ -256,6 +256,13 @@ type TodoItemPatch struct {
 
 // UpdateTodoItem applies a partial update. Setting done true stamps
 // completed_at; done false clears it.
+//
+// Recurrence: when this update *transitions* a recurring item to done, the
+// item stays done and its due date moves to the next occurrence. It is the
+// same task all the way through, one row, one history, and it unchecks
+// itself once that occurrence arrives (see sweepRecurringItems). Completing
+// one used to insert a fresh undone copy instead, which read as the task
+// respawning the instant you ticked it off.
 func UpdateTodoItem(id string, p TodoItemPatch) (*models.TodoItem, error) {
 	// Snapshot the pre-update state so we can detect the not-done → done edge
 	// (and read the recurrence/due date we need to schedule the next one).
