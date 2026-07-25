@@ -28,7 +28,15 @@ linux:
 # electron-updater reads the latest.yml files published beside the installers
 # here, so this block is also the update feed. It must point at a public repo
 # and at a release that is published rather than left as a draft.
+#
+# releaseType is pinned to draft so every platform in the release matrix
+# uploads to the same pre-created draft without racing to publish it (the
+# default publishes as soon as one platform finishes its own uploads, which
+# leaves the other platforms unable to attach to it afterward). The release
+# workflow's publish-release job takes it out of draft once all platforms
+# and the server image have succeeded.
 publish:
     provider: github
     owner: athenaeum-app
     repo: athena
+    releaseType: draft

@@ -112,6 +112,7 @@ jobs:
       # keep targeting whatever version it was last bumped to and silently
       # skip publishing once that release is no longer a draft.
       - name: Sync package version to tag
+        shell: bash
         run: npm version --no-git-tag-version "${GITHUB_REF_NAME#v}"
 
       # electron-builder.yml declares the GitHub publish provider. Each
