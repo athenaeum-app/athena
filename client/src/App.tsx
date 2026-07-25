@@ -769,10 +769,6 @@ export const App: Component = () => {
                         setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
                     }
                     onClearTags={() => setSelectedTagIds([])}
-                    onCreateTag={async (name, color) => {
-                        await api.createTag(name, color)
-                        refetchTags()
-                    }}
                     onDeleteTag={handleDeleteTag}
                     canManageTags={canManageTags()}
                     filters={feedFilters()}
@@ -849,10 +845,6 @@ export const App: Component = () => {
                         )
                     }}
                     onClear={() => setSelectedTagIds([])}
-                    onCreateTag={async (name, color) => {
-                        await api.createTag(name, color)
-                        refetchTags()
-                    }}
                     onDeleteTag={handleDeleteTag}
                     canManage={canManageTags()}
                 />

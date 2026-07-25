@@ -127,3 +127,42 @@ test.describe('tag facets', () => {
         await expect.poll(() => offered(page)).toEqual(['cooking'])
     })
 })
+
+// The composer is the only place a tag can be made, so this covers the whole
+// remaining route in. It runs last on purpose: it adds a tag and a moment, and
+// the assertions above compare the offered set exactly.
+test.describe('creating tags', () => {
+    test.use({ viewport: { width: 1440, height: 900 } })
+
+    test('the filter bar offers no way to make one', async ({ page }) => {
+        await signIn(page)
+        await seed(page)
+        await page.goto('/')
+
+        const bar = page.getByTestId('tag-bar')
+        await expect(bar).toBeVisible()
+        await expect(bar.getByRole('button', { name: 'New' })).toHaveCount(0)
+        await expect(page.getByPlaceholder('Tag name')).toHaveCount(0)
+    })
+
+    test('a tag made in the composer is attached to the moment and then filterable', async ({ page }) => {
+        await signIn(page)
+        await seed(page)
+        await page.goto('/')
+        await expect.poll(() => offered(page)).not.toContain('fieldnotes')
+
+        await page.getByPlaceholder('Untitled').fill('A moment with a brand new tag')
+        await page.getByPlaceholder(/Write your thoughts/).fill('body text')
+        // A trailing comma commits the typed text, creating the tag.
+        await page.getByPlaceholder(/Add tags/).fill('fieldnotes')
+        await page.getByPlaceholder(/Add tags/).press(',')
+        await page.getByRole('button', { name: 'Post', exact: true }).click()
+
+        // Created *and* carried by the moment: the facet endpoint only returns
+        // tags with at least one moment, so appearing here proves the link.
+        await expect.poll(() => offered(page), { timeout: 15_000 }).toContain('fieldnotes')
+
+        await chip(page, 'fieldnotes').click()
+        await expect(page.getByText('A moment with a brand new tag').first()).toBeVisible()
+    })
+})

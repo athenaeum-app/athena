@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library'
+import { render, screen, fireEvent } from '@solidjs/testing-library'
 import userEvent from '@testing-library/user-event'
 import { TagBar } from './TagBar'
 import type { Tag } from '../api'
@@ -12,20 +12,18 @@ const tags: Tag[] = [
 function setup(overrides: Partial<Parameters<typeof TagBar>[0]> = {}) {
     const onToggleTag = vi.fn()
     const onClear = vi.fn()
-    const onCreateTag = vi.fn().mockResolvedValue(undefined)
     const onDeleteTag = vi.fn()
     const props = {
         tags,
         selectedTagIds: [] as string[],
         onToggleTag,
         onClear,
-        onCreateTag,
         onDeleteTag,
         canManage: true,
         ...overrides,
     }
     render(() => <TagBar {...props} />)
-    return { onToggleTag, onClear, onCreateTag, onDeleteTag }
+    return { onToggleTag, onClear, onDeleteTag }
 }
 
 describe('TagBar', () => {
@@ -53,26 +51,34 @@ describe('TagBar', () => {
         expect(screen.queryByText('Clear')).not.toBeInTheDocument()
     })
 
-    it('validates that a new tag needs a name', async () => {
-        const { onCreateTag } = setup()
-        await userEvent.click(screen.getByText('New'))
-        // Submit with an empty name.
-        await userEvent.click(screen.getByText('Create'))
-        expect(await screen.findByText('Name is required')).toBeInTheDocument()
-        expect(onCreateTag).not.toHaveBeenCalled()
+    // Tags are created in the moment composer, attached to the moment being
+    // written, so the filter bar offers no way to make one. A tag created here
+    // belonged to nothing, and once the bar started hiding tags with no moments
+    // it vanished the instant it was created.
+    it('offers no way to create a tag', () => {
+        setup()
+        expect(screen.queryByText('New')).not.toBeInTheDocument()
+        expect(screen.queryByPlaceholderText('Tag name')).not.toBeInTheDocument()
     })
 
-    it('creates a tag with the entered name and selected color', async () => {
-        const { onCreateTag } = setup()
-        await userEvent.click(screen.getByText('New'))
+    // Filtering is AND, so a tag outside the facet set would empty the feed.
+    it('keeps a selected tag visible even when it falls outside the facet set', () => {
+        setup({ availableTagIds: new Set(['t1']), selectedTagIds: ['t2'] })
+        expect(screen.getByText('#work')).toBeInTheDocument()
+        expect(screen.getByText('#idea')).toBeInTheDocument()
+    })
 
-        const input = screen.getByPlaceholderText('Tag name')
-        await userEvent.type(input, '  urgent  ')
-        await userEvent.click(screen.getByText('Create'))
+    it('hides an unavailable tag that is not selected', () => {
+        setup({ availableTagIds: new Set(['t1']) })
+        expect(screen.getByText('#work')).toBeInTheDocument()
+        expect(screen.queryByText('#idea')).not.toBeInTheDocument()
+    })
 
-        await waitFor(() =>
-            // name is trimmed; color defaults to the first preset (#ef4444)
-            expect(onCreateTag).toHaveBeenCalledWith('urgent', '#ef4444'),
-        )
+    // null means the facet response has not arrived; blanking the bar on every
+    // cold load would be worse than briefly offering a dead end.
+    it('shows every tag until the facet answer arrives', () => {
+        setup({ availableTagIds: null })
+        expect(screen.getByText('#work')).toBeInTheDocument()
+        expect(screen.getByText('#idea')).toBeInTheDocument()
     })
 })
