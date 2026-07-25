@@ -4,6 +4,7 @@ import { api, type Archive, type Tag, type Moment } from '../api'
 import { contrastingTextColor, randomTagColor } from '../tagColors'
 import { keybinds, matchEvent } from '../keybinds'
 import { backdropDismiss } from '../dismiss'
+import { useIsDesktop } from '../media'
 
 // Unified editor. One component drives moment create, moment edit and
 // chat compose, replacing the old SmartEditor (inline create) and MomentEditor
@@ -103,6 +104,9 @@ const SLASH_ITEMS: { kind: SlashKind; icon: string; label: string; hint: string 
 export const Editor: Component<EditorProps> = (props) => {
     const showFields = () => props.chrome !== 'chat'
     const isModal = () => props.chrome === 'modal'
+    // Drives the chat composer's Enter behaviour, which differs on touch (see
+    // the keydown handler): same breakpoint the app shell switches on.
+    const isDesktop = useIsDesktop()
 
     const [title, setTitle] = createSignal(props.moment?.title || '')
     const [content, setContent] = createSignal(props.moment?.content || '')
@@ -499,8 +503,11 @@ export const Editor: Component<EditorProps> = (props) => {
             }
         }
 
-        // Chat: Enter sends, Shift+Enter is a newline.
-        if (props.chrome === 'chat' && e.key === 'Enter' && !e.shiftKey) {
+        // Chat: Enter sends, Shift+Enter is a newline. A touch keyboard has no
+        // Shift, which left no way to write a second line at all, so below the
+        // desktop breakpoint Enter is a newline and sending is the Send
+        // button's job.
+        if (props.chrome === 'chat' && isDesktop() && e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             void submit()
             return
@@ -909,7 +916,16 @@ export const Editor: Component<EditorProps> = (props) => {
     if (props.chrome === 'chat') {
         return (
             <div class="flex flex-col gap-2">
-                {ContentArea({ rows: 2, placeholder: props.placeholder || 'Message… (Enter to send, Shift+Enter for a new line, / to embed)', autofocus: true })}
+                {ContentArea({
+                    rows: 2,
+                    // No Shift key on touch, so don't advertise Shift+Enter there.
+                    placeholder:
+                        props.placeholder ||
+                        (isDesktop()
+                            ? 'Message… (Enter to send, Shift+Enter for a new line, / to embed)'
+                            : 'Message… (Send button posts, / to embed)'),
+                    autofocus: true,
+                })}
                 <Show when={error()}>
                     <p class="text-danger text-xs">{error()}</p>
                 </Show>
