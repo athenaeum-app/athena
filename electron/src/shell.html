@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Athena</title>
+    <!-- Lora matches the PWA's serif brand/heading face (see client index.css).
+         Loaded best-effort: if the machine is offline (the shell can appear
+         before any server connection), the serif fallback keeps the same tone.
+         The rest of the UI deliberately avoids CDN icon fonts and uses Unicode
+         glyphs so it never renders ligature names when offline. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&display=swap" rel="stylesheet" />
+    <style>
+        /* Dark-theme values mirrored from the PWA (client/src/index.css
+           [data-theme='dark']) so the chrome reads as the same product as the
+           Setup/Login pages. --bg matches Electron's titleBarOverlay.color.
+           These are the DEFAULTS: while a server is open the base slots below
+           (--bg/--matte/--accent/--main/--sub/--plain/--highlight) are
+           overridden inline on :root with the active library's theme (see the
+           onServerTheme handler), so the sidebar re-themes to match it. */
+        :root {
+            --bg: #0f172a;
+            --matte: #020617;
+            --accent: #1e293b;
+            --main: #cbd5e1;
+            --sub: #64748b;
+            --plain: #ffffff;
+            --highlight: #06b6d4;
+            /* Derived surfaces, so they follow whatever the base slots become:
+               --raised (row hover) sits between bg and the active accent;
+               --input (rename field) is the deepest surface. Deriving them
+               means a themed --bg/--accent re-tints these for free. */
+            --raised: color-mix(in srgb, var(--bg), var(--accent) 45%);
+            --input: var(--matte);
+            /* Semantic status colours are intentionally theme-independent so a
+               health dot means the same thing on every library. */
+            --danger: #ef4444;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            /* Must match RAIL_EXPANDED in main.js. The sidebar's other state is
+               fully hidden (see #sidebar.hidden below), not a narrower width.
+               The PWA's own left-rail placement now covers the compact-icon
+               switcher role this used to have at 56px. */
+            --rail-w: 240px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--main);
+            height: 100vh;
+            overflow: hidden;
+        }
+        .serif { font-family: 'Lora', ui-serif, Georgia, 'Times New Roman', serif; }
+
+        /* Page-level bookcase texture, ported from the PWA Setup page. Only
+           visible in the welcome (zero-server) state, where the hero fills the
+           window; behind the sidebar it is hidden by the content view anyway. */
+        .watermark {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: calc(100% + 180px);
+            height: calc(100% + 174px);
+            background-repeat: repeat;
+            background-size: 180px 174px;
+            opacity: 0.09;
+            pointer-events: none;
+            z-index: 0;
+            animation: bg-drift 200s linear infinite;
+            will-change: transform;
+        }
+        .watermark.paused { animation: none; }
+        @keyframes bg-drift {
+            from { transform: translate3d(0, 0, 0); }
+            to { transform: translate3d(-180px, -174px, 0); }
+        }
+
+        /* Root layout: fixed-width sidebar + flexible stage. The main process
+           overlays the active server's WebContentsView on top of the stage
+           (right of the sidebar), so stage content only shows in the welcome
+           state. */
+        #app { display: flex; height: 100vh; position: relative; z-index: 1; }
+
+        /* Frameless-window drag handle at the top of the sidebar. Solid --bg so
+           it reads as one bar with the OS window-control overlay. */
+        .topbar {
+            height: 36px;
+            flex-shrink: 0;
+            -webkit-app-region: drag;
+        }
+        .topbar button { -webkit-app-region: no-drag; }
+
+        /* --- Sidebar --- */
+        #sidebar {
+            width: var(--rail-w);
+            flex-shrink: 0;
+            height: 100vh;
+            background: var(--bg);
+            border-right: 1px solid var(--accent);
+            display: flex;
+            flex-direction: column;
+            /* No width transition: the native content view's x-offset is snapped
+               instantly by the main process, so animating the sidebar width here
+               would desync the two and tear/stutter. Both snap in one frame. */
+        }
+        /* "collapsed" now means fully hidden, not the old narrow icon-rail.
+           The PWA's own left-rail placement covers that role. Same
+           effect as .hidden below; kept as a separate selector because the
+           JS variable/localStorage key/IPC channel are still named
+           "collapsed" (unchanged, to avoid churning that surface). */
+        #sidebar.collapsed { display: none; }
+        #sidebar.hidden { display: none; }
+
+        .sidebar-head {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.25rem 0.85rem 0.75rem;
+            -webkit-app-region: drag;
+        }
+        .sidebar-head img { height: 26px; width: 26px; -webkit-app-region: no-drag; }
+        .sidebar-head h1 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: var(--plain);
+            -webkit-app-region: no-drag;
+        }
+        #sidebar.collapsed .sidebar-head h1 { display: none; }
+
+        .rail-label {
+            padding: 0 0.95rem 0.4rem;
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--sub);
+        }
+        #sidebar.collapsed .rail-label { display: none; }
+
+        .server-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+            padding: 0 0.5rem;
+        }
+
+        /* --- Library rows: books on a shelf ---
+           Each library is a book standing on the shelf. Its visible spine edge
+           (a coloured vertical bar, deterministic per library so the shelf reads
+           as a run of different books) sits flush at the left; the title is set
+           in Lora, the brand serif, like lettering on a spine. At rest the row
+           is just spine + title + a small status light. The address and the
+           edit controls stay out of the way until you hover, so the shelf reads
+           calm rather than cluttered. The active book eases out (raised fill,
+           taller/brighter spine). */
+        .server-item {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.42rem 0.55rem 0.42rem 0;
+            cursor: pointer;
+            transition: background 0.12s;
+        }
+        .server-item:hover { background: var(--raised); }
+        .server-item.active { background: var(--accent); }
+
+        /* Two book spines standing together, a taller and a shorter volume,
+           so each library reads as a little pair of books rather than one bar.
+           Colours are per-library (see spineColors). */
+        .server-item .spine {
+            flex-shrink: 0;
+            display: flex;
+            align-items: flex-end;   /* books stand on the shelf line */
+            gap: 2px;
+            height: 30px;
+            margin-left: 0.5rem;
+            opacity: 0.72;
+            transition: opacity 0.12s;
+        }
+        .server-item .spine::before,
+        .server-item .spine::after {
+            content: '';
+            width: 3px;
+            border-radius: 1px 1px 0 0;   /* rounded tops, flat on the shelf */
+            transition: height 0.12s;
+        }
+        .server-item .spine::before { height: 24px; background: var(--spine, var(--sub)); }
+        .server-item .spine::after  { height: 17px; background: var(--spine2, var(--spine, var(--sub))); }
+        .server-item:hover .spine { opacity: 1; }
+        .server-item.active .spine { opacity: 1; }
+        .server-item.active .spine::before { height: 28px; }
+        .server-item.active .spine::after  { height: 20px; }
+
+        .server-item .title {
+            flex: 1;
+            min-width: 0;
+            font-family: 'Lora', ui-serif, Georgia, 'Times New Roman', serif;
+            font-size: 0.94rem;
+            font-weight: 500;
+            color: var(--main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .server-item.active .title { color: var(--plain); }
+
+        /* Small status light; quiet by default, coloured once a health ping
+           lands. Hidden on hover to make room for the row actions. */
+        .server-item .status {
+            flex-shrink: 0;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--sub);
+            opacity: 0.6;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .server-item .status.online { background: var(--success); box-shadow: 0 0 6px var(--success); opacity: 1; }
+        .server-item .status.offline { background: var(--danger); box-shadow: 0 0 5px rgba(239,68,68,0.5); opacity: 1; }
+        .server-item:hover .status { display: none; }
+
+        .server-item .rename-input {
+            flex: 1;
+            min-width: 0;
+            background: var(--input);
+            border: 1px solid var(--highlight);
+            border-radius: 3px;
+            color: var(--main);
+            font-family: 'Lora', ui-serif, Georgia, serif;
+            font-size: 0.9rem;
+            padding: 0.1rem 0.35rem;
+            outline: none;
+        }
+
+        .server-item .actions {
+            display: none;
+            align-items: center;
+            gap: 0.05rem;
+        }
+        .server-item:hover .actions { display: flex; }
+        .server-item .actions button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: none;
+            color: var(--sub);
+            cursor: pointer;
+            padding: 0.2rem;
+            border-radius: 3px;
+            line-height: 0;
+            opacity: 0.75;
+            transition: opacity 0.12s, color 0.12s;
+        }
+        .server-item .actions button:hover { opacity: 1; }
+        .server-item .actions button svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.6;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .server-item .actions .edit:hover,
+        .server-item .actions .reorder:hover { color: var(--highlight); }
+        .server-item .actions .remove:hover { color: var(--danger); }
+        .server-item .actions .reorder:disabled { opacity: 0.25; cursor: default; }
+
+        /* Collapsed rail: the book reduces to its coloured edge + initial. */
+        .server-item .avatar { display: none; }
+        #sidebar.collapsed .server-item { justify-content: center; padding: 0.4rem 0; }
+        #sidebar.collapsed .server-item .spine,
+        #sidebar.collapsed .server-item .title,
+        #sidebar.collapsed .server-item .status,
+        #sidebar.collapsed .server-item .actions { display: none; }
+        #sidebar.collapsed .server-item .avatar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border-radius: 4px;
+            background: var(--raised);
+            border-left: 3px solid var(--spine, var(--sub));
+            color: var(--main);
+            font-family: 'Lora', ui-serif, Georgia, serif;
+            font-weight: 600;
+            font-size: 0.82rem;
+        }
+        #sidebar.collapsed .server-item.active .avatar { background: var(--accent); color: var(--plain); }
+
+        .sidebar-foot { padding: 0.5rem; border-top: 1px solid var(--accent); }
+        .add-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            background: transparent;
+            border: 1px dashed var(--accent);
+            border-radius: 4px;
+            color: var(--sub);
+            padding: 0.55rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .add-btn:hover { border-color: var(--highlight); color: var(--main); }
+        #sidebar.collapsed .add-btn span.label { display: none; }
+        .collapse-btn {
+            width: 100%;
+            margin-top: 0.4rem;
+            background: transparent;
+            border: none;
+            color: var(--sub);
+            cursor: pointer;
+            padding: 0.35rem;
+            font-size: 0.9rem;
+        }
+        .collapse-btn:hover { color: var(--main); }
+
+        /* --- Stage (welcome hero lives here; covered by content view when a
+               server is open) --- */
+        #stage {
+            flex: 1;
+            height: 100vh;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        .hero {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+        .hero .brand {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+        .hero .brand img { height: 64px; width: 64px; }
+        .hero h1 {
+            font-size: 2.75rem;
+            font-weight: 600;
+            color: var(--plain);
+            letter-spacing: -0.01em;
+        }
+        .hero p {
+            color: var(--sub);
+            font-size: 1rem;
+            max-width: 30rem;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+        .hero .cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--highlight);
+            color: #04222b;
+            border: none;
+            border-radius: 3px;
+            padding: 0.8rem 1.6rem;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: filter 0.15s, transform 0.1s;
+        }
+        .hero .cta:hover { filter: brightness(1.1); transform: translateY(-1px); }
+        .hero .cta .plus { font-size: 1.2rem; line-height: 1; }
+
+        .motion-toggle {
+            position: fixed;
+            top: 48px;
+            right: 16px;
+            z-index: 10;
+            height: 34px;
+            width: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(2, 6, 23, 0.7);
+            border: 1px solid var(--accent);
+            color: var(--sub);
+            font-size: 0.9rem;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+        }
+        .motion-toggle:hover { color: var(--main); }
+
+        /* The add-/remove-library modals live in modal-overlay.html (a separate
+           top-stacked view), so their styles are defined there, not here. */
+    </style>
+</head>
+<body>
+    <div class="watermark" id="watermark"></div>
+
+    <div id="app">
+        <!-- Persistent server sidebar (hidden in the zero-server welcome state) -->
+        <aside id="sidebar" class="hidden">
+            <div class="topbar"></div>
+            <div class="sidebar-head">
+                <img src="../build/icon.png" alt="" onerror="this.style.display='none'" />
+                <h1 class="serif">Athena</h1>
+            </div>
+            <div class="rail-label">Libraries</div>
+            <div class="server-list" id="server-list"></div>
+            <div class="sidebar-foot">
+                <button class="add-btn" id="open-add">
+                    <span class="plus">+</span> <span class="label">Add library</span>
+                </button>
+                <button class="collapse-btn" id="collapse-toggle" title="Hide sidebar">Hide ×</button>
+            </div>
+        </aside>
+
+        <!-- Stage: shows the welcome hero when there are no servers; otherwise
+             it is covered by the active server's embedded content view. -->
+        <main id="stage">
+            <div class="topbar"></div>
+            <div class="hero" id="hero">
+                <div class="brand">
+                    <img src="../build/icon.png" alt="" onerror="this.style.display='none'" />
+                    <h1 class="serif">Welcome to Athena</h1>
+                </div>
+                <p>
+                    Athena keeps your journals and archives in libraries you control. Add your
+                    first library to sign in and start writing. You can connect as many as you like.
+                </p>
+                <button class="cta" id="hero-add">
+                    <span class="plus">+</span> Add your first library
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <button class="motion-toggle" id="motion-toggle" title="Pause background motion" aria-label="Pause background motion">⏸</button>
+
+    <!-- The add-/remove-library modals do NOT live here: a child WebContentsView
+         (the embedded library) always composites above this page's DOM, so a
+         modal here would be hidden behind an open library. They render in a
+         separate transparent overlay view (modal-overlay.html) that the main
+         process stacks on top; this page just asks main to open them. -->
+
+    <script type="module">
+        const { athena } = window
+
+        // --- Bookcase watermark (ported from the PWA Setup page) ------------
+        // Seamless deterministic tile: a bookcase carcass (uprights + shelf
+        // boards) whose compartments are packed with runs of book spines. No
+        // Math.random, so it renders identically every load.
+        function buildBookcaseTile() {
+            const TILE_W = 180, TILE_H = 174, BAYS = 2, ROWS = 3
+            const BAY_W = TILE_W / BAYS, ROW_H = TILE_H / ROWS, FRAME = 3
+            const INK = '#8b95a5'
+            const WIDTHS = [12, 9, 15, 10, 13, 8, 14, 11]
+            const HEIGHTS = [46, 34, 50, 30, 42, 38, 48, 32, 44, 36]
+            const GAPS = [3, 4, 2, 4, 3, 5, 3]
+            const ALPHAS = [0.55, 0.75, 0.9, 0.65, 1, 0.8]
+            const spine = (x, y, w, h, a, lean = 0) =>
+                `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${INK}" fill-opacity="${a}"` +
+                (lean ? ` transform="rotate(${lean} ${x} ${y + h})"` : '') + '/>'
+            let g = 0
+            const compartment = (bx, row, idx) => {
+                const left = bx * BAY_W + FRAME + 2
+                const baseline = (row + 1) * ROW_H - FRAME
+                const leanAt = 1 + (idx % 3)
+                const flat = idx % 3 === 2
+                const right = (bx + 1) * BAY_W - 2 - (flat ? 20 : 0)
+                const parts = []
+                let x = left, n = 0
+                while (x + WIDTHS[g % WIDTHS.length] <= right) {
+                    const w = WIDTHS[g % WIDTHS.length]
+                    const h = HEIGHTS[g % HEIGHTS.length]
+                    const a = ALPHAS[g % ALPHAS.length]
+                    parts.push(spine(x, baseline - h, w, h, a, n === leanAt ? 7 : 0))
+                    x += w + GAPS[g % GAPS.length]
+                    g++; n++
+                }
+                if (flat) {
+                    const sx = x + 2
+                    const sw = (bx + 1) * BAY_W - 3 - sx
+                    if (sw > 8) {
+                        for (let s = 0; s < 3; s++)
+                            parts.push(spine(sx, baseline - 5 - s * 5, sw, 4, ALPHAS[(g + s) % ALPHAS.length]))
+                        g++
+                    }
+                }
+                return parts.join('')
+            }
+            const frame = []
+            for (let b = 0; b < BAYS; b++) frame.push(spine(b * BAY_W, 0, FRAME, TILE_H, 1))
+            for (let r = 0; r < ROWS; r++) frame.push(spine(0, (r + 1) * ROW_H - FRAME, TILE_W, FRAME, 1))
+            const compartments = []
+            let idx = 0
+            for (let b = 0; b < BAYS; b++) for (let r = 0; r < ROWS; r++) compartments.push(compartment(b, r, idx++))
+            return `<svg xmlns="http://www.w3.org/2000/svg" width="${TILE_W}" height="${TILE_H}">${frame.join('')}${compartments.join('')}</svg>`
+        }
+
+        const watermarkEl = document.getElementById('watermark')
+        watermarkEl.style.backgroundImage =
+            `url("data:image/svg+xml,${encodeURIComponent(buildBookcaseTile())}")`
+
+        const motionBtn = document.getElementById('motion-toggle')
+        motionBtn.addEventListener('click', () => {
+            const paused = watermarkEl.classList.toggle('paused')
+            motionBtn.textContent = paused ? '▶' : '⏸'
+            const label = paused ? 'Resume background motion' : 'Pause background motion'
+            motionBtn.title = label
+            motionBtn.setAttribute('aria-label', label)
+        })
+
+        // --- Shell state ----------------------------------------------------
+        const sidebarEl = document.getElementById('sidebar')
+        const heroEl = document.getElementById('hero')
+        const listEl = document.getElementById('server-list')
+
+        let servers = []
+        let activeId = null
+        const statuses = {} // id -> 'online' | 'offline'
+        let editingId = null // id currently being inline-renamed
+
+        // The PWA now renders its own Libraries switcher inline (see
+        // prefs.librariesPlacement), so this native sidebar is no longer
+        // permanent chrome. It defaults to hidden and only opens on demand
+        // (Ctrl/Cmd+Shift+S, or the PWA's "manage libraries" action) for
+        // server management (add/rename/remove/reorder). Default true
+        // (hidden) for anyone who hasn't explicitly reopened it before.
+        let collapsed = localStorage.getItem('athena-rail-collapsed') !== '0'
+
+        function applyCollapsed() {
+            sidebarEl.classList.toggle('collapsed', collapsed)
+            athena.setRailCollapsed(collapsed)
+        }
+
+        // --- Chrome theming -------------------------------------------------
+        // The active library's PWA reports its resolved theme palette (main ->
+        // onServerTheme). We override the base palette slots inline on :root so
+        // the whole sidebar re-tints; the derived --raised/--input surfaces
+        // follow via color-mix. A null palette (welcome state) clears the
+        // overrides, dropping back to the dark defaults in the stylesheet.
+        const themeRoot = document.documentElement
+        const THEME_SLOTS = ['bg', 'matte', 'accent', 'main', 'sub', 'plain', 'highlight']
+        function applyServerTheme(palette) {
+            for (const slot of THEME_SLOTS) {
+                if (palette && palette[slot]) themeRoot.style.setProperty('--' + slot, palette[slot])
+                else themeRoot.style.removeProperty('--' + slot)
+            }
+        }
+
+        async function refresh() {
+            servers = await athena.listServers()
+            activeId = await athena.getActiveServer()
+            render()
+        }
+
+        // A small palette of muted book-spine colours (desaturated so they sit
+        // quietly on the dark rail). Each library gets one deterministically
+        // from its id, so the shelf reads as a run of distinct books and a
+        // library keeps the same colour across sessions.
+        const SPINES = ['#9c6b6b', '#6b83a0', '#7f9068', '#a08a63', '#836b9c', '#5f9089', '#a07a5f']
+        function spineColors(id) {
+            let h = 0
+            for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+            const a = h % SPINES.length
+            // a distinct second colour for the shorter book
+            const b = (a + 1 + ((h >>> 3) % (SPINES.length - 1))) % SPINES.length
+            return [SPINES[a], SPINES[b]]
+        }
+
+        // Inline monochrome line icons (currentColor, no icon font) for the row
+        // actions. Kept as SVG rather than emoji so they render crisply and
+        // match the precise look of the rail.
+        const ICONS = {
+            up: '<svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>',
+            down: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
+            edit: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>',
+            remove: '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>',
+        }
+
+        function render() {
+            const hasServers = servers.length > 0
+            // Welcome state: hide the sidebar, show the full-window hero.
+            sidebarEl.classList.toggle('hidden', !hasServers)
+            heroEl.style.display = hasServers ? 'none' : 'flex'
+            watermarkEl.style.display = hasServers ? 'none' : 'block'
+            motionBtn.style.display = hasServers ? 'none' : 'flex'
+            if (!hasServers) return
+
+            listEl.innerHTML = ''
+            servers.forEach((s, idx) => {
+                const item = document.createElement('div')
+                item.className = 'server-item' + (s.id === activeId ? ' active' : '')
+                const [spine1, spine2] = spineColors(s.id)
+                item.style.setProperty('--spine', spine1)
+                item.style.setProperty('--spine2', spine2)
+
+                const statusClass = statuses[s.id] || ''
+                const letter = (s.name || '?').trim().charAt(0).toUpperCase()
+                item.innerHTML = `
+                    <span class="avatar">${letter}</span>
+                    <span class="spine"></span>
+                    <span class="title"></span>
+                    <span class="status ${statusClass}"></span>
+                    <div class="actions">
+                        <button class="reorder up" title="Move up">${ICONS.up}</button>
+                        <button class="reorder down" title="Move down">${ICONS.down}</button>
+                        <button class="edit" title="Rename">${ICONS.edit}</button>
+                        <button class="remove" title="Remove">${ICONS.remove}</button>
+                    </div>
+                `
+                item.querySelector('.title').textContent = s.name
+                // Address lives in the tooltip now, not in the row.
+                item.title = `${s.name} (${s.url})`
+
+                // Click row (not an action, not while renaming) -> open server.
+                item.addEventListener('click', (e) => {
+                    if (e.target.closest('.actions')) return
+                    if (editingId === s.id) return
+                    if (s.id !== activeId) athena.openServer(s.id)
+                })
+
+                const up = item.querySelector('.up')
+                const down = item.querySelector('.down')
+                up.disabled = idx === 0
+                down.disabled = idx === servers.length - 1
+                up.addEventListener('click', (e) => { e.stopPropagation(); move(idx, idx - 1) })
+                down.addEventListener('click', (e) => { e.stopPropagation(); move(idx, idx + 1) })
+
+                item.querySelector('.edit').addEventListener('click', (e) => {
+                    e.stopPropagation()
+                    startRename(item, s)
+                })
+                item.querySelector('.remove').addEventListener('click', (e) => {
+                    e.stopPropagation()
+                    athena.openRemoveModal(s.id, s.name)
+                })
+
+                listEl.appendChild(item)
+            })
+        }
+
+        // Inline rename: swap the title label for an input in place.
+        function startRename(item, s) {
+            editingId = s.id
+            const input = document.createElement('input')
+            input.className = 'rename-input'
+            input.value = s.name
+            item.querySelector('.title').replaceWith(input)
+            input.focus()
+            input.select()
+            // Guard against a double-commit: pressing Enter commits, then the
+            // re-render detaches this input and fires `blur`, which would call
+            // commit() a second time.
+            let done = false
+            const commit = async () => {
+                if (done) return
+                done = true
+                const next = input.value.trim()
+                editingId = null
+                if (next && next !== s.name) await athena.renameServer(s.id, next)
+                await refresh()
+            }
+            const cancel = () => { if (done) return; done = true; editingId = null; render() }
+            input.addEventListener('click', (e) => e.stopPropagation())
+            input.addEventListener('keydown', (e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') commit()
+                if (e.key === 'Escape') cancel()
+            })
+            input.addEventListener('blur', commit)
+        }
+
+        async function move(from, to) {
+            if (to < 0 || to >= servers.length) return
+            const ids = servers.map((s) => s.id)
+            const [moved] = ids.splice(from, 1)
+            ids.splice(to, 0, moved)
+            await athena.reorderServers(ids)
+            await refresh()
+        }
+
+        // --- Add / remove library --------------------------------------------
+        // The modals render in a separate top-stacked overlay view; we just ask
+        // main to open them. Main persists the change and notifies us via
+        // onServersChanged (add also opens the new library via onActiveChanged).
+        document.getElementById('open-add').addEventListener('click', () => athena.openAddModal())
+        document.getElementById('hero-add').addEventListener('click', () => athena.openAddModal())
+
+        // --- Collapse toggle -----------------------------------------------
+        document.getElementById('collapse-toggle').addEventListener('click', () => {
+            collapsed = !collapsed
+            localStorage.setItem('athena-rail-collapsed', collapsed ? '1' : '0')
+            applyCollapsed()
+        })
+
+        // --- Main -> shell notifications ------------------------------------
+        athena.onActiveChanged((id) => { activeId = id; render() })
+        athena.onServerStatus(({ id, status }) => {
+            statuses[id] = status
+            if (editingId) return // don't clobber an in-progress rename re-render
+            render()
+        })
+        // Add/remove happen in the overlay view, which the shell can't observe;
+        // main pings us to re-fetch the list after either.
+        athena.onServersChanged(() => refresh())
+        athena.onToggleRail(() => {
+            collapsed = !collapsed
+            localStorage.setItem('athena-rail-collapsed', collapsed ? '1' : '0')
+            applyCollapsed()
+        })
+        athena.onExpandRail(() => {
+            if (!collapsed) return
+            collapsed = false
+            localStorage.setItem('athena-rail-collapsed', '0')
+            applyCollapsed()
+        })
+        athena.onServerTheme((palette) => applyServerTheme(palette))
+
+        applyCollapsed()
+        refresh()
+    </script>
+</body>
+</html>

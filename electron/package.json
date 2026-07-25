@@ -1,0 +1,39 @@
+{
+    "name": "athena-client",
+    "version": "2.0.0",
+    "description": "Athena desktop launcher",
+    "license": "AGPL-3.0-only",
+    "private": true,
+    "author": {
+        "name": "RakkenTi",
+        "email": "dev@markmartinez.ca"
+    },
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/athenaeum-app/athena.git"
+    },
+    "main": "src/main.js",
+    "scripts": {
+        "start": "electron .",
+        "dev": "node scripts/free-port.mjs 5173 && concurrently -k -n server,client,electron -c yellow,cyan,magenta \"npm:dev:server\" \"npm:dev:client\" \"npm:dev:electron\"",
+        "dev:server": "node scripts/dev-server.mjs",
+        "dev:client": "npm --prefix ../client run dev",
+        "dev:electron": "wait-on tcp:127.0.0.1:5173 && cross-env ATHENA_DEV_URL=http://localhost:5173 electron .",
+        "build": "electron-builder",
+        "build:dir": "electron-builder --dir",
+        "package": "electron-builder"
+    },
+    "dependencies": {
+        "electron-store": "^10.0.0",
+        "font-list": "^1.6.0",
+        "electron-updater": "^6.3.9"
+    },
+    "devDependencies": {
+        "concurrently": "^9.1.2",
+        "cross-env": "^7.0.3",
+        "electron": "^33.0.0",
+        "electron-builder": "^25.1.0",
+        "wait-on": "^8.0.2"
+    }
+}

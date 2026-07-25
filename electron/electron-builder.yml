@@ -1,0 +1,34 @@
+# Electron Builder config for the Athena launcher.
+# Builds a desktop app that loads the PWA at a user-configured server URL.
+# See docs/adr/0002-server-bundled-pwa-client.md for the launcher design.
+
+appId: com.athenaeum.launcher
+productName: Athena
+directories:
+    output: dist
+    buildResources: build
+files:
+    - src/**
+win:
+    target: nsis
+mac:
+    # dmg is what a person downloads; zip is what electron-updater applies an
+    # update from. Shipping only the dmg leaves macOS with no update path at
+    # all. Note that Squirrel.Mac still refuses to update an unsigned bundle,
+    # so mac auto-update stays inert until code signing is configured.
+    target:
+        - dmg
+        - zip
+    category: public.app-category.productivity
+linux:
+    target:
+        - AppImage
+        - deb
+    category: Office
+# electron-updater reads the latest.yml files published beside the installers
+# here, so this block is also the update feed. It must point at a public repo
+# and at a release that is published rather than left as a draft.
+publish:
+    provider: github
+    owner: athenaeum-app
+    repo: athena

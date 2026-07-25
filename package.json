@@ -1,0 +1,29 @@
+{
+    "name": "athenaeum",
+    "version": "2.0.0",
+    "description": "Athena monorepo root: one-stop task runner for the Go server, Solid PWA client, and Electron launcher.",
+    "license": "AGPL-3.0-only",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "postinstall": "npm --prefix client install && npm --prefix electron install",
+        "setup": "npm --prefix client install && npm --prefix electron install",
+        "dev": "npm --prefix electron run dev",
+        "dev:web": "npm --prefix client run dev",
+        "dev:server": "cd server && go run ./cmd/athena-server",
+        "reset": "npm run reset:server && npm run reset:client",
+        "reset:server": "node -e \"require('fs').rmSync('server/data', { recursive: true, force: true })\"",
+        "demo": "npm run reset:server && npm run build:server && cd server && go run ./cmd/athena-server seed --reset",
+        "reset:client": "node electron/scripts/reset-store.mjs",
+        "build": "npm --prefix electron run build",
+        "build:dir": "npm --prefix electron run build:dir",
+        "package": "npm --prefix electron run package",
+        "build:client": "npm --prefix client run build",
+        "build:server": "cd server && go build ./...",
+        "test": "npm run test:client && npm run test:server",
+        "test:client": "npm --prefix client test",
+        "test:server": "cd server && go test ./...",
+        "typecheck": "cd client && npx tsc --noEmit",
+        "e2e": "npm --prefix client run e2e"
+    }
+}

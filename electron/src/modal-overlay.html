@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Athena</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&display=swap" rel="stylesheet" />
+    <style>
+        /* This page is loaded into a TRANSPARENT WebContentsView stacked on top
+           of the active library's content view, so the dim backdrop darkens the
+           library showing through behind it. Dark-theme values mirror the PWA /
+           shell so the modal reads as the same product. */
+        :root {
+            --matte: #020617;
+            --accent: #1e293b;
+            --input: #0b1220;
+            --main: #cbd5e1;
+            --sub: #64748b;
+            --plain: #ffffff;
+            --highlight: #06b6d4;
+            --danger: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; background: transparent; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            color: var(--main);
+            overflow: hidden;
+        }
+        .serif { font-family: 'Lora', ui-serif, Georgia, 'Times New Roman', serif; }
+
+        /* Full-window dim. The view itself is transparent, so this rgba fill is
+           what darkens the library behind it. (A CSS backdrop-filter cannot
+           reach across the native view boundary to blur the content below, so
+           we rely on the dim alone.) */
+        .backdrop {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            background: rgba(2, 6, 23, 0.62);
+        }
+        .backdrop.open { display: flex; }
+
+        .modal {
+            width: 100%;
+            max-width: 400px;
+            background: var(--matte);
+            border: 1px solid var(--accent);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+            padding: 1.75rem;
+        }
+        .modal h2 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--plain);
+            margin-bottom: 1.25rem;
+        }
+        .modal p.msg { color: var(--sub); font-size: 0.85rem; line-height: 1.5; margin-bottom: 1.25rem; }
+        .modal label {
+            display: block;
+            color: var(--sub);
+            font-size: 0.72rem;
+            font-weight: 500;
+            margin-bottom: 0.4rem;
+        }
+        .field { position: relative; margin-bottom: 1rem; }
+        .field input {
+            width: 100%;
+            background: var(--input);
+            border: 1px solid var(--accent);
+            border-radius: 2px;
+            color: var(--main);
+            font-size: 0.85rem;
+            padding: 0.55rem 0.7rem;
+            outline: none;
+        }
+        .field .corner {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s;
+        }
+        .field:focus-within .corner { opacity: 1; }
+        .corner.tl { top: -1px; left: -1px; border-top: 2px solid var(--highlight); border-left: 2px solid var(--highlight); }
+        .corner.tr { top: -1px; right: -1px; border-top: 2px solid var(--highlight); border-right: 2px solid var(--highlight); }
+        .corner.bl { bottom: -1px; left: -1px; border-bottom: 2px solid var(--highlight); border-left: 2px solid var(--highlight); }
+        .corner.br { bottom: -1px; right: -1px; border-bottom: 2px solid var(--highlight); border-right: 2px solid var(--highlight); }
+
+        .modal-error { color: var(--danger); font-size: 0.8rem; min-height: 1rem; margin-bottom: 0.5rem; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem; }
+        .btn-ghost {
+            background: transparent;
+            border: none;
+            color: var(--sub);
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0.55rem 0.9rem;
+        }
+        .btn-ghost:hover { color: var(--main); }
+        .btn-primary {
+            background: var(--highlight);
+            color: #04222b;
+            border: none;
+            border-radius: 2px;
+            padding: 0.55rem 1.1rem;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: filter 0.15s;
+        }
+        .btn-primary:hover { filter: brightness(1.1); }
+        .btn-danger { background: var(--danger); color: #fff; }
+    </style>
+</head>
+<body>
+    <!-- Add-library modal -->
+    <div class="backdrop" id="add-backdrop">
+        <div class="modal">
+            <h2 class="serif">Add a library</h2>
+            <div>
+                <label for="name">Display name</label>
+                <div class="field">
+                    <input type="text" id="name" placeholder="e.g. Home" />
+                    <span class="corner tl"></span><span class="corner tr"></span>
+                    <span class="corner bl"></span><span class="corner br"></span>
+                </div>
+            </div>
+            <div>
+                <label for="url">Server address</label>
+                <div class="field">
+                    <input type="text" id="url" placeholder="e.g. https://athena.example.com" />
+                    <span class="corner tl"></span><span class="corner tr"></span>
+                    <span class="corner bl"></span><span class="corner br"></span>
+                </div>
+            </div>
+            <p class="modal-error" id="add-error"></p>
+            <div class="modal-actions">
+                <button class="btn-ghost" id="cancel-add">Cancel</button>
+                <button class="btn-primary" id="confirm-add">Add library</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Remove-library confirm modal -->
+    <div class="backdrop" id="remove-backdrop">
+        <div class="modal">
+            <h2 class="serif">Remove library?</h2>
+            <p class="msg" id="remove-msg"></p>
+            <div class="modal-actions">
+                <button class="btn-ghost" id="cancel-remove">Cancel</button>
+                <button class="btn-primary btn-danger" id="confirm-remove">Remove</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        const { overlay } = window
+
+        const addBackdrop = document.getElementById('add-backdrop')
+        const removeBackdrop = document.getElementById('remove-backdrop')
+        const nameInput = document.getElementById('name')
+        const urlInput = document.getElementById('url')
+        const addError = document.getElementById('add-error')
+        const removeMsg = document.getElementById('remove-msg')
+
+        let removeTargetId = null
+
+        // --- Chrome theming -------------------------------------------------
+        // main relays the active library's resolved palette (overlay:theme) so
+        // the modal re-tints to match the open library, mirroring shell.html's
+        // sidebar theming. --input is derived from --matte (the modal has no
+        // dedicated palette slot for it). A null palette clears the overrides,
+        // dropping back to the dark defaults in the stylesheet above.
+        const themeRoot = document.documentElement
+        const THEME_SLOTS = ['matte', 'accent', 'main', 'sub', 'plain', 'highlight']
+        function applyTheme(palette) {
+            for (const slot of THEME_SLOTS) {
+                if (palette && palette[slot]) themeRoot.style.setProperty('--' + slot, palette[slot])
+                else themeRoot.style.removeProperty('--' + slot)
+            }
+            if (palette && palette.matte) themeRoot.style.setProperty('--input', palette.matte)
+            else themeRoot.style.removeProperty('--input')
+        }
+        overlay.onTheme((palette) => applyTheme(palette))
+
+        function reset() {
+            addBackdrop.classList.remove('open')
+            removeBackdrop.classList.remove('open')
+            removeTargetId = null
+        }
+
+        // main tells us which modal to show whenever the overlay is stacked on.
+        overlay.onShow((payload) => {
+            reset()
+            if (payload && payload.type === 'add') {
+                addError.textContent = ''
+                nameInput.value = ''
+                urlInput.value = ''
+                addBackdrop.classList.add('open')
+                nameInput.focus()
+            } else if (payload && payload.type === 'remove') {
+                removeTargetId = payload.id
+                removeMsg.textContent =
+                    `"${payload.name}" will be removed from this desktop app. Your data on the server is not affected, and you can add it back anytime.`
+                removeBackdrop.classList.add('open')
+            }
+        })
+
+        function close() {
+            reset()
+            overlay.close()
+        }
+
+        async function confirmAdd() {
+            const name = nameInput.value.trim()
+            const url = urlInput.value.trim()
+            if (!url) {
+                addError.textContent = 'A server address is required.'
+                urlInput.focus()
+                return
+            }
+            // main persists, hides this overlay, refreshes the shell, and opens
+            // the new library; nothing more to do here.
+            await overlay.submitAdd(name || url, url)
+        }
+
+        async function confirmRemove() {
+            if (removeTargetId) await overlay.submitRemove(removeTargetId)
+        }
+
+        document.getElementById('cancel-add').addEventListener('click', close)
+        document.getElementById('confirm-add').addEventListener('click', confirmAdd)
+        document.getElementById('cancel-remove').addEventListener('click', close)
+        document.getElementById('confirm-remove').addEventListener('click', confirmRemove)
+
+        // Backdrop click (outside the modal card) dismisses.
+        addBackdrop.addEventListener('click', (e) => { if (e.target === addBackdrop) close() })
+        removeBackdrop.addEventListener('click', (e) => { if (e.target === removeBackdrop) close() })
+
+        urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmAdd() })
+        nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') urlInput.focus() })
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close() })
+    </script>
+</body>
+</html>

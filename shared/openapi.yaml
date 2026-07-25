@@ -1,0 +1,1800 @@
+openapi: 3.1.0
+info:
+  title: Athena API
+  version: 1.0.0
+  description: |
+    REST API for the athenaeum server. Served at `/api/v1/` on the same
+    origin as the PWA client. Authentication is via httpOnly session cookies.
+
+    Permission flags referenced throughout this spec are a bitmask of the
+    constants defined in `server/internal/permissions/permissions.go`. The
+    `Administrator` flag is a wildcard that grants every other flag. A user's
+    effective permissions are the bitwise OR of all their roles' permission
+    bitmasks.
+
+servers:
+  - url: /api/v1
+    description: Same-origin (PWA client)
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: athenaeum_session
+      description: |
+        httpOnly session cookie issued by `POST /auth/login` or
+        `POST /auth/register`. Required for all authenticated endpoints.
+
+  schemas:
+
+    # --- Primitives ---
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    StatusMessage:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    # --- Auth / Users ---
+
+    User:
+      type: object
+      required: [id, username, is_owner, created_at]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+          nullable: true
+        is_owner:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    MeResponse:
+      type: object
+      required: [id, username, is_owner, roles, permissions]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        is_owner:
+          type: boolean
+        roles:
+          type: array
+          items:
+            type: string
+          description: Names of the roles assigned to the user.
+        permissions:
+          type: integer
+          format: uint32
+          description: Bitmask of effective permission flags (OR of all roles).
+
+    RegisterRequest:
+      type: object
+      required: [username, password, stay_logged_in]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+        invite_id:
+          type: string
+          nullable: true
+          description: |
+            Required when the server is not in first-setup mode (i.e. at least
+            one user already exists). Omitted for the first registration,
+            which creates the owner account.
+        stay_logged_in:
+          type: boolean
+          description: |
+            If true, the session cookie has no expiry. If false, the cookie
+            expires after the configured `SessionExpiryDays`.
+
+    LoginRequest:
+      type: object
+      required: [username, password, stay_logged_in]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+        stay_logged_in:
+          type: boolean
+
+    AssignRolesRequest:
+      type: object
+      required: [role_ids]
+      properties:
+        role_ids:
+          type: array
+          items:
+            type: string
+
+    # --- Roles ---
+
+    Role:
+      type: object
+      required: [id, name, color, position, is_preset, is_default, permissions, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+        position:
+          type: integer
+        is_preset:
+          type: boolean
+          description: True for built-in roles (Owner, Admin, Editor, Viewer, Member).
+        is_default:
+          type: boolean
+          description: True for the "Member" role assigned to every new user.
+        permissions:
+          type: integer
+          format: uint32
+          description: Bitmask of permission flags.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateRoleRequest:
+      type: object
+      required: [name, color, position, permissions]
+      properties:
+        name:
+          type: string
+        color:
+          type: string
+        position:
+          type: integer
+        permissions:
+          type: integer
+          format: uint32
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        position:
+          type: integer
+          nullable: true
+        permissions:
+          type: integer
+          format: uint32
+          nullable: true
+
+    # --- Invites ---
+
+    Invite:
+      type: object
+      required: [id, created_by, uses_remaining, created_at]
+      properties:
+        id:
+          type: string
+        created_by:
+          type: string
+          description: User ID of the invite's creator.
+        uses_remaining:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    CreateInviteRequest:
+      type: object
+      required: [uses]
+      properties:
+        uses:
+          type: integer
+          minimum: 1
+          description: Defaults to 1 if omitted or non-positive.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    # --- Archives ---
+
+    Archive:
+      type: object
+      required: [id, name, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateArchiveRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    # --- Moments ---
+
+    Moment:
+      type: object
+      required: [id, archive_id, title, content, timestamp, is_legacy, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        archive_id:
+          type: string
+        author_id:
+          type: string
+          nullable: true
+          description: nil for legacy/migrated moments.
+        title:
+          type: string
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        is_legacy:
+          type: boolean
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Non-nil when the moment is soft-deleted.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        tag_ids:
+          type: array
+          items:
+            type: string
+
+    CreateMomentRequest:
+      type: object
+      required: [archive_id, title, content, tag_ids]
+      properties:
+        archive_id:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        tag_ids:
+          type: array
+          items:
+            type: string
+
+    UpdateMomentRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          nullable: true
+        content:
+          type: string
+          nullable: true
+        tag_ids:
+          type: array
+          nullable: true
+          items:
+            type: string
+
+    # --- Tags ---
+
+    Tag:
+      type: object
+      required: [id, name, color, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateTagRequest:
+      type: object
+      required: [name, color]
+      properties:
+        name:
+          type: string
+        color:
+          type: string
+          description: Defaults to `#cccccc` if omitted.
+
+    UpdateTagRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+
+    # --- Chat ---
+
+    ChatMessage:
+      type: object
+      required: [id, content, is_legacy, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        author_id:
+          type: string
+          nullable: true
+          description: nil for legacy messages.
+        display_name:
+          type: string
+          nullable: true
+          description: Used when `author_id` is nil (legacy messages).
+        content:
+          type: string
+        is_legacy:
+          type: boolean
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateChatMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+
+    UpdateChatMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+
+    # --- Assets ---
+
+    Asset:
+      type: object
+      required: [id, uploader_id, file_name, mime_type, size_bytes, created_at]
+      properties:
+        id:
+          type: string
+        uploader_id:
+          type: string
+        file_name:
+          type: string
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+
+    # --- Link previews ---
+
+    LinkPreview:
+      type: object
+      required: [url, title, description, image_url, scraped_at]
+      properties:
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+        description:
+          type: string
+        image_url:
+          type: string
+          format: uri
+        scraped_at:
+          type: string
+          format: date-time
+
+    # --- Sync events ---
+
+    Event:
+      type: object
+      required: [id, library_version, type, target_type, target_id, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        library_version:
+          type: integer
+          format: int64
+        type:
+          type: string
+          description: |
+            Event type, e.g. `MOMENT_CREATED`, `MOMENT_UPDATED`,
+            `MOMENT_DELETED`, `ARCHIVE_CREATED`, `ARCHIVE_UPDATED`,
+            `ARCHIVE_DELETED`, `TAG_CREATED`, `TAG_UPDATED`, `TAG_DELETED`,
+            `CHAT_CREATED`, `CHAT_UPDATED`, `CHAT_DELETED`.
+        target_type:
+          type: string
+          description: e.g. `MOMENT`, `ARCHIVE`, `TAG`, `CHAT_MESSAGE`.
+        target_id:
+          type: string
+        author_id:
+          type: string
+          nullable: true
+        payload:
+          type: string
+          description: JSON-encoded snapshot of the target entity (omitted for deletes).
+        created_at:
+          type: string
+          format: date-time
+
+    EventsResponse:
+      type: object
+      required: [events, current_version]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        current_version:
+          type: integer
+          format: int64
+          description: Latest library version; pass as `since` on the next poll.
+
+    # --- Audit log ---
+
+    AuditEntry:
+      type: object
+      required: [id, actor_id, action, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        actor_id:
+          type: string
+        action:
+          type: string
+          description: e.g. `moment.create`, `user.invite`, `role.update`.
+        target_type:
+          type: string
+        target_id:
+          type: string
+        details:
+          type: string
+          description: JSON-encoded details about the action.
+        created_at:
+          type: string
+          format: date-time
+
+    # --- Settings ---
+
+    SettingsMap:
+      type: object
+      additionalProperties:
+        type: string
+      description: Map of setting key to setting value.
+
+    UpdateSettingsRequest:
+      type: object
+      required: [settings]
+      properties:
+        settings:
+          $ref: '#/components/schemas/SettingsMap'
+
+    # --- Health / Setup ---
+
+    HealthResponse:
+      type: object
+      required: [status, library_version]
+      properties:
+        status:
+          type: string
+          example: ok
+        library_version:
+          type: integer
+          format: int64
+
+    SetupResponse:
+      type: object
+      required: [needs_setup, user_count]
+      properties:
+        needs_setup:
+          type: boolean
+          description: True when no users exist yet (first-setup mode).
+        user_count:
+          type: integer
+
+  parameters:
+
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Resource identifier.
+
+  responses:
+
+    BadRequest:
+      description: Malformed or invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Authentication required or invalid credentials.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: The caller lacks the required permission.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Conflict:
+      description: Optimistic-concurrency conflict or duplicate state.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    PayloadTooLarge:
+      description: The uploaded file exceeds the configured size limit.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    BadGateway:
+      description: Upstream fetch failed (e.g. link preview scrape).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+security:
+  - cookieAuth: []
+
+paths:
+
+  # --- Public ---
+
+  /health:
+    get:
+      summary: Health check
+      description: Liveness probe. Returns the current library version.
+      security: []
+      responses:
+        '200':
+          description: Server is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /setup:
+    get:
+      summary: Setup status
+      description: |
+        Reports whether the server has any registered users. When
+        `needs_setup` is true, the client should route to a first-setup flow
+        that creates the owner account (no invite required).
+      security: []
+      responses:
+        '200':
+          description: Setup status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # --- Auth ---
+
+  /auth/register:
+    post:
+      summary: Register a new user
+      description: |
+        Creates a new user and immediately issues a session cookie. The first
+        registration on a server with no users becomes the owner and does not
+        require an invite; subsequent registrations require a valid `invite_id`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered and session issued.
+          headers:
+            Set-Cookie:
+              description: |
+                `athenaeum_session=<token>; Path=/; HttpOnly; SameSite=Lax`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/login:
+    post:
+      summary: Log in
+      description: Validates credentials and issues a session cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login succeeded.
+          headers:
+            Set-Cookie:
+              description: |
+                `athenaeum_session=<token>; Path=/; HttpOnly; SameSite=Lax`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/logout:
+    post:
+      summary: Log out
+      description: |
+        Invalidates the current session server-side and clears the session
+        cookie. Requires authentication.
+      responses:
+        '200':
+          description: Logout succeeded.
+          headers:
+            Set-Cookie:
+              description: |
+                `athenaeum_session=; Path=/; HttpOnly; Max-Age=-1` (clears the cookie).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # --- Users ---
+
+  /users/me:
+    get:
+      summary: Get the current user
+      description: |
+        Returns the authenticated user's identity, assigned role names, and
+        effective permission bitmask.
+      responses:
+        '200':
+          description: Current user info.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users:
+    get:
+      summary: List users
+      description: |
+        Returns all registered users. Requires the `MANAGE_USERS` permission.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: List of users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /users/{id}/roles:
+    patch:
+      summary: Assign roles to a user
+      description: |
+        Replaces the user's role set with the provided list of role IDs.
+        Requires the `MANAGE_USERS` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRolesRequest'
+      responses:
+        '200':
+          description: Roles updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # --- Invites ---
+
+  /invites:
+    post:
+      summary: Create an invite
+      description: |
+        Creates a new invite token with the given number of uses and optional
+        expiry. Requires the `MANAGE_USERS` permission.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInviteRequest'
+      responses:
+        '201':
+          description: Invite created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invite'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    get:
+      summary: List invites
+      description: |
+        Returns all invites. Requires the `MANAGE_USERS` permission.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: List of invites.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /invites/{id}:
+    delete:
+      summary: Revoke an invite
+      description: |
+        Revokes an invite by ID. Requires the `MANAGE_USERS` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Invite revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # --- Roles ---
+
+  /roles:
+    get:
+      summary: List roles
+      description: |
+        Returns all roles. Requires authentication (no specific permission).
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: List of roles.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create a role
+      description: |
+        Creates a new role with the given name, color, position, and
+        permission bitmask. Requires the `MANAGE_ROLES` permission.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+      responses:
+        '201':
+          description: Role created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /roles/{id}:
+    patch:
+      summary: Update a role
+      description: |
+        Partially updates a role. Only the fields present in the body are
+        changed. Requires the `MANAGE_ROLES` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Role updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    delete:
+      summary: Delete a role
+      description: |
+        Deletes a role. Preset roles (Owner, Admin, etc.) cannot be deleted.
+        Requires the `MANAGE_ROLES` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Role deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # --- Archives ---
+
+  /archives:
+    get:
+      summary: List archives
+      description: |
+        Returns all archives. Requires the `VIEW_MOMENTS` permission.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: List of archives.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Archive'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create an archive
+      description: |
+        Creates a new archive. Requires the `MANAGE_ARCHIVES` permission.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateArchiveRequest'
+      responses:
+        '201':
+          description: Archive created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Archive'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /archives/{id}:
+    patch:
+      summary: Update an archive
+      description: |
+        Renames an archive. Requires the `MANAGE_ARCHIVES` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateArchiveRequest'
+      responses:
+        '200':
+          description: Archive updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Archive'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    delete:
+      summary: Delete an archive
+      description: |
+        Deletes an archive. Requires the `MANAGE_ARCHIVES` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Archive deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # --- Moments ---
+
+  /moments:
+    get:
+      summary: List moments
+      description: |
+        Returns a page of moments, optionally filtered by archive and a
+        search query. Results are paginated by `(cursor_ts, cursor_id)`.
+        Requires the `VIEW_MOMENTS` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: archive
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter moments to a single archive ID.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+          description: Page size (clamped to 1..500).
+        - name: cursor_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: |
+            RFC3339Nano timestamp of the last moment on the previous page.
+            Must be supplied together with `cursor_id`.
+        - name: cursor_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ID of the last moment on the previous page.
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Full-text search query over moment title and content.
+      responses:
+        '200':
+          description: List of moments (newest first).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Moment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create a moment
+      description: |
+        Creates a new moment in the given archive. Requires the
+        `CREATE_MOMENT` permission.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMomentRequest'
+      responses:
+        '201':
+          description: Moment created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Moment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /moments/{id}:
+    get:
+      summary: Get a moment
+      description: |
+        Returns a single moment by ID. Requires the `VIEW_MOMENTS` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: The moment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Moment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      summary: Update a moment
+      description: |
+        Partially updates a moment. The caller must either hold the
+        `EDIT_ANY_MOMENT` permission or hold `EDIT_OWN_MOMENT` and be the
+        moment's author. Supports optimistic concurrency via the `If-Match`
+        header: if the header is present and the moment's `updated_at` does
+        not match, the server returns `409 Conflict`.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: If-Match
+          in: header
+          required: false
+          schema:
+            type: string
+          description: |
+            The moment's current `updated_at` value (RFC3339Nano). If present
+            and it does not match the stored value, the request fails with
+            `409 Conflict`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMomentRequest'
+      responses:
+        '200':
+          description: Moment updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Moment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      summary: Delete a moment
+      description: |
+        Soft-deletes a moment. The caller must either hold the
+        `DELETE_ANY_MOMENT` permission or hold `DELETE_OWN_MOMENT` and be the
+        moment's author.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Moment deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # --- Tags ---
+
+  /tags:
+    get:
+      summary: List tags
+      description: |
+        Returns all tags. Requires the `VIEW_MOMENTS` permission.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: List of tags.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tag'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create a tag
+      description: |
+        Creates a new tag. Requires the `MANAGE_TAGS` permission.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTagRequest'
+      responses:
+        '201':
+          description: Tag created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /tags/{id}:
+    patch:
+      summary: Update a tag
+      description: |
+        Partially updates a tag. Requires the `MANAGE_TAGS` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTagRequest'
+      responses:
+        '200':
+          description: Tag updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    delete:
+      summary: Delete a tag
+      description: |
+        Deletes a tag. Requires the `MANAGE_TAGS` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Tag deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # --- Chat ---
+
+  /chat:
+    get:
+      summary: List chat messages
+      description: |
+        Returns a page of chat messages, paginated by
+        `(cursor_ts, cursor_id)`. Requires the `VIEW_CHAT` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+          description: Page size (clamped to 1..500).
+        - name: cursor_ts
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: |
+            RFC3339Nano `created_at` of the last message on the previous
+            page. Must be supplied together with `cursor_id`.
+        - name: cursor_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ID of the last message on the previous page.
+      responses:
+        '200':
+          description: List of chat messages (newest first).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatMessage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Send a chat message
+      description: |
+        Creates a new chat message authored by the current user. Requires the
+        `SEND_CHAT_MESSAGE` permission.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChatMessageRequest'
+      responses:
+        '201':
+          description: Message created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /chat/{id}:
+    patch:
+      summary: Update a chat message
+      description: |
+        Updates a chat message's content. The caller must either hold the
+        `DELETE_ANY_CHAT_MESSAGE` permission (used as the "edit any" flag) or
+        hold `EDIT_OWN_CHAT_MESSAGE` and be the message's author.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateChatMessageRequest'
+      responses:
+        '200':
+          description: Message updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      summary: Delete a chat message
+      description: |
+        Deletes a chat message. The caller must either hold the
+        `DELETE_ANY_CHAT_MESSAGE` permission or hold `DELETE_OWN_CHAT_MESSAGE`
+        and be the message's author.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Message deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # --- Assets ---
+
+  /assets:
+    post:
+      summary: Upload an asset
+      description: |
+        Accepts a multipart form upload of a single file and stores it. The
+        response describes the stored asset, which can be referenced by ID in
+        moment content. Requires the `UPLOAD_ASSET` permission.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Asset uploaded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /assets/{id}:
+    get:
+      summary: Download an asset
+      description: |
+        Returns the raw bytes of the asset with the asset's stored MIME type
+        as the `Content-Type`. Requires the `VIEW_MOMENTS` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: The asset's file bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Delete an asset
+      description: |
+        Deletes an asset. The caller must either hold the `DELETE_ASSET`
+        permission or be the asset's uploader.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Asset deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # --- Link previews ---
+
+  /previews:
+    get:
+      summary: Get a link preview
+      description: |
+        Returns cached metadata for the given URL, scraping it fresh if no
+        cached preview exists. Requires the `VIEW_MOMENTS` permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+          description: The URL to preview.
+      responses:
+        '200':
+          description: Link preview metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkPreview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+
+  # --- Sync (events) ---
+
+  /events:
+    get:
+      summary: Get delta-sync events
+      description: |
+        Returns events recorded since the given library version, plus the
+        current library version (to be passed as `since` on the next poll).
+        Requires authentication (no specific permission).
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: since
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Library version to fetch events since (exclusive).
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+          description: Page size (clamped to 1..500).
+      responses:
+        '200':
+          description: Events since the given version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # --- Audit log ---
+
+  /audit-log:
+    get:
+      summary: Get the audit log
+      description: |
+        Returns audit entries, paginated by `cursor_id` (the ID of the last
+        entry on the previous page). Requires the `VIEW_AUDIT_LOG`
+        permission.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: cursor_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+          description: ID of the last audit entry on the previous page.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+          description: Page size (clamped to 1..500).
+      responses:
+        '200':
+          description: List of audit entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEntry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # --- Settings ---
+
+  /settings:
+    get:
+      summary: Get server settings
+      description: |
+        Returns all server-managed settings as a key-value map. Requires
+        authentication (no specific permission).
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: All settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsMap'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    patch:
+      summary: Update server settings
+      description: |
+        Updates one or more settings. Requires the `MANAGE_SERVER`
+        permission.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSettingsRequest'
+      responses:
+        '200':
+          description: Settings updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'

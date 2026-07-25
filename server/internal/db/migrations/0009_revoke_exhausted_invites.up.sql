@@ -1,0 +1,12 @@
+-- 0009_revoke_exhausted_invites.up.sql
+-- Clear out invites that have already been fully used.
+--
+-- Consuming an invite now deletes the row once its last use is spent (see
+-- auth.consumeInviteTx), so a spent link disappears from the admin list
+-- instead of sitting there reading "0 use(s) left" for an operator to tidy up
+-- by hand. Servers that ran an earlier version still hold those rows.
+--
+-- uses_remaining = -1 is the unlimited sentinel, so this only matches invites
+-- that counted down to nothing. They are already unusable: ValidateInvite
+-- rejects them with ErrInviteExhausted.
+DELETE FROM invites WHERE uses_remaining = 0;

@@ -1,0 +1,51 @@
+# Athena server, self-hosted.
+#
+#   docker compose up -d
+#
+# Pulls the published image, so this file is the only thing you need on the
+# host. No checkout, no Node, no Go toolchain. To build from a checkout instead
+# of pulling, see docker-compose.build.yml.
+#
+# Updating:
+#
+#   docker compose pull && docker compose up -d
+#
+# Data (the SQLite database, uploads, backups, and the runtime config file)
+# lives in ./data, bind-mounted below. Keep that directory and you keep the
+# library.
+
+services:
+  athena:
+    image: ghcr.io/athenaeum-app/athena:latest
+    container_name: athena-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Days a login stays valid. 0 means sessions never expire.
+      - SESSION_EXPIRY_DAYS=30
+
+      # Soft-deleted moments and chat messages older than this many days are
+      # permanently removed by a background job.
+      - PRUNE_AFTER_DAYS=365
+
+      # Automated backups. BACKUP_INTERVAL is a Go duration ("24h", "90m");
+      # setting it to 0 disables them. These override whatever the Settings
+      # UI wrote to data/athena.config.json.
+      - BACKUP_INTERVAL=24h
+      - BACKUP_RETENTION=7
+
+      # How long a scraped link preview is cached, in hours.
+      - PREVIEW_CACHE_TTL_HOURS=168
+
+      # Largest single upload accepted, in megabytes.
+      - MAX_UPLOAD_MB=50
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      # wget is part of alpine's busybox, so nothing extra is installed for it.
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

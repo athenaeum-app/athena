@@ -1,0 +1,103 @@
+name: Release
+
+# Triggered by pushing a version tag, e.g. `git tag v2.0.1 && git push origin v2.0.1`.
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  docker:
+    name: Build & push server image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/athenaeum-app/athena
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      # server/Dockerfile is multi-stage: it builds the client and embeds it
+      # into the Go binary, so this single image is the deployable artifact
+      # for both client and server. Context is the repo root.
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: true
+          # Stamps the tag into the binary so the running server can report it
+          # (Settings -> About). Without this every release says "dev".
+          build-args: |
+            ATHENA_VERSION=${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Pre-create the release so the matrix jobs below don't race to create
+      # it themselves, since electron-builder would otherwise have each platform
+      # create its own separate draft release for the same tag.
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --repo athenaeum-app/athena \
+            --draft --title "${{ github.ref_name }}" --generate-notes \
+            || echo "Release already exists, continuing"
+
+  electron:
+    name: Desktop app (${{ matrix.os }})
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: electron
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # No lockfile in electron/, so use npm install rather than npm ci.
+      - name: Install dependencies
+        run: npm install
+
+      # electron-builder.yml declares the GitHub publish provider. Each
+      # matrix OS uploads its installers to the release for this tag.
+      # Builds are currently unsigned (no code-signing secrets configured).
+      - name: Build & publish
+        run: npm run build -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

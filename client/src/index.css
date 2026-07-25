@@ -1,0 +1,573 @@
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0');
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css');
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;1,500&display=swap');
+/* Inter: the v1 (athena-client) default UI font. Loaded for the 'legacy' look,
+   which reproduces v1's Inter-sans aesthetic. Other looks are unaffected. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+}
+
+/* Animation speed multiplier, driven by the desktop client's animation-speed
+   pref (prefs.ts applyPrefs sets --anim-speed on the root). Default 1 so the
+   named animations below keep their authored duration outside the desktop app.
+   Values > 1 slow motion down, < 1 speed it up. */
+:root {
+    --anim-speed: 1;
+}
+
+/* Optional user font override (desktop client font picker; prefs.ts sets
+   --user-font on the root). Applies to body/UI text; the serif brand face
+   (font-serif / Lora headings) is intentionally left untouched. When unset,
+   falls back to the platform sans stack. */
+body {
+    /* desktop user-font override wins; otherwise the active look's body font. */
+    font-family: var(--user-font, var(--look-body-font, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif));
+}
+
+#root {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Snappier defaults (v2.2 polish): entrances were 0.6s/0.4s, which read as
+   sluggish. Trimmed to feel responsive while still animated. Both still scale
+   by --anim-speed so the desktop speed control and kill-switch apply. */
+.animate-slide-up { animation: slideUp calc(0.28s * var(--anim-speed, 1)) ease-out forwards; }
+.animate-fade-in { animation: fadeIn calc(0.18s * var(--anim-speed, 1)) ease-out forwards; }
+
+/* Animation kill-switch. Dormant by default (the attribute is only set when a
+   client disables animations via prefs; see prefs.ts applyPrefs). Kept here so
+   the desktop client's animation toggle has something to act on. */
+[data-no-animations] *,
+[data-no-animations] *::before,
+[data-no-animations] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+}
+
+/* Drift the watermark by exactly one tile period so the loop is seamless.
+   Animates transform (compositor-only, GPU) rather than background-position
+   (which repaints the whole tiled layer every frame and stutters). The
+   layer is oversized by one tile in the drift direction (see Setup.tsx) so
+   the translate never exposes an uncovered edge. Values match TILE_W/TILE_H. */
+@keyframes bgDrift {
+    from { transform: translate3d(0, 0, 0); }
+    to { transform: translate3d(-180px, -174px, 0); }
+}
+.animate-bg-drift { animation: bgDrift calc(200s * var(--anim-speed, 1)) linear infinite; will-change: transform; }
+
+/* Lets the Electron shell's frameless window be dragged by its header bar.
+   No-op outside Electron. */
+.app-drag-region {
+    -webkit-app-region: drag;
+}
+.app-drag-region button,
+.app-drag-region a,
+.app-drag-region input {
+    -webkit-app-region: no-drag;
+}
+
+.material-symbols-outlined,
+.material-icons {
+    color: var(--color-icon);
+    font-size: var(--text-xl);
+    line-height: 1;
+}
+
+.material-symbols-outlined:hover,
+.material-icons:hover {
+    color: var(--color-icon-hover);
+}
+
+/* --theme-shelf-ink is the (optional) colour of the drifting bookcase
+   watermark on the auth surfaces (AuthShell.tsx). It is applied as a mask fill,
+   so it must be a solid colour, and it should contrast against --theme-bg since
+   the tile is drawn at a low opacity. When a theme leaves it unset it falls
+   back to --theme-text-sub, which every preset and custom theme defines and is
+   already tuned to read against its background - so the watermark keeps good
+   contrast on every theme by default. Override it here per-theme for a tone
+   more in keeping with a given palette. */
+
+/* Contrast ladder (v2.2): every preset follows the same intent: bg is the
+   darkest (or lightest) plane, element-matte/accent/lighter are separated
+   surface steps, text-main reads at a strong ratio against bg and text-sub at
+   a legible secondary ratio (never so dim it fails). text-sub was the common
+   "weak contrast" offender (e.g. dark used slate-500 ≈ 4:1); lifted to a
+   legible step. Custom user themes are protected at runtime by the legibility
+   guardrail in themes.ts. */
+:root,
+[data-theme='dark'] {
+    --theme-bg: var(--color-slate-900);
+    --theme-element-matte: var(--color-slate-950);
+    --theme-element-accent: var(--color-slate-800);
+    --theme-element-lighter: var(--color-slate-900);
+    --theme-text-main: var(--color-slate-200);
+    --theme-text-sub: var(--color-slate-400);
+    --theme-plain: var(--color-white);
+    --theme-highlight: var(--color-cyan-500);
+    --theme-highlight-alt: var(--color-pink-500);
+    --theme-md-heading: var(--color-cyan-400);
+    --theme-md-strong: var(--color-white);
+}
+
+[data-theme='light'] {
+    --theme-bg: var(--color-slate-100);
+    --theme-element-matte: var(--color-white);
+    --theme-element-accent: var(--color-slate-300);
+    --theme-element-lighter: var(--color-slate-200);
+    --theme-text-main: var(--color-slate-700);
+    --theme-text-sub: var(--color-slate-600);
+    --theme-plain: var(--color-black);
+    --theme-highlight: var(--color-cyan-500);
+    --theme-highlight-alt: var(--color-pink-700);
+    --theme-md-heading: var(--color-cyan-600);
+    --theme-md-strong: var(--color-slate-900);
+}
+
+[data-theme='sunset'] {
+    --theme-bg: #22130d;
+    --theme-element-matte: #332016;
+    --theme-element-accent: #523223;
+    --theme-element-lighter: #704531;
+    --theme-text-main: #ffe6cf;
+    --theme-text-sub: #d7a77b;
+    --theme-plain: #fffaf5;
+    --theme-highlight: #fb923c;
+    --theme-highlight-alt: #f97316;
+    --theme-md-heading: #fb923c;
+    --theme-md-strong: #fffaf5;
+}
+
+[data-theme='arctic'] {
+    --theme-bg: #0f1724;
+    --theme-element-matte: #162235;
+    --theme-element-accent: #24364f;
+    --theme-element-lighter: #35506f;
+    --theme-text-main: #e4f1ff;
+    --theme-text-sub: #9fb8d4;
+    --theme-plain: #fcfeff;
+    --theme-highlight: #7dd3fc;
+    --theme-highlight-alt: #38bdf8;
+    --theme-md-heading: #7dd3fc;
+    --theme-md-strong: #fcfeff;
+}
+
+[data-theme='rosewood'] {
+    --theme-bg: #1b1110;
+    --theme-element-matte: #2c1b19;
+    --theme-element-accent: #49302d;
+    --theme-element-lighter: #634541;
+    --theme-text-main: #f1dfd9;
+    --theme-text-sub: #c2a095;
+    --theme-plain: #fff8f5;
+    --theme-highlight: #d9776a;
+    --theme-highlight-alt: #b45345;
+    --theme-md-heading: #d9776a;
+    --theme-md-strong: #fff8f5;
+}
+
+[data-theme='neutral'] {
+    --theme-bg: #000000;
+    --theme-element-matte: #171717;
+    --theme-element-accent: #333333;
+    --theme-element-lighter: #262626;
+    --theme-text-main: var(--color-slate-300);
+    --theme-text-sub: var(--color-slate-400);
+    --theme-plain: var(--color-white);
+    --theme-highlight: var(--color-cyan-400);
+    --theme-highlight-alt: var(--color-pink-400);
+    --theme-md-heading: var(--color-white);
+    --theme-md-strong: var(--color-white);
+}
+
+[data-theme='rose'] {
+    --theme-bg: #24131b;
+    --theme-element-matte: #311923;
+    --theme-element-accent: #4a2634;
+    --theme-element-lighter: #3b1f2b;
+    --theme-text-main: #f5dbe4;
+    --theme-text-sub: #cfa8b7;
+    --theme-plain: #fff7fa;
+    --theme-highlight: #e87993;
+    --theme-highlight-alt: #d16ba5;
+    --theme-md-heading: #e87993;
+    --theme-md-strong: #fff7fa;
+}
+
+[data-theme='valentine'] {
+    --theme-bg: #2a0f18;
+    --theme-element-matte: #3a1522;
+    --theme-element-accent: #5c2438;
+    --theme-element-lighter: #4a1c2d;
+    --theme-text-main: #ffdbe6;
+    --theme-text-sub: #e6a3ba;
+    --theme-plain: #fff5f8;
+    --theme-highlight: #ff5d8f;
+    --theme-highlight-alt: #ff8fb3;
+    --theme-md-heading: #ff85a9;
+    --theme-md-strong: #fff5f8;
+}
+
+[data-theme='ocean'] {
+    --theme-bg: #08131a;
+    --theme-element-matte: #0d1d27;
+    --theme-element-accent: #163242;
+    --theme-element-lighter: #1b4154;
+    --theme-text-main: #d6e8f2;
+    --theme-text-sub: #94b4c7;
+    --theme-plain: #f5fbff;
+    --theme-highlight: #38bdf8;
+    --theme-highlight-alt: #60a5fa;
+    --theme-md-heading: #38bdf8;
+    --theme-md-strong: #f5fbff;
+}
+
+[data-theme='royal blue'] {
+    --theme-bg: #13203f;
+    --theme-element-matte: #1b2d57;
+    --theme-element-accent: #2b4478;
+    --theme-element-lighter: #385792;
+    --theme-text-main: #fff3c4;
+    --theme-text-sub: #f4d87a;
+    --theme-plain: #fffef9;
+    --theme-highlight: #ffd76a;
+    --theme-highlight-alt: #ffbe55;
+    --theme-md-heading: #ffd76a;
+    --theme-md-strong: #fffef9;
+}
+
+/* Legacy (v1): the exact default dark palette from athena-client. Intentionally
+   uses v1's text steps (slate-300 / slate-500) rather than v2's lifted-contrast
+   dark (slate-200 / slate-400), so the legacy theme is a byte-for-byte match to
+   v1's default. Paired with the [data-look='legacy'] block for full v1 fidelity. */
+[data-theme='legacy'] {
+    --theme-bg: var(--color-slate-900);
+    --theme-element-matte: var(--color-slate-950);
+    --theme-element-accent: var(--color-slate-800);
+    --theme-element-lighter: var(--color-slate-900);
+    --theme-text-main: var(--color-slate-300);
+    --theme-text-sub: var(--color-slate-500);
+    --theme-plain: var(--color-white);
+    --theme-highlight: var(--color-cyan-500);
+    --theme-highlight-alt: var(--color-pink-500);
+    --theme-md-heading: var(--color-cyan-400);
+    --theme-md-strong: var(--color-white);
+}
+
+@theme {
+    --font-serif: 'Lora', ui-serif, Georgia, 'Times New Roman', serif;
+    --color-background: var(--theme-bg);
+    --color-element-matte: var(--theme-element-matte);
+    --color-element: color-mix(in srgb, var(--theme-element-matte) 50%, transparent);
+    --color-element-lighter: color-mix(in srgb, var(--theme-element-lighter) 30%, transparent);
+    --color-element-accent: var(--theme-element-accent);
+    --color-element-accent-highlight: var(--color-slate-400);
+    --color-dark: var(--theme-element-accent);
+    --color-highlight-matte: var(--theme-highlight);
+    --color-highlight: color-mix(in srgb, var(--theme-highlight) 20%, transparent);
+    --color-highlight-strong: color-mix(in srgb, var(--theme-highlight) 80%, transparent);
+    --color-highlight-strongest: var(--theme-highlight);
+    --color-highlight-alt: color-mix(in srgb, var(--theme-highlight-alt) 20%, transparent);
+    --color-highlight-alt-strong: color-mix(in srgb, var(--theme-highlight-alt) 80%, transparent);
+    --color-highlight-alt-strongest: var(--theme-highlight-alt);
+    --color-main: var(--theme-text-main);
+    --color-sub: var(--theme-text-sub);
+    --color-plain: var(--theme-plain);
+    --color-md-heading: var(--theme-md-heading);
+    --color-md-strong: var(--theme-md-strong);
+    --color-icon: var(--color-highlight-alt-strong);
+    --color-icon-hover: var(--color-highlight-alt-strongest);
+    --color-danger: var(--color-red-500);
+    --color-warning: var(--color-yellow-500);
+    --color-success: var(--color-green-500);
+}
+
+/* ============================================================================
+   Looks: a visual-language layer on top of the colour theme, toggled by
+   a `data-look` attribute on <html> (see looks.ts). These rules are unlayered,
+   so they reliably override Tailwind's layered utilities. Each look sets a few
+   `--look-*` variables that the shared consuming rules below read; presets add
+   backdrop / typography extras. `custom` looks set the vars inline.
+   ============================================================================ */
+
+:root {
+    --look-radius: 0.5rem;
+    --look-surface-opacity: 1;
+    --look-blur: 0px;
+    --look-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.25);
+    --look-body-font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --look-border-width: 1px;
+}
+
+/* Shared consuming rules, active whenever a look is applied. The 'legacy' look
+   is excluded via :not() so v1's native, per-class Tailwind radii/shadows/borders
+   pass through untouched (a single --look-radius can't reproduce v1's distinct
+   rounded-lg…rounded-4xl steps, its shadow-2xl / colored glows, or border-4). */
+[data-look]:not([data-look='legacy']) .rounded,
+[data-look]:not([data-look='legacy']) .rounded-md,
+[data-look]:not([data-look='legacy']) .rounded-lg,
+[data-look]:not([data-look='legacy']) .rounded-xl,
+[data-look]:not([data-look='legacy']) .rounded-2xl {
+    border-radius: var(--look-radius);
+}
+[data-look]:not([data-look='legacy']) .shadow-sm,
+[data-look]:not([data-look='legacy']) .shadow-lg,
+[data-look]:not([data-look='legacy']) .shadow-2xl {
+    box-shadow: var(--look-shadow);
+}
+[data-look]:not([data-look='legacy']) .border {
+    border-width: var(--look-border-width);
+}
+[data-look]:not([data-look='legacy']) .bg-element-matte {
+    background-color: color-mix(in srgb, var(--theme-element-matte) calc(100% * var(--look-surface-opacity)), transparent);
+    backdrop-filter: blur(var(--look-blur));
+}
+[data-look]:not([data-look='legacy']) .bg-element {
+    background-color: color-mix(in srgb, var(--theme-element-matte) calc(50% * var(--look-surface-opacity)), transparent);
+    backdrop-filter: blur(var(--look-blur));
+}
+
+/* Editorial (default): warm parchment wash, full serif body, roomy hairlines. */
+[data-look='editorial'] {
+    --look-radius: 0.25rem;
+    --look-shadow: none;
+    --look-body-font: 'Lora', ui-serif, Georgia, 'Times New Roman', serif;
+    line-height: 1.7;
+    letter-spacing: 0.01em;
+}
+[data-look='editorial'] body {
+    background-color: var(--theme-bg);
+    background-image: radial-gradient(1200px 700px at 50% -10%, rgb(150 110 60 / 0.07), transparent 60%);
+}
+[data-look='editorial'] .bg-background {
+    background-color: transparent;
+}
+[data-look='editorial'] .border {
+    border-color: color-mix(in srgb, var(--theme-text-sub) 30%, transparent);
+}
+
+/* Glass: translucent frosted surfaces over a soft cyan/pink backdrop. */
+[data-look='glass'] {
+    --look-radius: 1rem;
+    --look-surface-opacity: 0.62;
+    --look-blur: 14px;
+    --look-shadow: 0 12px 32px -10px rgb(0 0 0 / 0.4);
+}
+[data-look='glass'] body {
+    background-color: var(--theme-bg);
+    background-image: linear-gradient(135deg, rgb(34 211 238 / 0.12), transparent 45%), linear-gradient(315deg, rgb(236 72 153 / 0.1), transparent 45%);
+}
+[data-look='glass'] .bg-background {
+    background-color: transparent;
+}
+
+/* Ink: near-black, sharp corners, thin cyan hairlines, mono metadata. */
+[data-look='ink'] {
+    --look-radius: 0px;
+    --look-shadow: none;
+}
+[data-look='ink'] body {
+    background-color: var(--theme-bg);
+    background-image: linear-gradient(rgb(0 0 0 / 0.28), rgb(0 0 0 / 0.28));
+}
+[data-look='ink'] .bg-background {
+    background-color: transparent;
+}
+[data-look='ink'] .border-element-accent {
+    border-color: color-mix(in srgb, var(--theme-highlight) 45%, transparent);
+}
+[data-look='ink'] .text-xs,
+[data-look='ink'] .text-\[10px\],
+[data-look='ink'] .text-\[11px\],
+[data-look='ink'] .font-mono {
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', 'Courier New', monospace;
+}
+
+/* Aurora: layered gradient backdrop, gradient headings, glowing accents. */
+[data-look='aurora'] {
+    --look-radius: 0.75rem;
+    --look-shadow: 0 12px 34px -10px rgb(80 40 160 / 0.45);
+}
+[data-look='aurora'] body {
+    background-color: var(--theme-bg);
+    background-image: radial-gradient(1200px 600px at 8% -12%, rgb(34 211 238 / 0.14), transparent 55%),
+        radial-gradient(1000px 520px at 112% 6%, rgb(236 72 153 / 0.13), transparent 55%),
+        radial-gradient(900px 900px at 50% 122%, rgb(99 102 241 / 0.16), transparent 60%);
+}
+[data-look='aurora'] .bg-background {
+    background-color: transparent;
+}
+[data-look='aurora'] h1,
+[data-look='aurora'] h2,
+[data-look='aurora'] .font-serif {
+    background-image: linear-gradient(92deg, var(--theme-highlight), var(--theme-highlight-alt));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+[data-look='aurora'] .bg-highlight-strongest {
+    box-shadow: 0 0 18px -3px var(--theme-highlight);
+}
+
+/* Slate-soft: borderless, large radii, soft drop shadows. */
+[data-look='slate-soft'] {
+    --look-radius: 1.25rem;
+    --look-border-width: 0px;
+    --look-shadow: 0 18px 40px -12px rgb(0 0 0 / 0.45);
+}
+
+/* Legacy (v1): reproduces athena-client's default styling. Inter-sans body AND
+   headings (v1 has no serif), native Tailwind radii/shadows/borders (via the
+   :not() exclusion above), solid background with no gradient, and no editorial
+   line-height/letter-spacing overrides. --look-* vars are set to sane values but
+   are inert for radius/shadow/border here since legacy is excluded from the
+   shared consuming rules. */
+[data-look='legacy'] {
+    --look-radius: 0.5rem;
+    --look-surface-opacity: 1;
+    --look-blur: 0px;
+    --look-shadow: none;
+    --look-body-font: 'Inter', sans-serif;
+    --look-border-width: 1px;
+}
+[data-look='legacy'] body {
+    background-color: var(--theme-bg);
+}
+/* v1 uses Inter everywhere, so override v2's serif brand headings for this look
+   only. Other looks (and the --font-serif token) are untouched. */
+[data-look='legacy'] .font-serif {
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* Custom looks: consume the inline --look-* vars, plus honour blur on surfaces. */
+[data-look='custom'] .bg-background {
+    background-color: color-mix(in srgb, var(--theme-bg) calc(100% * var(--look-surface-opacity)), transparent);
+}
+
+optgroup {
+    color: var(--color-main);
+    background-color: var(--color-element-accent);
+}
+
+option {
+    background-color: var(--color-element-lighter);
+    color: var(--color-main);
+}
+
+/* Themed checkboxes (v2.2). Native checkboxes rendered as a "pitch white"
+   system control, which clashed with every theme. Replace them with a
+   theme-aware box + drawn checkmark. Sizing is left to the element's utility
+   classes (e.g. h-4 w-4) since those out-specify this element selector. The
+   `accent-*` Tailwind classes previously used are now inert (appearance:none)
+   but harmless. Opt out with `.native-checkbox` if a raw control is ever
+   needed. */
+input[type='checkbox']:not(.native-checkbox) {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: none;
+    display: inline-grid;
+    place-content: center;
+    border: 1px solid var(--color-element-accent);
+    border-radius: 0.25rem;
+    background-color: var(--color-element-matte);
+    cursor: pointer;
+    transition:
+        border-color calc(0.12s * var(--anim-speed, 1)) ease,
+        background-color calc(0.12s * var(--anim-speed, 1)) ease;
+}
+input[type='checkbox']:not(.native-checkbox)::before {
+    content: '';
+    width: 0.62em;
+    height: 0.62em;
+    transform: scale(0);
+    transition: transform calc(0.12s * var(--anim-speed, 1)) ease;
+    background-color: var(--color-highlight-strongest);
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+input[type='checkbox']:not(.native-checkbox):checked {
+    border-color: var(--color-highlight-strongest);
+}
+input[type='checkbox']:not(.native-checkbox):checked::before {
+    transform: scale(1);
+}
+input[type='checkbox']:not(.native-checkbox):focus-visible {
+    outline: 2px solid var(--color-highlight-strongest);
+    outline-offset: 1px;
+}
+
+::-webkit-scrollbar { width: 0.5rem; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+    background-color: var(--color-sub);
+    border-radius: 0.4em;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-highlight-strong);
+    border-radius: 0.4em;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Content images are clickable (open the Lightbox). */
+.prose img { cursor: zoom-in; }
+
+/* Auto-grouped image galleries: a horizontal scroll-snap strip. Consecutive
+   content images collapse into this; a `---` or intervening text breaks it. */
+.md-gallery {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    margin: 0.5rem 0;
+    padding-bottom: 0.25rem;
+}
+.md-gallery-item {
+    flex: 0 0 auto;
+    scroll-snap-align: center;
+    max-width: 100%;
+}
+.md-gallery-item img {
+    margin: 0;
+    height: 18rem;
+    width: auto;
+    max-width: 100%;
+    object-fit: cover;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-element-accent);
+}
+
+/* Tables are sized by their content and cannot be told to shrink, so a table
+   with more columns than the column is wide pushes past its card and hands the
+   whole Moments column a horizontal scrollbar. Give each one its own scroll
+   box instead. Wrapping the cells would just make a wide table unreadable. */
+.md-table-wrap {
+    overflow-x: auto;
+    max-width: 100%;
+}
+.md-table-wrap > table {
+    margin: 0;
+}

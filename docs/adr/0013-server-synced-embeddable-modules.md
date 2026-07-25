@@ -1,0 +1,11 @@
+# Server-synced embeddable modules with library-shared last-write-wins
+
+To-do lists and canvases are first-class server-stored content types, not client-local features. Each has its own table(s), CRUD endpoints, sync events on the existing event log (ADR-0007), and permission flags (ADR-0009). They are **library-shared** (visible to all users, like moments and tags) and use **last-write-wins** concurrency rather than the `If-Match`/409 hard-reject that moments use. They are **embeddable into moment markdown** via a syntax token that stores a **live reference** (the module ID), resolved at render time. They **hard-delete with audit-log retention** (ADR-0010); a canvas node referencing a since-deleted moment renders a "deleted" placeholder.
+
+Server-side storage was chosen over client-local because embedding a module in a shared moment must render for every reader and must follow a user across devices. Only server state satisfies that under online-only (ADR-0003). A client-local module would render as a broken embed for everyone but its author.
+
+Last-write-wins was chosen over moments' 409 hard-reject (ADR-0007) because these modules (canvas especially, with continuous drag-to-move updates) mutate far too frequently for hard-reject to be usable, and WebSocket push is still deferred. At the ~3-user scale, occasionally clobbering a node position or a checkbox is an acceptable cost versus field-level merge or pulling real-time sync forward now. The mitigation path is additive: when WebSocket push lands, per-node/per-item operations ride the same event log without changing this data model.
+
+Live-reference embeds were chosen over snapshots so that checking off a to-do or rearranging a canvas updates everywhere it is embedded. Hard-delete + audit was chosen over soft-delete to avoid the `WHERE deleted_at IS NULL` inconsistency ADR-0010 rejects; these are structural modules and cascade cleanly.
+
+The cost is that last-write-wins can silently drop a concurrent edit, which is documented and accepted at this scale. New permission flags are added for the modules and their embed/manage rights; these remain within the 32-bit bitmask budget of ADR-0009 and default to 0 on existing roles, so the addition is additive rather than a migration of existing permissions.

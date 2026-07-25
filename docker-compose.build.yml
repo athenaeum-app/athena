@@ -1,0 +1,20 @@
+# Overlay that builds the image from this checkout instead of pulling it.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# Use this to run an unreleased change, or to verify the Dockerfile before
+# cutting a tag. Everything else (ports, environment, volume, healthcheck) is
+# inherited from docker-compose.yml.
+#
+# The build is multi-stage and compiles the PWA before the Go binary embeds it,
+# so a cold build takes a few minutes and needs no toolchain on the host beyond
+# Docker itself.
+
+services:
+  athena:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    # Tagged locally so a source build never masquerades as the published
+    # image in `docker images`.
+    image: athena-server:local

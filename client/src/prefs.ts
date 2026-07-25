@@ -1,0 +1,207 @@
+// Client-local user preferences for the PWA. These are cosmetic/UX settings
+// that never touch the server: they live in localStorage under a single key
+// (`athena-prefs`) so a Reset clears them without disturbing custom themes
+// (`athena-themes`) or the active theme selection (`athena-active-theme`).
+//
+// Reactivity: a module-level Solid signal backs the prefs so the settings
+// panel and feed update live as prefs change. Applying `uiScale` scales the
+// root font size, which cascades to every rem-based measurement (Tailwind).
+
+import { createSignal } from 'solid-js'
+import type { TagColorPreset } from './tagColors'
+import { syncKey } from './appearance'
+
+// Rich-menu widgets (§ desktop Menu revamp). Order in MENU_WIDGETS is the
+// default display order; `label`/`blurb` drive the Widgets settings category.
+export type MenuWidgetId = 'chat' | 'users' | 'pinned' | 'stats' | 'tags'
+
+export interface MenuWidget {
+    id: MenuWidgetId
+    enabled: boolean
+}
+
+export const MENU_WIDGET_META: { id: MenuWidgetId; label: string; blurb: string }[] = [
+    { id: 'chat', label: 'Chat', blurb: 'A docked conversation panel' },
+    { id: 'users', label: 'Members', blurb: 'A roster of everyone in this library' },
+    { id: 'pinned', label: 'Pinned moments', blurb: 'Quick links to pinned entries' },
+    { id: 'stats', label: 'Quick stats', blurb: 'Totals, entries this week, streak' },
+    { id: 'tags', label: 'Top tags', blurb: 'Most-used tags as filter shortcuts' },
+]
+
+// Default widget set: enough to fill the column without clutter. Tags are off
+// by default (the feed already exposes tag filtering).
+const DEFAULT_MENU_WIDGETS: MenuWidget[] = [
+    { id: 'chat', enabled: true },
+    { id: 'users', enabled: true },
+    { id: 'pinned', enabled: true },
+    { id: 'stats', enabled: true },
+    { id: 'tags', enabled: false },
+]
+
+export interface Prefs {
+    // Root font-size multiplier (0.8 to 1.4). 1 = default 16px.
+    uiScale: number
+    // When filtering by tags, also visually highlight those tags inside
+    // moment cards in the feed.
+    highlightSelectedTags: boolean
+    // Named HSL band used when suggesting a colour for a new tag.
+    tagColorPreset: TagColorPreset
+    // Clock format for all rendered times (chat, audit log, moment timestamps).
+    // 'system' follows the OS locale; '12h'/'24h' pin it. Default 12h.
+    timeFormat: '12h' | '24h' | 'system'
+    // Feed layout: a single vertical list, or a summarized grid.
+    feedView: 'list' | 'grid'
+    // Main-UI layout preset: the standard 3-column, or Focus (a single
+    // centred writing column with the side panels in floating drawers).
+    layout: 'standard' | 'focus'
+    // Max width (px) of the Feed/moments column in the Standard layout, set by
+    // dragging the divider or the Settings slider. Clamped on use.
+    feedWidth: number
+    // Libraries switcher placement, desktop multi-server only. Ignored in a
+    // browser / single-server context. 'left-rail' is the full-height shelf
+    // on the far left; the two 'inline-*' modes stack it in the Archives
+    // column (above or below the archives list).
+    librariesPlacement: 'inline-above' | 'inline-below' | 'left-rail'
+    // Show the app logo beside the "Athena" title in the top bar. The bold
+    // title + version render regardless; this only toggles the icon.
+    showTopbarLogo: boolean
+    // Size the libraries shelf to its contents (ending just below the last
+    // library) instead of always stretching to fill the column. On by
+    // default; turn off to keep the shelf pinned to the column's full height.
+    librariesCompact: boolean
+    // Desktop Menu-column layout. 'minimal' = the compact card of nav buttons
+    // + identity (the original). 'rich' = a full-height panel with a sticky nav
+    // hub and a scrollable stack of reorderable, toggleable widgets (below).
+    menuLayout: 'minimal' | 'rich'
+    // Rich-menu widget configuration: display order + enabled state. Unknown
+    // ids are dropped and newly-shipped widgets are appended (disabled) at load
+    // so the list stays forward-compatible. Only consulted when menuLayout is
+    // 'rich'.
+    menuWidgets: MenuWidget[]
+    // Docked chat widget (rich menu): off by default, showing a compact
+    // read-only preview of the latest messages. Click it to open the full
+    // chat. Opt in to dock the full panel + composer instead. Off by default
+    // so the menu column stays uncluttered; only meaningful when the 'chat'
+    // widget is enabled.
+    chatWidgetFull: boolean
+    // Show the per-task "Add a subtask…" inputs on the To-Do board. Off by
+    // default because a row under every task reads as clutter; toggle it on to
+    // add subtasks (existing subtasks always render regardless).
+    showSubtaskAdders: boolean
+    // --- Desktop-client (Electron) only; stored here but surfaced in the
+    // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
+    font: string // '' = theme default serif
+    animationsEnabled: boolean
+    animationSpeed: number // multiplier, 0.5 (fast) to 2 (slow)
+}
+
+export const DEFAULT_PREFS: Prefs = {
+    uiScale: 1,
+    highlightSelectedTags: false,
+    tagColorPreset: 'vibrant',
+    timeFormat: '12h',
+    feedView: 'list',
+    layout: 'standard',
+    feedWidth: 896, // = Tailwind max-w-4xl (56rem)
+    librariesPlacement: 'inline-above',
+    showTopbarLogo: true,
+    librariesCompact: true,
+    menuLayout: 'rich',
+    menuWidgets: DEFAULT_MENU_WIDGETS,
+    chatWidgetFull: false,
+    showSubtaskAdders: false,
+    font: '',
+    animationsEnabled: true,
+    animationSpeed: 1,
+}
+
+const STORAGE_KEY = 'athena-prefs'
+
+// Keys cleared by "Reset all settings". Everything under athena-prefs plus
+// the keybindings, but NOT athena-themes / athena-active-theme.
+const RESET_KEYS = [STORAGE_KEY, 'athena-keybinds']
+
+// Reconcile a stored widget list with the shipped set: keep known ids in their
+// saved order + enabled state, drop unknown ids, and append any newly-shipped
+// widgets (disabled) so upgrades surface them without resetting the user's
+// arrangement. Falls back to the default list if the stored value is unusable.
+function normalizeMenuWidgets(stored: unknown): MenuWidget[] {
+    if (!Array.isArray(stored)) return DEFAULT_MENU_WIDGETS.map((w) => ({ ...w }))
+    const known = new Set(MENU_WIDGET_META.map((m) => m.id))
+    const seen = new Set<MenuWidgetId>()
+    const out: MenuWidget[] = []
+    for (const w of stored) {
+        if (w && known.has(w.id) && !seen.has(w.id)) {
+            out.push({ id: w.id, enabled: !!w.enabled })
+            seen.add(w.id)
+        }
+    }
+    for (const m of MENU_WIDGET_META) {
+        if (!seen.has(m.id)) out.push({ id: m.id, enabled: false })
+    }
+    return out
+}
+
+function load(): Prefs {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY)
+        if (!raw) return { ...DEFAULT_PREFS }
+        const parsed = JSON.parse(raw)
+        // Merge over defaults so a stored subset (older versions) stays valid.
+        const merged = { ...DEFAULT_PREFS, ...parsed }
+        // Guard the placement enum; unknown/retired values fall back to default.
+        if (!['inline-above', 'inline-below', 'left-rail'].includes(merged.librariesPlacement)) {
+            merged.librariesPlacement = DEFAULT_PREFS.librariesPlacement
+        }
+        if (!['minimal', 'rich'].includes(merged.menuLayout)) {
+            merged.menuLayout = DEFAULT_PREFS.menuLayout
+        }
+        merged.menuWidgets = normalizeMenuWidgets(merged.menuWidgets)
+        return merged
+    } catch {
+        return { ...DEFAULT_PREFS }
+    }
+}
+
+const [prefs, setPrefsSignal] = createSignal<Prefs>(load())
+
+export { prefs }
+
+// Re-read prefs from localStorage into the signal. Called after appearance
+// hydration/reset (ADR-0016) rewrites the stored value out from under us.
+export function reloadPrefs() {
+    setPrefsSignal(load())
+    applyPrefs()
+}
+
+function persist(p: Prefs) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(p))
+    syncKey(STORAGE_KEY)
+}
+
+// applyPrefs pushes prefs into the DOM. Call once at startup (before paint,
+// like the theme) and again whenever a pref changes.
+export function applyPrefs() {
+    const current = prefs()
+    document.documentElement.style.fontSize = `${Math.round(current.uiScale * 100)}%`
+    document.documentElement.style.setProperty('--anim-speed', String(current.animationSpeed))
+    document.documentElement.toggleAttribute('data-no-animations', !current.animationsEnabled)
+    if (current.font) {
+        document.documentElement.style.setProperty('--user-font', current.font)
+    } else {
+        document.documentElement.style.removeProperty('--user-font')
+    }
+}
+
+export function setPref<K extends keyof Prefs>(key: K, value: Prefs[K]) {
+    const next = { ...prefs(), [key]: value }
+    setPrefsSignal(next)
+    persist(next)
+    applyPrefs()
+}
+
+export function resetPrefs() {
+    for (const key of RESET_KEYS) localStorage.removeItem(key)
+    setPrefsSignal({ ...DEFAULT_PREFS })
+    applyPrefs()
+}
