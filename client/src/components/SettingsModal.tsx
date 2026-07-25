@@ -1006,6 +1006,17 @@ type EditorState = { mode: 'list' } | { mode: 'edit'; theme: UserTheme; isNew: b
 // Appearance is global across servers by default; this control routes edits to
 // either the global default or an override for the active server. Shown only in
 // the desktop shell that understands the appearance bridge.
+// A divider label above a run of related sections. The Appearance tab is long
+// enough that a flat stack of eleven headings gave no sense of what belongs
+// with what: the colour theme and the look that composes with it sat five
+// sections apart, with layout and font settings between them.
+const GroupLabel: Component<{ title: string; blurb: string }> = (props) => (
+    <div class="border-element-accent border-b pb-1 pt-2 first:pt-0">
+        <h2 class="text-highlight-strong text-[11px] font-bold uppercase tracking-widest">{props.title}</h2>
+        <p class="text-sub/70 text-xs">{props.blurb}</p>
+    </div>
+)
+
 const AppearanceScopeSection: Component = () => {
     const buckets = () => OVERRIDE_BUCKETS.filter((b) => overriddenKeys().includes(b.key))
     return (
@@ -1160,15 +1171,7 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
             when={editor().mode === 'edit' ? (editor() as Extract<EditorState, { mode: 'edit' }>) : null}
             fallback={
                 <div class="space-y-6">
-                    <AppearanceScopeSection />
-                    <LooksSection />
-                    <LayoutSection />
-                    <TopbarSection />
-                    <FontSection />
-                    <Show when={isDesktop}>
-                        <LibrariesSection />
-                        <MenuSection />
-                    </Show>
+                    <GroupLabel title="Style" blurb="The colour theme, the look layered over it, and the type they are set in." />
                     <section>
                         <h3 class="text-main font-serif text-base font-semibold mb-2">Theme</h3>
                         <p class="text-sub text-xs mb-3">Click a theme to apply it. Custom themes are stored in your browser.</p>
@@ -1281,6 +1284,29 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
                                 </For>
                             </div>
                         </section>
+                    </Show>
+
+                    {/* Look and Font sit directly under Theme: a look composes
+                        with whatever theme is active, so choosing one is the
+                        same decision continued. */}
+                    <LooksSection />
+                    <FontSection />
+
+                    <GroupLabel title="Layout" blurb="How the screen is arranged and which panels are on it." />
+                    <LayoutSection />
+                    <TopbarSection />
+                    <Show when={isDesktop}>
+                        <MenuSection />
+                        <LibrariesSection />
+                    </Show>
+
+                    {/* Gated on the same condition as the section itself, so a
+                        browser (where there is only one library and no shell to
+                        share settings through) doesn't get a heading with
+                        nothing under it. */}
+                    <Show when={appearanceIsGlobal()}>
+                        <GroupLabel title="Where this applies" blurb="Whether these choices follow you across libraries or stay with this one." />
+                        <AppearanceScopeSection />
                     </Show>
                 </div>
             }
