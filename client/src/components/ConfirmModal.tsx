@@ -66,7 +66,7 @@ export const ConfirmModal: Component<ConfirmModalProps> = (props) => {
                             onInput={(e) => setTyped(e.currentTarget.value)}
                             // eslint-disable-next-line
                             autofocus
-                            class="bg-element text-main border-element-accent focus:border-danger w-full rounded-lg border px-3 py-2 text-sm font-mono focus:outline-none"
+                            class="bg-element text-main border-element-accent focus:border-danger w-full rounded-lg border px-3 py-2 text-sm focus:outline-none"
                         />
                     </div>
                 </Show>

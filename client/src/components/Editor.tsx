@@ -742,7 +742,7 @@ export const Editor: Component<EditorProps> = (props) => {
                 onPaste={handlePaste}
                 rows={p.rows}
                 placeholder={p.placeholder}
-                class="bg-transparent text-main w-full resize-none rounded-md px-3 py-2 font-mono text-sm focus:outline-none"
+                class="bg-transparent text-main w-full resize-none rounded-md px-3 py-2 text-sm focus:outline-none"
             />
 
             {/* `[[` moment autocomplete */}
