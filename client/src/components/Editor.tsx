@@ -570,10 +570,19 @@ export const Editor: Component<EditorProps> = (props) => {
     // usually already at the front, so making you type a letter first just
     // hides the answer. Gated on the composer having *something* in it, so an
     // untouched inline composer doesn't sit under a permanent tag menu.
+    //
+    // selectedTags is part of that "something" because committing a tag clears
+    // tagInput. Without it, tagging a moment before writing it (type one tag,
+    // then pick the rest from the list) died at the first tag: the list showed
+    // while the name was half-typed and vanished the moment it was accepted,
+    // which is exactly when it is meant to be useful.
     const suggestingTags = createMemo(
         () =>
             tagSuggestions().length > 0 &&
-            (tagInput().trim() !== '' || title().trim() !== '' || content().trim() !== ''),
+            (selectedTags().length > 0 ||
+                tagInput().trim() !== '' ||
+                title().trim() !== '' ||
+                content().trim() !== ''),
     )
 
     // Highlight the top suggestion whenever the set changes, so Enter takes it
@@ -888,6 +897,11 @@ export const Editor: Component<EditorProps> = (props) => {
                                 <button
                                     type="button"
                                     onClick={() => removeTag(tag.id)}
+                                    // Icon-only, so the glyph name ("close") is
+                                    // all a screen reader would otherwise read,
+                                    // for every chip alike.
+                                    aria-label={`Remove tag ${tag.name}`}
+                                    title={`Remove tag ${tag.name}`}
                                     class="material-symbols-outlined text-sm hover:opacity-70"
                                     style={{ 'font-size': '14px' }}
                                 >

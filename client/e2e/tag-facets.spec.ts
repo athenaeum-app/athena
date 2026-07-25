@@ -53,8 +53,16 @@ async function seed(page: Page) {
     }
 }
 
-// The tag names currently offered in the desktop tag bar, sorted so the
-// assertion doesn't depend on server ordering.
+// This fixture's own vocabulary. The e2e database is shared across spec files,
+// so `offered` is narrowed to these names: another spec's tags showing up in
+// the bar is correct behaviour and must not fail assertions about this one.
+// `unused` is included precisely so "it is never offered" stays checkable, and
+// `fieldnotes` because the composer test below creates it and then looks for it
+// here.
+const FIXTURE_TAGS = ['games', 'roblox', 'dev', 'cooking', 'unused', 'fieldnotes']
+
+// The fixture's tag names currently offered in the desktop tag bar, sorted so
+// the assertion doesn't depend on server ordering.
 async function offered(page: Page): Promise<string[]> {
     const bar = page.getByTestId('tag-bar')
     await expect(bar).toBeVisible()
@@ -63,6 +71,7 @@ async function offered(page: Page): Promise<string[]> {
         .map((t) => t.trim())
         .filter((t) => t.startsWith('#'))
         .map((t) => t.slice(1).toLowerCase())
+        .filter((t) => FIXTURE_TAGS.includes(t))
         .sort()
 }
 
