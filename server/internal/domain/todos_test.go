@@ -15,6 +15,15 @@ func newGeneralList(t *testing.T) string {
 	return l.ID
 }
 
+// helper: mark an item done and fail on error.
+func complete(t *testing.T, id string) {
+	t.Helper()
+	done := true
+	if _, err := UpdateTodoItem(id, TodoItemPatch{Done: &done}); err != nil {
+		t.Fatalf("complete %s: %v", id, err)
+	}
+}
+
 func TestUpdateTodoItem_TogglePreservesSignature(t *testing.T) {
 	setupDB(t)
 	listID := newGeneralList(t)
@@ -24,7 +33,7 @@ func TestUpdateTodoItem_TogglePreservesSignature(t *testing.T) {
 	}
 
 	done := true
-	updated, regen, err := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done})
+	updated, err := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done})
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -34,24 +43,26 @@ func TestUpdateTodoItem_TogglePreservesSignature(t *testing.T) {
 	if updated.CompletedAt == nil {
 		t.Error("completing an item should stamp completed_at")
 	}
-	// A non-recurring item must not spawn anything.
-	if regen != nil {
-		t.Errorf("non-recurring item should not regenerate, got %+v", regen)
+	// A non-recurring item gets no schedule of its own.
+	if updated.DueAt != nil {
+		t.Errorf("non-recurring item should not gain a due date, got %v", updated.DueAt)
 	}
 }
 
 func TestUpdateTodoItem_MissingItem(t *testing.T) {
 	setupDB(t)
-	updated, regen, err := UpdateTodoItem("does-not-exist", TodoItemPatch{})
+	updated, err := UpdateTodoItem("does-not-exist", TodoItemPatch{})
 	if err != nil {
 		t.Fatalf("update missing: %v", err)
 	}
-	if updated != nil || regen != nil {
-		t.Errorf("missing item should return nils, got %+v / %+v", updated, regen)
+	if updated != nil {
+		t.Errorf("missing item should return nil, got %+v", updated)
 	}
 }
 
-func TestUpdateTodoItem_RecurrenceRegeneratesNextOccurrence(t *testing.T) {
+// Completing a repeating task must not put a second copy of it on the board:
+// the one item stays done and simply comes due again later.
+func TestUpdateTodoItem_RecurrenceReschedulesInPlace(t *testing.T) {
 	setupDB(t)
 	listID := newGeneralList(t)
 	item, _ := CreateTodoItem(listID, "water plants", nil)
@@ -59,55 +70,50 @@ func TestUpdateTodoItem_RecurrenceRegeneratesNextOccurrence(t *testing.T) {
 	// Give it a weekly recurrence and a due date in the recent past.
 	due := time.Now().UTC().AddDate(0, 0, -2)
 	weekly := "weekly"
-	if _, _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &weekly, DueAt: &due}); err != nil {
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &weekly, DueAt: &due}); err != nil {
 		t.Fatalf("set recurrence: %v", err)
 	}
 
-	// Completing it should spawn the next occurrence.
 	done := true
-	updated, regen, err := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done})
+	updated, err := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done})
 	if err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 	if !updated.Done {
-		t.Fatal("original item should be done")
+		t.Error("a completed recurring item should stay completed")
 	}
-	if regen == nil {
-		t.Fatal("completing a recurring item should regenerate the next occurrence")
-	}
-	if regen.Done {
-		t.Error("regenerated item should be undone")
-	}
-	if regen.Recurrence != "weekly" || regen.Text != "water plants" {
-		t.Errorf("regenerated item lost fields: %+v", regen)
-	}
-	if regen.DueAt == nil || !regen.DueAt.After(time.Now().UTC()) {
-		t.Errorf("regenerated due date should be in the future, got %v", regen.DueAt)
+	if updated.DueAt == nil || !updated.DueAt.After(time.Now().UTC()) {
+		t.Errorf("next occurrence should be in the future, got %v", updated.DueAt)
 	}
 
-	// The list now holds two items (the completed one + the fresh one).
+	// The whole point: still one task, not two.
 	list, _ := GetTodoList(listID)
-	if len(list.Items) != 2 {
-		t.Fatalf("expected 2 items after regeneration, got %d", len(list.Items))
+	if len(list.Items) != 1 {
+		t.Fatalf("completing a recurring item should not spawn a copy; got %d items", len(list.Items))
+	}
+	if !list.Items[0].Done {
+		t.Error("the item should still read as done until its next occurrence arrives")
 	}
 }
 
-func TestUpdateTodoItem_NoRegenerationOnReComplete(t *testing.T) {
+func TestUpdateTodoItem_NoRescheduleOnReComplete(t *testing.T) {
 	setupDB(t)
 	listID := newGeneralList(t)
 	item, _ := CreateTodoItem(listID, "daily standup", nil)
 	daily := "daily"
-	if _, _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &daily}); err != nil {
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &daily}); err != nil {
 		t.Fatalf("set recurrence: %v", err)
 	}
 
 	done := true
-	if _, regen, _ := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done}); regen == nil {
-		t.Fatal("first completion should regenerate")
+	first, _ := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done})
+	if first.DueAt == nil {
+		t.Fatal("first completion should schedule the next occurrence")
 	}
-	// Patching an already-done item again must not spawn a second occurrence.
-	if _, regen, _ := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done}); regen != nil {
-		t.Errorf("re-completing an already-done item should not regenerate, got %+v", regen)
+	// Patching an already-done item must not push the schedule out again.
+	again, _ := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done})
+	if again.DueAt == nil || !again.DueAt.Equal(*first.DueAt) {
+		t.Errorf("re-completing should leave the schedule alone: %v -> %v", first.DueAt, again.DueAt)
 	}
 }
 
@@ -117,12 +123,144 @@ func TestUpdateTodoItem_SubtaskDoesNotRecur(t *testing.T) {
 	parent, _ := CreateTodoItem(listID, "parent", nil)
 	sub, _ := CreateTodoItem(listID, "child", &parent.ID)
 	weekly := "weekly"
-	if _, _, err := UpdateTodoItem(sub.ID, TodoItemPatch{Recurrence: &weekly}); err != nil {
+	if _, err := UpdateTodoItem(sub.ID, TodoItemPatch{Recurrence: &weekly}); err != nil {
 		t.Fatalf("set recurrence: %v", err)
 	}
 
 	done := true
-	if _, regen, _ := UpdateTodoItem(sub.ID, TodoItemPatch{Done: &done}); regen != nil {
-		t.Errorf("a subtask should not spawn its own recurrence, got %+v", regen)
+	updated, _ := UpdateTodoItem(sub.ID, TodoItemPatch{Done: &done})
+	if updated.DueAt != nil {
+		t.Errorf("a subtask should not schedule its own recurrence, got %v", updated.DueAt)
+	}
+}
+
+// The other half of the cycle: the task unchecks itself once the interval is up.
+func TestSweep_UnchecksWhenTheOccurrenceArrives(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	item, _ := CreateTodoItem(listID, "take the bins out", nil)
+	daily := "daily"
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &daily}); err != nil {
+		t.Fatalf("set recurrence: %v", err)
+	}
+	complete(t, item.ID)
+
+	// Wind the scheduled occurrence back three days, as if time had passed.
+	past := time.Now().UTC().AddDate(0, 0, -3)
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{DueAt: &past}); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	list, err := GetTodoList(listID)
+	if err != nil {
+		t.Fatalf("read list: %v", err)
+	}
+	got := list.Items[0]
+	if got.Done {
+		t.Fatal("a recurring item should uncheck itself once its occurrence has passed")
+	}
+	if got.CompletedAt != nil {
+		t.Errorf("the completion stamp should be cleared, got %v", got.CompletedAt)
+	}
+	if got.ID != item.ID || len(list.Items) != 1 {
+		t.Errorf("expected the same single item back, got %d items", len(list.Items))
+	}
+	// Caught up to the current day rather than left three days overdue.
+	now := time.Now().UTC()
+	if got.DueAt == nil || got.DueAt.After(now) || got.DueAt.Before(now.AddDate(0, 0, -1)) {
+		t.Errorf("due date should have rolled forward to the current occurrence, got %v", got.DueAt)
+	}
+}
+
+func TestSweep_LeavesAPendingOccurrenceAlone(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	item, _ := CreateTodoItem(listID, "weekly review", nil)
+	weekly := "weekly"
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &weekly}); err != nil {
+		t.Fatalf("set recurrence: %v", err)
+	}
+	complete(t, item.ID)
+
+	list, _ := GetTodoList(listID)
+	if !list.Items[0].Done {
+		t.Error("an item completed inside its own period should stay checked")
+	}
+}
+
+func TestSweep_UnchecksSubtasksWithTheirParent(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	parent, _ := CreateTodoItem(listID, "morning routine", nil)
+	sub, _ := CreateTodoItem(listID, "make the bed", &parent.ID)
+	daily := "daily"
+	if _, err := UpdateTodoItem(parent.ID, TodoItemPatch{Recurrence: &daily}); err != nil {
+		t.Fatalf("set recurrence: %v", err)
+	}
+	complete(t, sub.ID)
+	complete(t, parent.ID)
+
+	past := time.Now().UTC().AddDate(0, 0, -1)
+	if _, err := UpdateTodoItem(parent.ID, TodoItemPatch{DueAt: &past}); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	list, _ := GetTodoList(listID)
+	for _, it := range list.Items {
+		if it.Done {
+			t.Errorf("%q should have been unchecked with its parent", it.Text)
+		}
+	}
+}
+
+// A daily list's Reset-day button clears out completed items. A recurring item
+// is a standing habit, not a one-off, so it has to survive that.
+func TestResetDailyList_KeepsRecurringItems(t *testing.T) {
+	setupDB(t)
+	list, err := CreateTodoList("daily", "Rituals", nil)
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	habit, _ := CreateTodoItem(list.ID, "stretch", nil)
+	step, _ := CreateTodoItem(list.ID, "touch toes", &habit.ID)
+	oneOff, _ := CreateTodoItem(list.ID, "call the dentist", nil)
+	unfinished, _ := CreateTodoItem(list.ID, "read a chapter", nil)
+
+	daily := "daily"
+	if _, err := UpdateTodoItem(habit.ID, TodoItemPatch{Recurrence: &daily}); err != nil {
+		t.Fatalf("set recurrence: %v", err)
+	}
+	complete(t, habit.ID)
+	complete(t, step.ID)
+	complete(t, oneOff.ID)
+
+	reset, err := ResetDailyList(list.ID)
+	if err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	byID := map[string]bool{}
+	rolled := map[string]bool{}
+	for _, it := range reset.Items {
+		byID[it.ID] = it.Done
+		rolled[it.ID] = it.RolledOver
+	}
+	if _, ok := byID[oneOff.ID]; ok {
+		t.Error("a completed one-off should be cleared by the daily reset")
+	}
+	for _, id := range []string{habit.ID, step.ID} {
+		done, ok := byID[id]
+		if !ok {
+			t.Fatalf("recurring item %s was deleted by the daily reset", id)
+		}
+		if done {
+			t.Errorf("recurring item %s should come back unchecked", id)
+		}
+		if rolled[id] {
+			t.Errorf("recurring item %s was completed, so it is not unfinished business", id)
+		}
+	}
+	if !rolled[unfinished.ID] {
+		t.Error("an item left unchecked should be flagged as rolled over")
 	}
 }

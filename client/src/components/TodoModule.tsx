@@ -1084,7 +1084,18 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                         </span>
                     </Show>
                     <Show when={props.item.recurrence}>
-                        <span class="bg-element-accent text-sub flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold" title={`Repeats ${props.item.recurrence}`}>
+                        {/* A completed repeating task stays ticked until its next
+                            occurrence comes round and the server unchecks it, so
+                            say when that is rather than leaving the due chip beside
+                            a done task looking like a contradiction. */}
+                        <span
+                            class="bg-element-accent text-sub flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold"
+                            title={
+                                props.item.done && props.item.due_at
+                                    ? `Repeats ${props.item.recurrence} · back on ${formatDue(props.item.due_at)}`
+                                    : `Repeats ${props.item.recurrence}`
+                            }
+                        >
                             <span class="material-symbols-outlined text-[12px]">repeat</span>
                             {props.item.recurrence}
                         </span>

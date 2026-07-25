@@ -253,7 +253,7 @@ func (s *Server) handleUpdateTodoItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := auth.UserFromContext(r.Context())
-	item, regenerated, err := domain.UpdateTodoItem(id, patch)
+	item, err := domain.UpdateTodoItem(id, patch)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update todo item")
 		return
@@ -262,12 +262,9 @@ func (s *Server) handleUpdateTodoItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "todo item not found")
 		return
 	}
+	// Completing a recurring item moves its due date to the next occurrence
+	// rather than creating anything, so the one updated item is the whole story.
 	sync.RecordEvent("TODO_ITEM_UPDATED", "TODO_ITEM", id, &user.ID, item)
-	// Completing a recurring item spawns its next occurrence; announce it so
-	// every client (including this one, via its event poll) picks it up.
-	if regenerated != nil {
-		sync.RecordEvent("TODO_ITEM_CREATED", "TODO_ITEM", regenerated.ID, &user.ID, regenerated)
-	}
 	writeJSON(w, http.StatusOK, item)
 }
 

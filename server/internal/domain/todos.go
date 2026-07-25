@@ -19,6 +19,9 @@ import (
 // ListTodoLists returns every todo list with its items attached, ordered by
 // position then creation time.
 func ListTodoLists() ([]models.TodoList, error) {
+	if err := sweepRecurringItems(); err != nil {
+		return nil, err
+	}
 	rows, err := db.DB.Query(
 		`SELECT id, kind, title, notes, author_id, position, last_reset_at, created_at, updated_at
 		 FROM todo_lists ORDER BY position ASC, created_at ASC`,
@@ -63,6 +66,9 @@ func ListTodoLists() ([]models.TodoList, error) {
 
 // GetTodoList fetches one list with its items. Returns nil if not found.
 func GetTodoList(id string) (*models.TodoList, error) {
+	if err := sweepRecurringItems(); err != nil {
+		return nil, err
+	}
 	list, err := scanTodoList(db.DB.QueryRow(
 		`SELECT id, kind, title, notes, author_id, position, last_reset_at, created_at, updated_at
 		 FROM todo_lists WHERE id = ?`, id,
@@ -158,6 +164,12 @@ func DeleteTodoList(id string) error {
 // removed, and unchecked items are flagged rolled_over (the "unfinished from
 // yesterday" pile) so the client can offer to pull them into the new day.
 // last_reset_at is stamped. Returns the refreshed list.
+//
+// Recurring items are the exception to the clear-out. They are the list's
+// standing habits rather than one-off entries, and deleting a completed one
+// would retire the habit for good, so a reset unchecks them in place instead
+// (the same thing their own cycle does, just early). Their subtasks come with
+// them, since the parent's rule governs the whole routine.
 func ResetDailyList(id string) (*models.TodoList, error) {
 	now := time.Now().UTC()
 	tx, err := db.DB.Begin()
@@ -165,13 +177,24 @@ func ResetDailyList(id string) (*models.TodoList, error) {
 		return nil, fmt.Errorf("begin daily reset: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM todo_items WHERE list_id = ? AND done = 1`, id); err != nil {
+	if _, err := tx.Exec(
+		`DELETE FROM todo_items WHERE list_id = ? AND done = 1 AND `+notRecurring, id,
+	); err != nil {
 		return nil, fmt.Errorf("clear done items: %w", err)
 	}
+	// Only what is still unchecked counts as "unfinished from yesterday"; the
+	// recurring items are still done at this point, and are cleared below.
 	if _, err := tx.Exec(
-		`UPDATE todo_items SET rolled_over = 1, updated_at = ? WHERE list_id = ?`, now, id,
+		`UPDATE todo_items SET rolled_over = 1, updated_at = ? WHERE list_id = ? AND done = 0`, now, id,
 	); err != nil {
 		return nil, fmt.Errorf("roll over items: %w", err)
+	}
+	// Everything still done is recurring (or a subtask of something that is):
+	// uncheck rather than delete.
+	if _, err := tx.Exec(
+		`UPDATE todo_items SET done = 0, completed_at = NULL, updated_at = ? WHERE list_id = ? AND done = 1`, now, id,
+	); err != nil {
+		return nil, fmt.Errorf("reset recurring items: %w", err)
 	}
 	if _, err := tx.Exec(
 		`UPDATE todo_lists SET last_reset_at = ?, updated_at = ? WHERE id = ?`, now, now, id,
@@ -234,20 +257,21 @@ type TodoItemPatch struct {
 // UpdateTodoItem applies a partial update. Setting done true stamps
 // completed_at; done false clears it.
 //
-// Recurrence: when this update *transitions* a recurring item to done,
-// a fresh (undone) copy is spawned with its due date advanced by the rule,
-// generalizing the daily-reset roll-over to any single task. The spawned item
-// is returned as the second value (nil when nothing was regenerated) so the
-// API layer can emit a TODO_ITEM_CREATED event for it.
-func UpdateTodoItem(id string, p TodoItemPatch) (*models.TodoItem, *models.TodoItem, error) {
+// Recurrence: when this update *transitions* a recurring item to done, the
+// item stays done and its due date moves to the next occurrence. It is the
+// same task all the way through — one row, one history — and it unchecks
+// itself once that occurrence arrives (see sweepRecurringItems). Completing
+// one used to insert a fresh undone copy instead, which read as the task
+// respawning the instant you ticked it off.
+func UpdateTodoItem(id string, p TodoItemPatch) (*models.TodoItem, error) {
 	// Snapshot the pre-update state so we can detect the not-done → done edge
-	// (and read the recurrence/due/priority we need to spawn the next one).
+	// (and read the recurrence/due date we need to schedule the next one).
 	before, err := getTodoItem(id)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if before == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	sets := []string{}
@@ -295,40 +319,39 @@ func UpdateTodoItem(id string, p TodoItemPatch) (*models.TodoItem, *models.TodoI
 		args = append(args, *p.MomentID)
 	}
 	if len(sets) == 0 {
-		return before, nil, nil
+		return before, nil
 	}
 	sets = append(sets, "updated_at = ?")
 	args = append(args, time.Now().UTC(), id)
 	res, err := db.DB.Exec(`UPDATE todo_items SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("update todo item %s: %w", id, err)
+		return nil, fmt.Errorf("update todo item %s: %w", id, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 	updated, err := getTodoItem(id)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	// Regenerate on the completion edge: the item must now be done, must not
+	// Schedule on the completion edge: the item must now be done, must not
 	// have been done before, and must carry a recurrence rule. Subtasks don't
 	// recur on their own (their parent's rule governs the cycle).
-	var regenerated *models.TodoItem
 	if updated != nil && updated.Done && !before.Done && updated.Recurrence != "" && updated.ParentID == nil {
-		regenerated, err = spawnNextOccurrence(updated)
-		if err != nil {
-			return nil, nil, err
+		if err := scheduleNextOccurrence(updated); err != nil {
+			return nil, err
 		}
 	}
-	return updated, regenerated, nil
+	return updated, nil
 }
 
-// spawnNextOccurrence inserts a fresh, undone copy of a completed recurring
-// item with its due date advanced to the next occurrence strictly in the
-// future. The base is the item's own due date when set, otherwise now; the
-// step is daily/weekly/monthly. Returns the new item.
-func spawnNextOccurrence(item *models.TodoItem) (*models.TodoItem, error) {
+// scheduleNextOccurrence points a just-completed recurring item at its next
+// occurrence, which is also the moment it unchecks itself. The base is the
+// item's own due date when set, otherwise now; the step is daily/weekly/
+// monthly. The item is updated in place (and in the passed-in struct, which
+// the caller is about to hand back to the client).
+func scheduleNextOccurrence(item *models.TodoItem) error {
 	now := time.Now().UTC()
 	base := now
 	if item.DueAt != nil {
@@ -337,32 +360,131 @@ func spawnNextOccurrence(item *models.TodoItem) (*models.TodoItem, error) {
 	next := advanceRecurrence(base, item.Recurrence)
 	// If the item was overdue by several periods, roll forward until the next
 	// occurrence is actually in the future (cap the loop defensively).
-	for i := 0; i < 1000 && !next.After(now); i++ {
+	for i := 0; i < recurrenceLoopCap && !next.After(now); i++ {
 		next = advanceRecurrence(next, item.Recurrence)
 	}
-
-	spawn := &models.TodoItem{
-		ID:         uuid.NewString(),
-		ListID:     item.ListID,
-		Text:       item.Text,
-		Priority:   item.Priority,
-		Recurrence: item.Recurrence,
-		MomentID:   item.MomentID,
-		DueAt:      &next,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+	if _, err := db.DB.Exec(
+		`UPDATE todo_items SET due_at = ?, updated_at = ? WHERE id = ?`, next, now, item.ID,
+	); err != nil {
+		return fmt.Errorf("schedule next occurrence for %s: %w", item.ID, err)
 	}
-	_ = db.DB.QueryRow(`SELECT COALESCE(MAX(position)+1, 0) FROM todo_items WHERE list_id = ?`, item.ListID).Scan(&spawn.Position)
-	_, err := db.DB.Exec(
-		`INSERT INTO todo_items (id, list_id, text, done, position, due_at, priority, moment_id, recurrence, created_at, updated_at)
-		 VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
-		spawn.ID, spawn.ListID, spawn.Text, spawn.Position, spawn.DueAt, spawn.Priority, spawn.MomentID, spawn.Recurrence, spawn.CreatedAt, spawn.UpdatedAt,
+	item.DueAt = &next
+	item.UpdatedAt = now
+	return nil
+}
+
+// sweepRecurringItems unchecks completed recurring items whose next occurrence
+// has come round, which is what makes a repeating task repeat. It runs on the
+// read path because nothing polls this module server-side and the board is
+// fetched fresh every time it opens, so "when you next look at it" is exactly
+// when a stale checkbox would be visible.
+//
+// An item's next occurrence is its due date (scheduleNextOccurrence put it
+// there on completion); an item completed before it was given a rule has no
+// due date, so its completion time plus one step stands in. On reset the due
+// date rolls forward to the occurrence that has just come round rather than
+// staying at the one first missed, so a daily task left for a week reads as
+// due today instead of a week overdue.
+func sweepRecurringItems() error {
+	now := time.Now().UTC()
+	rows, err := db.DB.Query(
+		`SELECT ` + todoItemColumns + ` FROM todo_items
+		 WHERE done = 1 AND recurrence != '' AND parent_id IS NULL`,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("spawn recurring item: %w", err)
+		return fmt.Errorf("scan recurring items: %w", err)
 	}
-	return spawn, nil
+	defer rows.Close()
+
+	due := []*models.TodoItem{}
+	for rows.Next() {
+		item, err := scanTodoItem(rows)
+		if err != nil {
+			return fmt.Errorf("scan recurring item: %w", err)
+		}
+		at := occurrenceDue(item)
+		if at == nil || at.After(now) {
+			continue
+		}
+		due = append(due, item)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	for _, item := range due {
+		if err := resetRecurringItem(item, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
+
+// occurrenceDue is when a completed recurring item is next owed, i.e. when it
+// unchecks. nil means "can't tell" (no due date and never stamped complete),
+// which leaves the item alone rather than guessing.
+func occurrenceDue(item *models.TodoItem) *time.Time {
+	if item.DueAt != nil {
+		return item.DueAt
+	}
+	if item.CompletedAt != nil {
+		at := advanceRecurrence(*item.CompletedAt, item.Recurrence)
+		return &at
+	}
+	return nil
+}
+
+// resetRecurringItem unchecks one recurring item and its subtasks, and parks
+// its due date on the occurrence that has just come round.
+func resetRecurringItem(item *models.TodoItem, now time.Time) error {
+	at := occurrenceDue(item)
+	if at == nil {
+		return nil // nothing to reset against; the sweep already filters these out
+	}
+	occurrence := *at
+	for i := 0; i < recurrenceLoopCap; i++ {
+		next := advanceRecurrence(occurrence, item.Recurrence)
+		if next.After(now) {
+			break
+		}
+		occurrence = next
+	}
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("begin recurrence reset: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		`UPDATE todo_items SET done = 0, completed_at = NULL, due_at = ?, updated_at = ? WHERE id = ?`,
+		occurrence, now, item.ID,
+	); err != nil {
+		return fmt.Errorf("reset recurring item %s: %w", item.ID, err)
+	}
+	// The routine starts over as a whole, so its steps come back unticked too.
+	if _, err := tx.Exec(
+		`UPDATE todo_items SET done = 0, completed_at = NULL, updated_at = ? WHERE parent_id = ? AND done = 1`,
+		now, item.ID,
+	); err != nil {
+		return fmt.Errorf("reset subtasks of %s: %w", item.ID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit recurrence reset: %w", err)
+	}
+	return nil
+}
+
+// notRecurring matches items that take no part in a recurring cycle: no rule
+// of their own, and not a step of something that has one.
+const notRecurring = `recurrence = '' AND NOT EXISTS (
+	SELECT 1 FROM todo_items parent WHERE parent.id = todo_items.parent_id AND parent.recurrence != ''
+)`
+
+// recurrenceLoopCap bounds the roll-forward loops. An item can be arbitrarily
+// stale (a daily task untouched for years), but the loop must terminate even
+// if a rule ever advances by zero.
+const recurrenceLoopCap = 10000
 
 // advanceRecurrence returns t advanced by one step of the given rule. An
 // unknown rule advances by a day so a misconfigured item still progresses.

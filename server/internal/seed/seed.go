@@ -411,12 +411,9 @@ func (s *seeder) todoItem(listID, text string, parent *string, author string) *m
 }
 
 func (s *seeder) updateItem(listID, id string, p domain.TodoItemPatch, author string) *models.TodoItem {
-	it, regen, err := domain.UpdateTodoItem(id, p)
+	it, err := domain.UpdateTodoItem(id, p)
 	s.must(err)
 	sync.RecordEvent("TODO_ITEM_UPDATED", "TODO_ITEM", id, &author, it)
-	if regen != nil {
-		sync.RecordEvent("TODO_ITEM_CREATED", "TODO_ITEM", regen.ID, &author, regen)
-	}
 	return it
 }
 
