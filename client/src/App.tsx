@@ -865,6 +865,10 @@ export const App: Component = () => {
                                         so the moments column stays centred between the side columns
                                         at any width. */}
                                     <div class="order-3 flex w-full min-w-0 justify-center lg:order-2 lg:h-full lg:flex-1">
+                                        {/* Mirrors the resize divider on the feed's other side, so
+                                            what gets centred here is the feed itself rather than
+                                            feed+divider (which sits it ~10px left of centre). */}
+                                        <div aria-hidden="true" class="mr-1 hidden shrink-0 self-stretch lg:block lg:w-1.5" />
                                         <div
                                             data-testid="feed-column"
                                             class="max-h-screen w-full max-w-full lg:h-full lg:max-w-(--feed-width) lg:overflow-y-auto"
@@ -895,6 +899,18 @@ export const App: Component = () => {
                                             <div data-testid="menu-column" class="min-h-0 lg:h-full lg:overflow-y-auto">{menuInner()}</div>
                                         </div>
                                     </div>
+
+                                    {/* Far-right: an inert counterweight for the libraries rail.
+                                        Archives and the menu are the same width, so the feed sits
+                                        dead centre — until the rail adds 15rem to the left side
+                                        only and shoves it right, which reads as broken. Mirroring
+                                        the rail's width here restores the symmetry, and it does it
+                                        by reserving space rather than by nudging the feed over
+                                        something, so nothing can overlap. Gated on exactly what
+                                        the rail column is gated on, so the two appear together. */}
+                                    <Show when={prefs().librariesPlacement === 'left-rail' && librariesSwitcherVisible()}>
+                                        <div aria-hidden="true" class="order-4 hidden lg:block lg:h-full lg:w-60 lg:shrink-0" />
+                                    </Show>
                                 </div>
                             </Show>
 
