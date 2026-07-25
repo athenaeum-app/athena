@@ -842,7 +842,7 @@ export const App: Component = () => {
 
                                     {/* Left: Archives (per-panel scoped theme vars, 4.6) */}
                                     <div
-                                        class="z-10 order-1 w-full gap-2 rounded-xl md:flex md:flex-col lg:h-full lg:max-w-xs"
+                                        class="z-10 order-1 w-full min-w-0 gap-2 rounded-xl md:flex md:flex-col lg:h-full lg:max-w-xs"
                                         style={{
                                             'background-color': 'var(--theme-archive-panel-bg, transparent)',
                                             'border-color': 'var(--theme-archive-panel-accent, transparent)',
@@ -889,25 +889,17 @@ export const App: Component = () => {
 
                                     {/* Right: Filters + Chat + Settings (per-panel scoped theme, 4.6) */}
                                     <div
-                                        class="z-10 order-2 w-full rounded-xl text-center md:block lg:order-3 lg:h-full lg:max-w-xs lg:text-left"
+                                        class="z-10 order-2 w-full min-w-0 rounded-xl text-center md:block lg:order-3 lg:h-full lg:max-w-xs lg:text-left"
                                         style={{
                                             'background-color': 'var(--theme-menu-panel-bg, transparent)',
                                             'border-color': 'var(--theme-menu-panel-accent, transparent)',
                                         }}
                                     >
-                                        <div class="z-10 order-1 w-full justify-between gap-2 md:flex md:flex-col lg:h-full lg:max-w-xs">
+                                        <div class="z-10 order-1 w-full min-w-0 justify-between gap-2 md:flex md:flex-col lg:h-full lg:max-w-xs">
                                             <div data-testid="menu-column" class="min-h-0 lg:h-full lg:overflow-y-auto">{menuInner()}</div>
                                         </div>
                                     </div>
 
-                                    {/* Far-right: an inert counterweight for the libraries rail.
-                                        Archives and the menu are the same width, so the feed sits
-                                        dead centre — until the rail adds 15rem to the left side
-                                        only and shoves it right, which reads as broken. Mirroring
-                                        the rail's width here restores the symmetry, and it does it
-                                        by reserving space rather than by nudging the feed over
-                                        something, so nothing can overlap. Gated on exactly what
-                                        the rail column is gated on, so the two appear together. */}
                                     <Show when={prefs().librariesPlacement === 'left-rail' && librariesSwitcherVisible()}>
                                         <div aria-hidden="true" class="order-4 hidden lg:block lg:h-full lg:w-60 lg:shrink-0" />
                                     </Show>

@@ -162,10 +162,10 @@ export const MenuPanel: Component<MenuPanelProps> = (props) => {
                         <button
                             type="button"
                             onClick={() => props.onOpenMoment(m.id)}
-                            class="text-sub hover:bg-element-accent hover:text-main flex items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm transition-colors hover:cursor-pointer"
+                            class="text-sub hover:bg-element-accent hover:text-main flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm transition-colors hover:cursor-pointer"
                         >
                             <span class="material-symbols-outlined text-highlight text-sm">push_pin</span>
-                            <span class="truncate">{m.title || 'Untitled'}</span>
+                            <span class="min-w-0 truncate">{m.title || 'Untitled'}</span>
                         </button>
                     )}
                 </For>
