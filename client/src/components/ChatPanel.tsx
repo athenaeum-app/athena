@@ -83,9 +83,17 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
     let stickToBottom = true
 
     const myId = () => auth.user()?.id
-    const canEdit = (msg: ChatMessage) => !!msg.author_id && msg.author_id === myId()
-    // SEND_CHAT_MESSAGE, bit 9 (mirrors server/internal/permissions).
-    const canSend = () => hasPermission(auth.user()?.permissions || 0, 9)
+    // Bits mirror server/internal/permissions. Authorship alone used to decide
+    // this, so a member without the chat edit/delete flags was still offered
+    // both on their own messages and only found out when the server refused.
+    const perms = () => auth.user()?.permissions || 0
+    const ownsMessage = (msg: ChatMessage) => !!msg.author_id && msg.author_id === myId()
+    const canEdit = (msg: ChatMessage) => hasPermission(perms(), 10) && ownsMessage(msg) // EDIT_OWN_CHAT_MESSAGE
+    // DELETE_ANY_CHAT_MESSAGE covers other people's messages too, which the
+    // old authorship-only test could never express.
+    const canDelete = (msg: ChatMessage) => hasPermission(perms(), 12) || (hasPermission(perms(), 11) && ownsMessage(msg))
+    // SEND_CHAT_MESSAGE, bit 9.
+    const canSend = () => hasPermission(perms(), 9)
 
     const loadMessages = async () => {
         setLoading(true)
@@ -309,14 +317,13 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                         // Long-press own messages → edit/delete on touch (the
                         // hover buttons below are invisible without a pointer).
                         const lp = createLongPress(() => {
-                            if (!canEdit(msg) || editingId() === msg.id) return
-                            ui.actionSheet({
-                                title: 'Message',
-                                actions: [
-                                    { label: 'Edit', icon: 'edit', onSelect: () => startEdit(msg) },
-                                    { label: 'Delete', icon: 'delete', danger: true, onSelect: () => deleteMessage(msg) },
-                                ],
-                            })
+                            if (editingId() === msg.id) return
+                            const actions = []
+                            if (canEdit(msg)) actions.push({ label: 'Edit', icon: 'edit', onSelect: () => startEdit(msg) })
+                            if (canDelete(msg))
+                                actions.push({ label: 'Delete', icon: 'delete', danger: true, onSelect: () => deleteMessage(msg) })
+                            if (!actions.length) return
+                            ui.actionSheet({ title: 'Message', actions })
                         })
                         return (
                             <div {...lp.handlers} classList={{ 'mt-4': showHeader, 'mt-0.5': !showHeader }} class="group relative">
@@ -382,15 +389,19 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                         </span>
                                     </Show>
 
-                                    {/* Hover actions on own messages */}
-                                    <Show when={canEdit(msg) && editingId() !== msg.id}>
+                                    {/* Hover actions, each gated on its own permission */}
+                                    <Show when={(canEdit(msg) || canDelete(msg)) && editingId() !== msg.id}>
                                         <div class="shrink-0 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                                            <button onClick={() => startEdit(msg)} title="Edit" class="text-sub hover:text-main hover:cursor-pointer">
-                                                <span class="material-symbols-outlined text-sm">edit</span>
-                                            </button>
-                                            <button onClick={() => deleteMessage(msg)} title="Delete" class="text-sub hover:text-danger hover:cursor-pointer">
-                                                <span class="material-symbols-outlined text-sm">delete</span>
-                                            </button>
+                                            <Show when={canEdit(msg)}>
+                                                <button onClick={() => startEdit(msg)} title="Edit" class="text-sub hover:text-main hover:cursor-pointer">
+                                                    <span class="material-symbols-outlined text-sm">edit</span>
+                                                </button>
+                                            </Show>
+                                            <Show when={canDelete(msg)}>
+                                                <button onClick={() => deleteMessage(msg)} title="Delete" class="text-sub hover:text-danger hover:cursor-pointer">
+                                                    <span class="material-symbols-outlined text-sm">delete</span>
+                                                </button>
+                                            </Show>
                                         </div>
                                     </Show>
                                 </div>

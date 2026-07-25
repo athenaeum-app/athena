@@ -59,6 +59,12 @@ interface FeedProps {
     filters: FeedFilters
     onChangeFilters: (f: FeedFilters) => void
     canPin: boolean
+    // Per-moment gates, not flat booleans: the server splits edit/delete into
+    // own/any variants, so whether a given moment is actionable depends on who
+    // wrote it. Showing an action the server will refuse is worse than not
+    // offering it, so every edit/delete affordance below is behind these.
+    canEditMoment: (m: Moment) => boolean
+    canDeleteMoment: (m: Moment) => boolean
     onSearch: (q: string) => void
     onCreateMoment: () => void
     onEditMoment: (moment: Moment) => void
@@ -227,20 +233,24 @@ export const Feed: Component<FeedProps> = (props) => {
                                 push_pin
                             </i>
                         </Show>
-                        <i
-                            class="fa-solid fa-pencil text-icon hover:text-icon-hover transition-colors hover:cursor-pointer"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                props.onEditMoment(p.moment)
-                            }}
-                        />
-                        <i
-                            class="fa-solid fa-trash text-icon hover:text-danger transition-colors hover:cursor-pointer"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                confirmDelete(p.moment)
-                            }}
-                        />
+                        <Show when={props.canEditMoment(p.moment)}>
+                            <i
+                                class="fa-solid fa-pencil text-icon hover:text-icon-hover transition-colors hover:cursor-pointer"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    props.onEditMoment(p.moment)
+                                }}
+                            />
+                        </Show>
+                        <Show when={props.canDeleteMoment(p.moment)}>
+                            <i
+                                class="fa-solid fa-trash text-icon hover:text-danger transition-colors hover:cursor-pointer"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    confirmDelete(p.moment)
+                                }}
+                            />
+                        </Show>
                     </div>
                 </div>
                 <span
@@ -299,7 +309,10 @@ export const Feed: Component<FeedProps> = (props) => {
     const MomentGridCard: Component<{ moment: Moment }> = (p) => (
         <button
             type="button"
-            onClick={() => props.onEditMoment(p.moment)}
+            // Editing is the grid card's primary action, but a reader who
+            // cannot edit this moment gets the reader instead of a form the
+            // server would reject on save.
+            onClick={() => (props.canEditMoment(p.moment) ? props.onEditMoment(p.moment) : props.onOpenMoment?.(p.moment.id))}
             class="group hover:bg-element-accent border-element-accent flex h-full flex-col gap-2 rounded border p-3 text-left transition-all"
             classList={{ 'border-highlight bg-element-accent/40': p.moment.pinned }}
         >
@@ -381,9 +394,9 @@ export const Feed: Component<FeedProps> = (props) => {
     const momentActions = (m: Moment) => {
         const actions = []
         if (props.canPin) actions.push({ label: m.pinned ? 'Unpin' : 'Pin', icon: 'push_pin', onSelect: () => props.onTogglePin(m, !m.pinned) })
-        actions.push({ label: 'Edit', icon: 'edit', onSelect: () => props.onEditMoment(m) })
+        if (props.canEditMoment(m)) actions.push({ label: 'Edit', icon: 'edit', onSelect: () => props.onEditMoment(m) })
         actions.push({ label: 'Open reader', icon: 'open_in_full', onSelect: () => props.onOpenMoment?.(m.id) })
-        actions.push({ label: 'Delete', icon: 'delete', danger: true, onSelect: () => confirmDelete(m) })
+        if (props.canDeleteMoment(m)) actions.push({ label: 'Delete', icon: 'delete', danger: true, onSelect: () => confirmDelete(m) })
         ui.actionSheet({ title: m.title || 'Untitled', actions })
     }
 

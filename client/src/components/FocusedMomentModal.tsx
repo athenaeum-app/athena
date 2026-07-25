@@ -18,7 +18,11 @@ export const FocusedMomentModal: Component<{
     momentId: string
     archives: Archive[]
     tags: Tag[]
-    canEdit: boolean
+    // Per-moment gates. This modal fetches the moment itself, so the caller
+    // cannot decide up front whether it is actionable: edit/delete split into
+    // own/any variants server-side and depend on the author.
+    canEditMoment: (m: Moment) => boolean
+    canDeleteMoment: (m: Moment) => boolean
     // Whether to show the Pin toggle (PIN_MOMENT permission).
     canPin?: boolean
     resolveRef?: (id: string) => string | undefined
@@ -90,7 +94,7 @@ export const FocusedMomentModal: Component<{
                             <span class="material-symbols-outlined text-lg">push_pin</span>
                         </button>
                     </Show>
-                    <Show when={props.canEdit && moment()}>
+                    <Show when={moment() && props.canEditMoment(moment()!)}>
                         <button
                             onClick={() => props.onEdit(moment()!)}
                             title="Edit this moment"
@@ -99,7 +103,7 @@ export const FocusedMomentModal: Component<{
                             <span class="material-symbols-outlined text-lg">edit</span>
                         </button>
                     </Show>
-                    <Show when={props.onDelete && moment()}>
+                    <Show when={props.onDelete && moment() && props.canDeleteMoment(moment()!)}>
                         <button
                             onClick={confirmDelete}
                             title="Delete this moment"

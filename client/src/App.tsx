@@ -51,6 +51,13 @@ export const App: Component = () => {
     const canPin = () => hasPermission(perms(), 20) // PIN_MOMENT
     const canManageTodos = () => hasPermission(perms(), 21) // MANAGE_TODOS
     const canManageCanvas = () => hasPermission(perms(), 22) // MANAGE_CANVAS
+    // Editing and deleting a moment are split into own/any variants server-side
+    // (bits 2-5), so the gate depends on who wrote it rather than being a flat
+    // capability. A moment with no author_id (legacy v1 rows) can't establish
+    // ownership, so only the "any" bits reach it.
+    const ownsMoment = (m: Moment) => !!m.author_id && m.author_id === auth.user()?.id
+    const canEditMoment = (m: Moment) => hasPermission(perms(), 3) || (hasPermission(perms(), 2) && ownsMoment(m))
+    const canDeleteMoment = (m: Moment) => hasPermission(perms(), 5) || (hasPermission(perms(), 4) && ownsMoment(m))
 
     // Archives + tags are the first surfaces on solid-query (Task 0.1): simple
     // mount-once reads, cached and invalidated from the event poll below. The
@@ -620,6 +627,8 @@ export const App: Component = () => {
             filters={feedFilters()}
             onChangeFilters={handleChangeFilters}
             canPin={canPin()}
+            canEditMoment={canEditMoment}
+            canDeleteMoment={canDeleteMoment}
             onSearch={handleSearch}
             onCreateMoment={handleCreateMoment}
             onEditMoment={handleEditMoment}
@@ -1038,7 +1047,8 @@ export const App: Component = () => {
                     momentId={focusMomentId()!}
                     archives={archives() || []}
                     tags={tags() || []}
-                    canEdit={true}
+                    canEditMoment={canEditMoment}
+                    canDeleteMoment={canDeleteMoment}
                     canPin={canPin()}
                     resolveRef={(id) => [...pinnedMoments(), ...moments()].find((m) => m.id === id)?.title || undefined}
                     onEdit={(m) => {
