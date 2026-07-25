@@ -195,10 +195,10 @@ type TodoItem struct {
 	// When a repeating task comes back: 'calendar' at the start of the next
 	// period, 'interval' one whole period after it was completed. Ignored
 	// when Recurrence is empty.
-	ResetMode string  `json:"reset_mode"`
-	ParentID  *string `json:"parent_id,omitempty"` // subtask parent, one level
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ResetMode string    `json:"reset_mode"`
+	ParentID  *string   `json:"parent_id,omitempty"` // subtask parent, one level
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Canvas is an infinite pan/zoom surface holding positioned nodes.
