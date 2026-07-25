@@ -449,8 +449,11 @@ const DesktopSettings: Component = () => {
         if (!bridge) return
         setChecking(true)
         try {
+            // The bridge now resolves only once the updater reaches a verdict,
+            // so this toast reports the result rather than the fact a check
+            // started. The button stays disabled for the duration.
             const res = await bridge.checkForUpdates()
-            ui.toast(res.message || 'Checking for updates…', res.status === 'error' ? 'error' : 'success')
+            ui.toast(res.message || 'Update check finished with no result.', res.status === 'error' ? 'error' : 'success')
         } catch (err: any) {
             ui.toast(err.message || 'Update check failed', 'error')
         } finally {

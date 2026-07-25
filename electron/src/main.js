@@ -640,21 +640,57 @@ ipcMain.handle('desktop:listFonts', async () => {
 
 ipcMain.handle('desktop:appVersion', () => app.getVersion())
 
-ipcMain.handle('desktop:checkForUpdates', () => {
-    // In dev there is no packaged app to update. In a packaged build the
-    // updater already checked on launch; this asks it to check again now and
-    // reports best-effort status back to the caller.
-    if (devUrl || !app.isPackaged) return { status: 'dev', message: 'Updates are disabled in dev.' }
-    try {
+// How long to wait for the updater to say something before giving up. A check
+// that hangs is indistinguishable to the user from one that silently failed,
+// so it has to resolve one way or the other.
+const UPDATE_CHECK_TIMEOUT_MS = 30_000
+
+// Run a check and resolve with its actual outcome. checkForUpdates() only
+// promises that the request was made; whether an update exists arrives later on
+// the emitter, which is why this waits for the first conclusive event instead
+// of returning as soon as the check starts.
+function checkForUpdatesNow() {
+    return new Promise((resolve) => {
+        let settled = false
+        let timer
+        const finish = (result) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            autoUpdater.removeListener('update-available', onAvailable)
+            autoUpdater.removeListener('update-not-available', onNotAvailable)
+            autoUpdater.removeListener('update-downloaded', onDownloaded)
+            autoUpdater.removeListener('error', onError)
+            resolve(result)
+        }
+        // autoDownload is on, so finding an update already starts fetching it.
+        // Waiting for that to finish could take minutes, so report the find and
+        // let the download continue in the background.
+        const onAvailable = (info) =>
+            finish({ status: 'available', message: `Version ${info.version} is available and downloading in the background.` })
+        const onNotAvailable = (info) =>
+            finish({ status: 'current', message: `Athena ${info?.version || app.getVersion()} is the latest version.` })
+        const onDownloaded = (info) =>
+            finish({ status: 'downloaded', message: `Version ${info.version} is ready. Restart Athena to install it.` })
+        const onError = (err) => finish({ status: 'error', message: err?.message || 'Update check failed.' })
+
+        autoUpdater.once('update-available', onAvailable)
+        autoUpdater.once('update-not-available', onNotAvailable)
+        autoUpdater.once('update-downloaded', onDownloaded)
+        autoUpdater.once('error', onError)
+        timer = setTimeout(() => finish({ status: 'error', message: 'Update check timed out.' }), UPDATE_CHECK_TIMEOUT_MS)
+
         // electron-updater reads the feed from the publish target baked in at
-        // build time, so there is nothing to configure at the call site.
-        autoUpdater.checkForUpdates().catch((err) => {
-            console.warn('Manual update check failed:', err.message)
-        })
-        return { status: 'checking', message: 'Checking for updates…' }
-    } catch (err) {
-        return { status: 'error', message: err.message }
-    }
+        // build time, so there is nothing to configure at the call site. A
+        // rejection here is reported through the same path as an emitted error.
+        autoUpdater.checkForUpdates().catch(onError)
+    })
+}
+
+ipcMain.handle('desktop:checkForUpdates', () => {
+    // In dev there is no packaged app to update.
+    if (devUrl || !app.isPackaged) return { status: 'dev', message: 'Updates are disabled in dev.' }
+    return checkForUpdatesNow()
 })
 
 // desktop:reloadContent force-refreshes the *active library's* embedded PWA:
