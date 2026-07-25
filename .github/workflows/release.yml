@@ -13,7 +13,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
 
@@ -109,9 +109,13 @@ jobs:
       run:
         working-directory: electron
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      # No cache input here on purpose. setup-node v5+ can enable npm caching
+      # automatically, but from v6 that only happens when package.json declares
+      # `packageManager`/`devEngines.packageManager` as npm, which none of this
+      # repo's manifests do, so the electron install stays uncached as before.
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
 
