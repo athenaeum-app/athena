@@ -1,0 +1,13 @@
+-- 0010_todo_reset_mode.up.sql
+-- How a repeating task decides when it comes back.
+--
+-- 'calendar' unchecks it at the start of the next period (next local midnight
+-- for daily, next Monday for weekly, the 1st for monthly), so a daily task is
+-- simply one that resets each day regardless of when it was ticked off.
+-- 'interval' unchecks it one whole period after it was completed, so doing it
+-- early pushes the next one out.
+--
+-- 'calendar' is the default because that is what "daily task" is normally
+-- taken to mean. Existing rows adopt it; nothing about their due dates or
+-- completion state changes here.
+ALTER TABLE todo_items ADD COLUMN reset_mode TEXT NOT NULL DEFAULT 'calendar';

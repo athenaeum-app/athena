@@ -117,6 +117,110 @@ func TestUpdateTodoItem_NoRescheduleOnReComplete(t *testing.T) {
 	}
 }
 
+// The reported bug: unchecking and rechecking a daily task used to advance its
+// due date another day each time, because the next occurrence was derived from
+// the existing due date rather than from when the task was completed.
+func TestUpdateTodoItem_TogglingDoesNotDriftTheSchedule(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	item, _ := CreateTodoItem(listID, "water plants", nil)
+	daily := "daily"
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &daily}); err != nil {
+		t.Fatalf("set recurrence: %v", err)
+	}
+
+	done, undone := true, false
+	first, err := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done})
+	if err != nil || first.DueAt == nil {
+		t.Fatalf("first completion: %v %+v", err, first)
+	}
+
+	for i := 0; i < 5; i++ {
+		if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Done: &undone}); err != nil {
+			t.Fatalf("uncheck %d: %v", i, err)
+		}
+		if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done}); err != nil {
+			t.Fatalf("recheck %d: %v", i, err)
+		}
+	}
+
+	after, err := getTodoItem(item.ID)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if after.DueAt == nil || !after.DueAt.Equal(*first.DueAt) {
+		t.Errorf("five toggles moved the schedule: %v -> %v", first.DueAt, after.DueAt)
+	}
+}
+
+// Calendar mode is the default: a daily task comes back at the next midnight,
+// whatever time of day it was ticked off.
+func TestUpdateTodoItem_CalendarModeResetsAtTheNextBoundary(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	item, _ := CreateTodoItem(listID, "take medication", nil)
+	daily := "daily"
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &daily}); err != nil {
+		t.Fatalf("set recurrence: %v", err)
+	}
+	if item.ResetMode != ResetModeCalendar {
+		t.Errorf("calendar should be the default reset mode, got %q", item.ResetMode)
+	}
+
+	done := true
+	updated, err := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done})
+	if err != nil || updated.DueAt == nil {
+		t.Fatalf("complete: %v %+v", err, updated)
+	}
+
+	now := time.Now()
+	wantMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, 1)
+	if !updated.DueAt.Equal(wantMidnight.UTC()) {
+		t.Errorf("expected the next local midnight %v, got %v", wantMidnight.UTC(), updated.DueAt)
+	}
+}
+
+// Interval mode is the opt-in: a full period after completion, so finishing
+// early pushes the next one out.
+func TestUpdateTodoItem_IntervalModeAddsAWholePeriod(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	item, _ := CreateTodoItem(listID, "water the office plants", nil)
+	daily := "daily"
+	interval := ResetModeInterval
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &daily, ResetMode: &interval}); err != nil {
+		t.Fatalf("set recurrence: %v", err)
+	}
+
+	done := true
+	updated, err := UpdateTodoItem(item.ID, TodoItemPatch{Done: &done})
+	if err != nil || updated.DueAt == nil {
+		t.Fatalf("complete: %v %+v", err, updated)
+	}
+	if updated.ResetMode != ResetModeInterval {
+		t.Errorf("reset mode should have persisted, got %q", updated.ResetMode)
+	}
+	want := updated.CompletedAt.AddDate(0, 0, 1)
+	if diff := updated.DueAt.Sub(want); diff > time.Second || diff < -time.Second {
+		t.Errorf("expected completion + 24h (%v), got %v", want, updated.DueAt)
+	}
+}
+
+func TestUpdateTodoItem_UnknownResetModeFallsBackToCalendar(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	item, _ := CreateTodoItem(listID, "nonsense mode", nil)
+	daily := "daily"
+	bogus := "whenever"
+	updated, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &daily, ResetMode: &bogus})
+	if err != nil {
+		t.Fatalf("set recurrence: %v", err)
+	}
+	if updated.ResetMode != ResetModeCalendar {
+		t.Errorf("an unrecognised mode should normalise to calendar, got %q", updated.ResetMode)
+	}
+}
+
 func TestUpdateTodoItem_SubtaskDoesNotRecur(t *testing.T) {
 	setupDB(t)
 	listID := newGeneralList(t)

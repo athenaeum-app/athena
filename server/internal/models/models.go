@@ -192,7 +192,11 @@ type TodoItem struct {
 	Priority   int        `json:"priority"`            // 0 none, 1 low, 2 med, 3 high
 	MomentID   *string    `json:"moment_id,omitempty"` // optional linked moment
 	Recurrence string     `json:"recurrence"`          // '' | daily | weekly | monthly
-	ParentID   *string    `json:"parent_id,omitempty"` // subtask parent, one level
+	// When a repeating task comes back: 'calendar' at the start of the next
+	// period, 'interval' one whole period after it was completed. Ignored
+	// when Recurrence is empty.
+	ResetMode string  `json:"reset_mode"`
+	ParentID  *string `json:"parent_id,omitempty"` // subtask parent, one level
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
 }

@@ -219,9 +219,12 @@ func CreateTodoItem(listID, text string, parentID *string) (*models.TodoItem, er
 	}
 	now := time.Now().UTC()
 	todoItem := &models.TodoItem{
-		ID:        uuid.NewString(),
-		ListID:    listID,
-		Text:      text,
+		ID:     uuid.NewString(),
+		ListID: listID,
+		Text:   text,
+		// Mirror the column default rather than leaving the returned struct
+		// with an empty mode the client would have to guess at.
+		ResetMode: ResetModeCalendar,
 		ParentID:  parentID,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -248,6 +251,7 @@ type TodoItemPatch struct {
 	RolledOver    *bool
 	Priority      *int
 	Recurrence    *string
+	ResetMode     *string
 	DueAt         *time.Time
 	ClearDueAt    bool
 	MomentID      *string
@@ -306,6 +310,10 @@ func UpdateTodoItem(id string, p TodoItemPatch) (*models.TodoItem, error) {
 		sets = append(sets, "recurrence = ?")
 		args = append(args, *p.Recurrence)
 	}
+	if p.ResetMode != nil {
+		sets = append(sets, "reset_mode = ?")
+		args = append(args, normalizeResetMode(*p.ResetMode))
+	}
 	if p.ClearDueAt {
 		sets = append(sets, "due_at = NULL")
 	} else if p.DueAt != nil {
@@ -347,21 +355,25 @@ func UpdateTodoItem(id string, p TodoItemPatch) (*models.TodoItem, error) {
 }
 
 // scheduleNextOccurrence points a just-completed recurring item at its next
-// occurrence, which is also the moment it unchecks itself. The base is the
-// item's own due date when set, otherwise now; the step is daily/weekly/
-// monthly. The item is updated in place (and in the passed-in struct, which
-// the caller is about to hand back to the client).
+// occurrence, which is also the moment it unchecks itself.
+//
+// The base is the completion time, NOT the item's existing due date. That
+// matters: unchecking an item leaves its due date alone, so basing the next
+// occurrence on it made every uncheck-and-recheck advance the schedule another
+// period. Toggling a daily task five times pushed it five days out and it
+// stopped being daily. Deriving from completed_at makes repeated completion
+// idempotent, because the last completion simply recomputes the same answer.
 func scheduleNextOccurrence(item *models.TodoItem) error {
 	now := time.Now().UTC()
 	base := now
-	if item.DueAt != nil {
-		base = *item.DueAt
+	if item.CompletedAt != nil {
+		base = *item.CompletedAt
 	}
-	next := advanceRecurrence(base, item.Recurrence)
-	// If the item was overdue by several periods, roll forward until the next
-	// occurrence is actually in the future (cap the loop defensively).
-	for i := 0; i < recurrenceLoopCap && !next.After(now); i++ {
-		next = advanceRecurrence(next, item.Recurrence)
+	next := nextOccurrence(base, item.Recurrence, item.ResetMode)
+	// Defensive: a rule that failed to advance past the completion time would
+	// uncheck the item immediately, so step it on until it is in the future.
+	for i := 0; i < recurrenceLoopCap && !next.After(base); i++ {
+		next = nextOccurrence(next, item.Recurrence, item.ResetMode)
 	}
 	if _, err := db.DB.Exec(
 		`UPDATE todo_items SET due_at = ?, updated_at = ? WHERE id = ?`, next, now, item.ID,
@@ -371,6 +383,34 @@ func scheduleNextOccurrence(item *models.TodoItem) error {
 	item.DueAt = &next
 	item.UpdatedAt = now
 	return nil
+}
+
+// nextOccurrence is when a task completed at `from` comes back.
+//
+// ResetModeInterval adds one whole period, so finishing early pushes the next
+// one out. ResetModeCalendar jumps to the start of the next period instead, so
+// a daily task resets each day whatever time it was ticked off, which is what
+// "daily task" is usually taken to mean. Calendar boundaries are computed in
+// the server's local time: this is a self-hosted, one-library-per-server app
+// (ADR-0004), so the server's clock is the library's clock. A member in
+// another timezone sees the reset happen at the host's midnight, not theirs.
+func nextOccurrence(from time.Time, rule string, mode string) time.Time {
+	if mode != ResetModeCalendar {
+		return advanceRecurrence(from, rule)
+	}
+	local := from.Local()
+	midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+	switch rule {
+	case "weekly":
+		// The Monday after the week `from` falls in. Go weeks start on Sunday,
+		// so shift the index to make Monday day 0.
+		offset := (int(midnight.Weekday()) + 6) % 7
+		return midnight.AddDate(0, 0, 7-offset).UTC()
+	case "monthly":
+		return time.Date(local.Year(), local.Month()+1, 1, 0, 0, 0, 0, local.Location()).UTC()
+	default: // "daily" and any unknown rule
+		return midnight.AddDate(0, 0, 1).UTC()
+	}
 }
 
 // sweepRecurringItems unchecks completed recurring items whose next occurrence
@@ -429,7 +469,7 @@ func occurrenceDue(item *models.TodoItem) *time.Time {
 		return item.DueAt
 	}
 	if item.CompletedAt != nil {
-		at := advanceRecurrence(*item.CompletedAt, item.Recurrence)
+		at := nextOccurrence(*item.CompletedAt, item.Recurrence, item.ResetMode)
 		return &at
 	}
 	return nil
@@ -444,7 +484,7 @@ func resetRecurringItem(item *models.TodoItem, now time.Time) error {
 	}
 	occurrence := *at
 	for i := 0; i < recurrenceLoopCap; i++ {
-		next := advanceRecurrence(occurrence, item.Recurrence)
+		next := nextOccurrence(occurrence, item.Recurrence, item.ResetMode)
 		if next.After(now) {
 			break
 		}
@@ -481,6 +521,22 @@ const notRecurring = `recurrence = '' AND NOT EXISTS (
 	SELECT 1 FROM todo_items parent WHERE parent.id = todo_items.parent_id AND parent.recurrence != ''
 )`
 
+// Reset modes for a repeating task. Anything unrecognised is normalised to
+// ResetModeCalendar, which is also the column default, so a task always has a
+// well-defined answer to "when does this come back".
+const (
+	ResetModeCalendar = "calendar"
+	ResetModeInterval = "interval"
+)
+
+// normalizeResetMode keeps an unknown value from silently behaving as interval.
+func normalizeResetMode(mode string) string {
+	if mode == ResetModeInterval {
+		return ResetModeInterval
+	}
+	return ResetModeCalendar
+}
+
 // recurrenceLoopCap bounds the roll-forward loops. An item can be arbitrarily
 // stale (a daily task untouched for years), but the loop must terminate even
 // if a rule ever advances by zero.
@@ -511,7 +567,7 @@ func DeleteTodoItem(id string) error {
 // todoItemColumns is the canonical SELECT list, kept in one place so the two
 // readers and scanTodoItem never drift.
 const todoItemColumns = `id, list_id, text, done, position, rolled_over, completed_at,
-	 due_at, priority, moment_id, recurrence, parent_id, created_at, updated_at`
+	 due_at, priority, moment_id, recurrence, reset_mode, parent_id, created_at, updated_at`
 
 func scanTodoItem(s scannerT) (*models.TodoItem, error) {
 	todoItem := &models.TodoItem{}
@@ -519,10 +575,11 @@ func scanTodoItem(s scannerT) (*models.TodoItem, error) {
 	var momentID, parentID sql.NullString
 	if err := s.Scan(
 		&todoItem.ID, &todoItem.ListID, &todoItem.Text, &todoItem.Done, &todoItem.Position, &todoItem.RolledOver, &completedAt,
-		&dueAt, &todoItem.Priority, &momentID, &todoItem.Recurrence, &parentID, &todoItem.CreatedAt, &todoItem.UpdatedAt,
+		&dueAt, &todoItem.Priority, &momentID, &todoItem.Recurrence, &todoItem.ResetMode, &parentID, &todoItem.CreatedAt, &todoItem.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
+	todoItem.ResetMode = normalizeResetMode(todoItem.ResetMode)
 	if completedAt.Valid {
 		todoItem.CompletedAt = &completedAt.Time
 	}

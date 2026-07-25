@@ -210,6 +210,9 @@ type updateTodoItemRequest struct {
 	RolledOver *bool   `json:"rolled_over,omitempty"`
 	Priority   *int    `json:"priority,omitempty"`
 	Recurrence *string `json:"recurrence,omitempty"`
+	// ResetMode: "calendar" or "interval"; anything else normalises to
+	// calendar in the domain layer.
+	ResetMode *string `json:"reset_mode,omitempty"`
 	// DueAt: RFC3339 string to set, "" to clear, omitted to leave unchanged.
 	DueAt *string `json:"due_at,omitempty"`
 	// MomentID: id to link, "" to unlink, omitted to leave unchanged.
@@ -231,6 +234,7 @@ func (s *Server) handleUpdateTodoItem(w http.ResponseWriter, r *http.Request) {
 		RolledOver: req.RolledOver,
 		Priority:   req.Priority,
 		Recurrence: req.Recurrence,
+		ResetMode:  req.ResetMode,
 	}
 	if req.DueAt != nil {
 		if *req.DueAt == "" {

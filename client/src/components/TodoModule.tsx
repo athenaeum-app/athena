@@ -1,6 +1,6 @@
 import { createSignal, createMemo, For, Show, onMount, type Component } from 'solid-js'
 import { createStore, produce, reconcile } from 'solid-js/store'
-import { api, type TodoList, type TodoItem } from '../api'
+import { api, type TodoList, type TodoItem, type TodoResetMode } from '../api'
 import { useUI } from '../ui'
 import { backdropDismiss } from '../dismiss'
 import { createListboxNav } from '../listboxNav'
@@ -38,6 +38,14 @@ const PRIORITIES = [
 const priorityColor = (v: number) => PRIORITIES.find((p) => p.v === v)?.color || ''
 
 const RECURRENCES = ['', 'daily', 'weekly', 'monthly']
+
+// How a repeating item decides when it comes back. Only meaningful once a
+// recurrence is set, so the picker is hidden until then. Wording is per-period
+// rather than "daily/24h" because the same control governs weekly and monthly.
+const RESET_MODES: { value: TodoResetMode; label: string; hint: string }[] = [
+    { value: 'calendar', label: 'At the start of each period', hint: 'A daily task clears every midnight, whenever you ticked it off.' },
+    { value: 'interval', label: 'A full period after completion', hint: 'Finishing early pushes the next one out by the same amount.' },
+]
 
 const startOfToday = () => {
     const d = new Date()
@@ -283,6 +291,8 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
         patchItem(list, item, (i) => (i.due_at = dateInput ? dateInputToIso(dateInput) : undefined), { due_at: dateInput ? dateInputToIso(dateInput) : '' })
     const setRecurrence = (list: TodoList, item: TodoItem, recurrence: string) =>
         patchItem(list, item, (i) => (i.recurrence = recurrence), { recurrence })
+    const setResetMode = (list: TodoList, item: TodoItem, mode: TodoResetMode) =>
+        patchItem(list, item, (i) => (i.reset_mode = mode), { reset_mode: mode })
     const linkMoment = (list: TodoList, item: TodoItem, momentId: string) =>
         patchItem(list, item, (i) => (i.moment_id = momentId || undefined), { moment_id: momentId })
 
@@ -503,6 +513,7 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                                                 onSetPriority={(it, p) => setPriority(list, it, p)}
                                                 onSetDue={(it, d) => setDue(list, it, d)}
                                                 onSetRecurrence={(it, r) => setRecurrence(list, it, r)}
+                                                onSetResetMode={(it, m) => setResetMode(list, it, m)}
                                                 onLinkMoment={(it) => setMomentPicker({ listId: list.id, itemId: it.id })}
                                                 onUnlinkMoment={(it) => linkMoment(list, it, '')}
                                                 onOpenMoment={props.onOpenMoment}
@@ -704,6 +715,7 @@ interface ListColumnProps {
     onSetPriority: (item: TodoItem, priority: number) => void
     onSetDue: (item: TodoItem, dateInput: string) => void
     onSetRecurrence: (item: TodoItem, recurrence: string) => void
+    onSetResetMode: (item: TodoItem, mode: TodoResetMode) => void
     onLinkMoment: (item: TodoItem) => void
     onUnlinkMoment: (item: TodoItem) => void
     onOpenMoment?: (id: string) => void
@@ -830,6 +842,7 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                                     onSetPriority={(p) => props.onSetPriority(item, p)}
                                     onSetDue={(d) => props.onSetDue(item, d)}
                                     onSetRecurrence={(r) => props.onSetRecurrence(item, r)}
+                                    onSetResetMode={(m) => props.onSetResetMode(item, m)}
                                     onLinkMoment={() => props.onLinkMoment(item)}
                                     onUnlinkMoment={() => props.onUnlinkMoment(item)}
                                     onOpenMoment={props.onOpenMoment}
@@ -875,6 +888,7 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                                         onSetPriority={(p) => props.onSetPriority(item, p)}
                                         onSetDue={(d) => props.onSetDue(item, d)}
                                         onSetRecurrence={(r) => props.onSetRecurrence(item, r)}
+                                        onSetResetMode={(m) => props.onSetResetMode(item, m)}
                                         onLinkMoment={() => props.onLinkMoment(item)}
                                         onUnlinkMoment={() => props.onUnlinkMoment(item)}
                                         onOpenMoment={props.onOpenMoment}
@@ -899,6 +913,7 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                                                     onSetPriority={(p) => props.onSetPriority(sub, p)}
                                                     onSetDue={(d) => props.onSetDue(sub, d)}
                                                     onSetRecurrence={(r) => props.onSetRecurrence(sub, r)}
+                                                    onSetResetMode={(m) => props.onSetResetMode(sub, m)}
                                                     onLinkMoment={() => props.onLinkMoment(sub)}
                                                     onUnlinkMoment={() => props.onUnlinkMoment(sub)}
                                                     onOpenMoment={props.onOpenMoment}
@@ -988,6 +1003,7 @@ interface ItemCardProps {
     onSetPriority: (priority: number) => void
     onSetDue: (dateInput: string) => void
     onSetRecurrence: (recurrence: string) => void
+    onSetResetMode: (mode: TodoResetMode) => void
     onLinkMoment: () => void
     onUnlinkMoment: () => void
     onOpenMoment?: (id: string) => void
@@ -1170,6 +1186,21 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                             <For each={RECURRENCES}>{(r) => <option value={r}>{r === '' ? 'Never' : r}</option>}</For>
                         </select>
                     </div>
+                    {/* Only meaningful once the item repeats, so it stays out
+                        of the way until then. */}
+                    <Show when={props.item.recurrence}>
+                        <div class="flex items-center gap-1">
+                            <span class="text-sub w-16 text-[10px] font-bold uppercase tracking-wide">Resets</span>
+                            <select
+                                value={props.item.reset_mode}
+                                onChange={(e) => props.onSetResetMode(e.currentTarget.value as TodoResetMode)}
+                                title={RESET_MODES.find((m) => m.value === props.item.reset_mode)?.hint}
+                                class="bg-element text-main border-element-accent flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
+                            >
+                                <For each={RESET_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
+                            </select>
+                        </div>
+                    </Show>
                     <div class="flex items-center gap-1">
                         <span class="text-sub w-16 text-[10px] font-bold uppercase tracking-wide">Moment</span>
                         <Show

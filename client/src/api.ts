@@ -182,6 +182,7 @@ export const api = {
             rolled_over?: boolean
             priority?: number
             recurrence?: string
+            reset_mode?: TodoResetMode
             // RFC3339 to set, '' to clear, omit to leave unchanged.
             due_at?: string
             // id to link, '' to unlink, omit to leave unchanged.
@@ -344,10 +345,15 @@ export interface TodoItem {
     priority: number // 0 none, 1 low, 2 med, 3 high
     moment_id?: string
     recurrence: string // '' | daily | weekly | monthly
+    reset_mode: TodoResetMode
     parent_id?: string // subtask parent
     created_at: string
     updated_at: string
 }
+
+// When a repeating item comes back: at the start of the next period, or a
+// whole period after it was completed. Mirrors domain.ResetMode* on the server.
+export type TodoResetMode = 'calendar' | 'interval'
 
 export interface TodoList {
     id: string
