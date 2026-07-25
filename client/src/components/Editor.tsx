@@ -1167,7 +1167,7 @@ const EmbedPicker: Component<{ kind: SlashKind; onPick: (id: string) => void; on
                     placeholder="Search…"
                     class="bg-element border-element-accent text-main mb-2 w-full rounded-md border px-3 py-2 text-sm focus:outline-none"
                 />
-                <div ref={listRef} class="max-h-72 overflow-y-auto">
+                <div ref={listRef} data-testid="embed-picker-list" class="max-h-72 overflow-y-auto">
                     <Show when={!loading()} fallback={<p class="text-sub p-2 text-sm">Loading…</p>}>
                         <Show when={filtered().length > 0} fallback={<p class="text-sub/60 p-2 text-sm italic">No matches.</p>}>
                             <For each={filtered()}>

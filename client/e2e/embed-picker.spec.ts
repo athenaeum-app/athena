@@ -35,6 +35,10 @@ function watchForErrors(page: Page): string[] {
 }
 
 const composer = (page: Page) => page.getByPlaceholder(/Write your thoughts/)
+// Scoped to the picker: the seeded moments also render in the feed behind it,
+// so an unscoped text match is ambiguous and would be satisfied by the feed
+// before the picker has loaded anything.
+const pickerList = (page: Page) => page.getByTestId('embed-picker-list')
 
 test.describe('embed picker', () => {
     test.use({ viewport: { width: 1440, height: 900 } })
@@ -67,6 +71,13 @@ test.describe('embed picker', () => {
         const search = page.getByPlaceholder('Search…')
         await expect(search).toBeFocused()
 
+        // The picker fetches its list in onMount, and the heading above renders
+        // before that lands. Until it does the list is empty, so Enter has
+        // nothing to pick and silently does nothing. Waiting for a row is what
+        // makes this deterministic; without it the test is a coin flip on
+        // whether the keys or the response arrive first.
+        await expect(pickerList(page).getByText('Aaa first target')).toBeVisible()
+
         // The list is newest-first, so ArrowDown moves from the second moment
         // to the first; Enter takes whatever is highlighted.
         await page.keyboard.press('ArrowDown')
@@ -87,6 +98,9 @@ test.describe('embed picker', () => {
         const search = page.getByPlaceholder('Search…')
         await expect(search).toBeFocused()
         await search.fill('Bbb second')
+        // Same load race as above: wait for the narrowed row to exist before
+        // Enter, or there is nothing highlighted to take.
+        await expect(pickerList(page).getByText('Bbb second target')).toBeVisible()
         await page.keyboard.press('Enter')
         await expect(composer(page)).toHaveValue(/^\[\[.+\]\]$/)
 
