@@ -21,6 +21,13 @@ mac:
         - zip
     category: public.app-category.productivity
 linux:
+    # A directory of NxN.png, not the 1024px build/icon.png. Handed the single
+    # source image, electron-builder installs one icon, at its native size, into
+    # hicolor/1024x1024, and the hicolor theme declares no such directory: it
+    # stops at 512x512. An icon theme lookup only walks the sizes the theme
+    # declares, so the desktop entry's Icon= resolved to nothing and desktops
+    # fell back to a generic icon. Each file here becomes one hicolor entry.
+    icon: build/icons
     target:
         - AppImage
         - deb
