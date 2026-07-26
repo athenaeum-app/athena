@@ -122,8 +122,12 @@ in the body when it is not obvious.
 
 Close the issue from the commit (`Closes #12`), so the queue drains itself.
 
-Agent-assisted commits should carry a `Co-Authored-By:` trailer. Attribution is
-expected here, not hidden.
+Agent-assisted commits carry a `Co-Authored-By:` trailer. Attribution is
+expected here, not hidden. Put it last, after a blank line:
+
+```
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
 
 ## Tests
 
