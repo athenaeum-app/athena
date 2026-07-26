@@ -63,6 +63,21 @@ export function quoteFor(content: string): string {
 const wasEdited = (msg: ChatMessage) =>
     !msg.is_legacy && new Date(msg.updated_at).getTime() - new Date(msg.created_at).getTime() > 1000
 
+// The inline edit box was a fixed two rows, which is cramped on a desktop
+// window for anything longer than a sentence: you edit a paragraph through a
+// slot barely taller than the message you are replacing. Size it to the draft
+// instead, from a comfortable floor up to a cap so editing a very long message
+// cannot swallow the whole scrollback.
+const EDIT_MIN_HEIGHT = 112
+const EDIT_MAX_HEIGHT = 420
+
+const fitEditBox = (el: HTMLTextAreaElement) => {
+    // Collapse first, or scrollHeight only ever reports the current height and
+    // the box can grow but never shrink back.
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, EDIT_MIN_HEIGHT), EDIT_MAX_HEIGHT)}px`
+}
+
 export const ChatPanel: Component<ChatPanelProps> = (props) => {
     const auth = useAuth()
     const ui = useUI()
@@ -392,8 +407,19 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                             {/* Discord-style inline edit */}
                                             <textarea
                                                 value={editDraft()}
-                                                ref={(el) => queueMicrotask(() => el.focus())}
-                                                onInput={(e) => setEditDraft(e.currentTarget.value)}
+                                                ref={(el) =>
+                                                    queueMicrotask(() => {
+                                                        el.focus()
+                                                        // Caret at the end, so a long message does not
+                                                        // start you typing in front of your own text.
+                                                        el.setSelectionRange(el.value.length, el.value.length)
+                                                        fitEditBox(el)
+                                                    })
+                                                }
+                                                onInput={(e) => {
+                                                    setEditDraft(e.currentTarget.value)
+                                                    fitEditBox(e.currentTarget)
+                                                }}
                                                 onKeyDown={(e) => {
                                                     if (e.key === 'Enter' && !e.shiftKey) {
                                                         e.preventDefault()
@@ -402,8 +428,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                                         cancelEdit()
                                                     }
                                                 }}
-                                                rows={2}
-                                                class="bg-element-matte text-main border-element-accent focus:border-highlight w-full resize-none rounded-md border px-2 py-1.5 text-sm focus:outline-none"
+                                                class="bg-element-matte text-main border-element-accent focus:border-highlight w-full resize-none overflow-y-auto rounded-md border px-2 py-1.5 text-sm focus:outline-none"
                                             />
                                             <div class="text-sub/70 mt-0.5 text-[10px]">
                                                 Enter to save · Esc to{' '}
