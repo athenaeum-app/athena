@@ -38,6 +38,12 @@ async function seedTodos(page: Page) {
     const list = await post<{ id: string }>(req, '/api/v1/todos', { kind: 'general', title: 'Touch' })
     await post(req, `/api/v1/todos/${list.id}/items`, { text: 'Delete me on a phone' })
     await post(req, `/api/v1/todos/${list.id}/items`, { text: 'Leave this one alone' })
+
+    // Its own column, because the delete test above empties one of the rows in
+    // the list and these assertions are about order.
+    const order = await post<{ id: string }>(req, '/api/v1/todos', { kind: 'general', title: 'Touch order' })
+    await post(req, `/api/v1/todos/${order.id}/items`, { text: 'Alpha task' })
+    await post(req, `/api/v1/todos/${order.id}/items`, { text: 'Beta task' })
 }
 
 async function seedCanvases(page: Page) {
@@ -93,6 +99,41 @@ test.describe('todo item delete on touch', () => {
         await expect(page.getByText('Delete me on a phone')).toHaveCount(0)
         // The rest of the list survives: this deleted one item, not the column.
         await expect(page.getByText('Leave this one alone')).toBeVisible()
+    })
+})
+
+// Reordering is HTML5 drag-and-drop, which touch browsers never fire, so the
+// board offered a grip that does nothing. The nudges are the same capability by
+// a route a finger can take.
+test.describe('todo reordering on touch', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+    test('an item can be moved up from its detail panel', async ({ page }) => {
+        await signIn(page)
+        await seedTodos(page)
+        await page.goto('/')
+        await openModuleOnMobile(page, 'Todos')
+
+        // Filtered by an item, not the column title: the title is an <input>
+        // value, which hasText does not see.
+        const column = page.getByTestId('todo-column').filter({ hasText: 'Alpha task' })
+        const texts = () => column.getByTestId('todo-item-text').allInnerTexts()
+        await expect.poll(texts).toEqual(['Alpha task', 'Beta task'])
+
+        await page.getByRole('button', { name: 'Details Beta task' }).click()
+        await page.getByRole('button', { name: 'Move Beta task up' }).click()
+
+        await expect.poll(texts).toEqual(['Beta task', 'Alpha task'])
+    })
+
+    test('the drag grip is swapped for list nudges', async ({ page }) => {
+        await signIn(page)
+        await seedTodos(page)
+        await page.goto('/')
+        await openModuleOnMobile(page, 'Todos')
+
+        await expect(page.getByTitle('Drag to reorder list').first()).toBeHidden()
+        await expect(page.getByRole('button', { name: /^Move list .* right$/ }).first()).toBeVisible()
     })
 })
 

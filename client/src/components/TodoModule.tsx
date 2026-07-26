@@ -545,7 +545,7 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                             >
                             <div class="flex h-full items-start gap-4 overflow-x-auto p-5">
                                 <For each={lists}>
-                                    {(list) => (
+                                    {(list, index) => (
                                         <div
                                             class="flex max-h-full shrink-0 transition-opacity"
                                             classList={{ 'opacity-40': colDrag() === list.id }}
@@ -570,6 +570,16 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                                                 canReorderColumns={props.canManage && sortMode() === 'manual'}
                                                 onColumnGrab={() => setColDrag(list.id)}
                                                 onColumnDrop={() => setColDrag(null)}
+                                                onMoveLeft={
+                                                    props.canManage && sortMode() === 'manual' && index() > 0
+                                                        ? () => reorderLists(list.id, lists[index() - 1].id)
+                                                        : undefined
+                                                }
+                                                onMoveRight={
+                                                    props.canManage && sortMode() === 'manual' && index() < lists.length - 1
+                                                        ? () => reorderLists(list.id, lists[index() + 1].id)
+                                                        : undefined
+                                                }
                                                 onRename={(t) => renameList(list, t)}
                                                 onDelete={() => removeList(list)}
                                                 onSaveNotes={(n) => saveNotes(list, n)}
@@ -822,6 +832,9 @@ interface ListColumnProps {
     canReorderColumns: boolean
     onColumnGrab: () => void
     onColumnDrop: () => void
+    // Absent at the respective end of the board.
+    onMoveLeft?: () => void
+    onMoveRight?: () => void
     onRename: (title: string) => void
     onDelete: () => void
     onSaveNotes: (notes: string) => void
@@ -866,6 +879,13 @@ const ListColumn: Component<ListColumnProps> = (props) => {
             out = [...out].sort((a, b) => dueMs(a.due_at) - dueMs(b.due_at))
         } else if (props.sortMode === 'priority') {
             out = [...out].sort((a, b) => b.priority - a.priority)
+        } else {
+            // Manual order is the `position` field, which is what a reorder
+            // rewrites and what the server sorts by on load. Without this the
+            // renumbering was invisible until a reload, so a drag appeared to
+            // snap back. Stable, so equal positions keep their load order,
+            // matching the server's position ASC, created_at ASC.
+            out = [...out].sort((a, b) => a.position - b.position)
         }
         return out
     }
@@ -888,23 +908,53 @@ const ListColumn: Component<ListColumnProps> = (props) => {
     }
 
     return (
-        <div class="bg-element border-element-accent flex max-h-full w-72 shrink-0 flex-col rounded-lg border">
+        <div data-testid="todo-column" class="bg-element border-element-accent flex max-h-full w-72 shrink-0 flex-col rounded-lg border">
             {/* Column header */}
             <div class="border-element-accent flex flex-col gap-2 border-b p-3">
                 <div class="flex items-center gap-2">
                     <Show when={props.canReorderColumns}>
-                        <span
-                            draggable={true}
-                            onDragStart={(e) => {
-                                e.dataTransfer?.setData('text/plain', props.list.id)
-                                props.onColumnGrab()
-                            }}
-                            onDragEnd={() => props.onColumnDrop()}
-                            title="Drag to reorder list"
-                            class="material-symbols-outlined text-sub/40 hover:text-sub shrink-0 cursor-grab text-base"
-                        >
-                            drag_indicator
+                        {/* The variant sits on this wrapper, not on the icon:
+                            the Material Symbols stylesheet is imported unlayered
+                            and sets display on .material-symbols-outlined, which
+                            outranks any layered Tailwind display utility. */}
+                        <span class="no-hover:hidden shrink-0">
+                            <span
+                                draggable={true}
+                                onDragStart={(e) => {
+                                    e.dataTransfer?.setData('text/plain', props.list.id)
+                                    props.onColumnGrab()
+                                }}
+                                onDragEnd={() => props.onColumnDrop()}
+                                title="Drag to reorder list"
+                                class="material-symbols-outlined text-sub/40 hover:text-sub cursor-grab text-base"
+                            >
+                                drag_indicator
+                            </span>
                         </span>
+                        {/* The grip above is HTML5 drag-and-drop, which never
+                            fires on touch, so without a pointer it is swapped
+                            for a pair of nudges rather than left there as dead
+                            weight you cannot use. */}
+                        <div class="has-hover:hidden flex shrink-0 items-center">
+                            <button
+                                onClick={() => props.onMoveLeft?.()}
+                                disabled={!props.onMoveLeft}
+                                title="Move list left"
+                                aria-label={`Move list ${props.list.title} left`}
+                                class="text-sub/60 hover:text-sub disabled:opacity-30"
+                            >
+                                <span class="material-symbols-outlined text-base">chevron_left</span>
+                            </button>
+                            <button
+                                onClick={() => props.onMoveRight?.()}
+                                disabled={!props.onMoveRight}
+                                title="Move list right"
+                                aria-label={`Move list ${props.list.title} right`}
+                                class="text-sub/60 hover:text-sub disabled:opacity-30"
+                            >
+                                <span class="material-symbols-outlined text-base">chevron_right</span>
+                            </button>
+                        </div>
                     </Show>
                     <Show
                         when={props.canManage}
@@ -974,7 +1024,7 @@ const ListColumn: Component<ListColumnProps> = (props) => {
 
                 <Show when={current().length > 0} fallback={<p class="text-sub/50 py-2 text-center text-xs italic">No items.</p>}>
                     <For each={current()}>
-                        {(item) => (
+                        {(item, index) => (
                             <div>
                                 <div
                                     draggable={canDrag()}
@@ -1012,6 +1062,18 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                                         onLinkMoment={() => props.onLinkMoment(item)}
                                         onUnlinkMoment={() => props.onUnlinkMoment(item)}
                                         onOpenMoment={props.onOpenMoment}
+                                        // Ids, not indices, so this lands on the same
+                                        // path as a drop onto the neighbouring card.
+                                        onMoveUp={
+                                            canDrag() && index() > 0
+                                                ? () => props.onReorder(item.id, current()[index() - 1].id)
+                                                : undefined
+                                        }
+                                        onMoveDown={
+                                            canDrag() && index() < current().length - 1
+                                                ? () => props.onReorder(item.id, current()[index() + 1].id)
+                                                : undefined
+                                        }
                                     />
                                 </div>
 
@@ -1127,6 +1189,10 @@ interface ItemCardProps {
     onLinkMoment: () => void
     onUnlinkMoment: () => void
     onOpenMoment?: (id: string) => void
+    // Absent when this item cannot move that way (top/bottom of the column, or
+    // the column is not manually ordered at all).
+    onMoveUp?: () => void
+    onMoveDown?: () => void
 }
 
 const ItemCard: Component<ItemCardProps> = (props) => {
@@ -1162,6 +1228,7 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                     fallback={
                         <span
                             onClick={startEdit}
+                            data-testid="todo-item-text"
                             class="flex-1 break-words text-sm"
                             classList={{
                                 'text-sub line-through': props.item.done,
@@ -1206,6 +1273,7 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                     <button
                         onClick={() => setDetail((v) => !v)}
                         title="Details"
+                        aria-label={`Details ${props.item.text}`}
                         class="text-sub hover:text-main shrink-0 hover:cursor-pointer"
                         classList={{ 'text-highlight': detail() }}
                     >
@@ -1328,6 +1396,33 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                             >
                                 <For each={RESET_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
                             </select>
+                        </div>
+                    </Show>
+                    {/* Reordering is otherwise HTML5 drag-and-drop, which touch
+                        browsers do not fire at all, so a phone gets a grip it
+                        cannot use. Present only when dragging would be, so this
+                        is the same capability by another route. */}
+                    <Show when={props.onMoveUp || props.onMoveDown}>
+                        <div class="flex items-center gap-1">
+                            <span class="text-sub w-16 text-[10px] font-bold uppercase tracking-wide">Order</span>
+                            <button
+                                onClick={() => props.onMoveUp?.()}
+                                disabled={!props.onMoveUp}
+                                title="Move up"
+                                aria-label={`Move ${props.item.text} up`}
+                                class="text-sub hover:text-main disabled:opacity-30 hover:cursor-pointer disabled:cursor-default"
+                            >
+                                <span class="material-symbols-outlined text-base">arrow_upward</span>
+                            </button>
+                            <button
+                                onClick={() => props.onMoveDown?.()}
+                                disabled={!props.onMoveDown}
+                                title="Move down"
+                                aria-label={`Move ${props.item.text} down`}
+                                class="text-sub hover:text-main disabled:opacity-30 hover:cursor-pointer disabled:cursor-default"
+                            >
+                                <span class="material-symbols-outlined text-base">arrow_downward</span>
+                            </button>
                         </div>
                     </Show>
                     <div class="flex items-center gap-1">

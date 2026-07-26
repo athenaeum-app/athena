@@ -11,8 +11,12 @@
    a control that is only revealed on hover is not merely awkward on a touch
    device: the rule never matches, the control stays at opacity 0, and there is
    no way to reach it at all. `no-hover:` is that gate's exact complement, for
-   pinning such a control visible where hovering is impossible. */
+   pinning such a control visible where hovering is impossible. `has-hover:` is
+   the same gate by name, for the other half of a swap: show this on a pointer,
+   that without one. Both key off capability rather than a width breakpoint,
+   because a wide screen is not the same claim as a mouse. */
 @custom-variant no-hover (@media (hover: none));
+@custom-variant has-hover (@media (hover: hover));
 
 html, body {
     margin: 0;
