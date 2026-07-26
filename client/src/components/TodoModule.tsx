@@ -1211,7 +1211,16 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                     >
                         <span class="material-symbols-outlined text-base">tune</span>
                     </button>
-                    <button onClick={props.onRemove} title="Delete item" class="text-sub hover:text-danger shrink-0 opacity-0 transition-opacity group-hover:opacity-100 hover:cursor-pointer">
+                    {/* Hover-revealed on a pointer, permanently visible on touch:
+                        this is the only route to deleting an item (the card has
+                        no long-press sheet), so hiding it behind hover left it
+                        unreachable on a phone. */}
+                    <button
+                        onClick={props.onRemove}
+                        title="Delete item"
+                        aria-label={`Delete item ${props.item.text}`}
+                        class="text-sub hover:text-danger shrink-0 opacity-0 transition-opacity group-hover:opacity-100 no-hover:opacity-100 hover:cursor-pointer"
+                    >
                         <span class="material-symbols-outlined text-base">close</span>
                     </button>
                 </Show>

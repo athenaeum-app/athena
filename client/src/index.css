@@ -7,6 +7,13 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 
+/* Tailwind compiles `hover:` / `group-hover:` inside @media (hover: hover), so
+   a control that is only revealed on hover is not merely awkward on a touch
+   device: the rule never matches, the control stays at opacity 0, and there is
+   no way to reach it at all. `no-hover:` is that gate's exact complement, for
+   pinning such a control visible where hovering is impossible. */
+@custom-variant no-hover (@media (hover: none));
+
 html, body {
     margin: 0;
     padding: 0;
