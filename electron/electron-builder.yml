@@ -9,6 +9,8 @@ directories:
     buildResources: build
 files:
     - src/**
+    - build/icon.ico
+    - build/icon.png
 win:
     target: nsis
 mac:
