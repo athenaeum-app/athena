@@ -31,6 +31,7 @@ import { LibrariesPanel, librariesSwitcherVisible } from './components/Libraries
 import { MenuPanel } from './components/MenuPanel'
 import { FocusedMomentModal } from './components/FocusedMomentModal'
 import { Lightbox } from './components/Lightbox'
+import { watchForNewBuild } from './staleClient'
 
 // Moments are cheap rows, so we pull a large page at a time and rely on
 // infinite scroll to fetch the next one automatically (no manual "load more").
@@ -417,15 +418,20 @@ export const App: Component = () => {
         }
     }
 
+    let stopBuildWatch: (() => void) | undefined
     onMount(() => {
         loadMoments(true)
         loadPinned()
         pollTimer = window.setInterval(pollEvents, 3000)
+        // Here rather than at boot: the version endpoint is behind auth, and
+        // this is the tree that only renders once there is a session.
+        stopBuildWatch = watchForNewBuild()
         window.addEventListener('keydown', handleGlobalKey)
     })
 
     onCleanup(() => {
         if (pollTimer) clearInterval(pollTimer)
+        stopBuildWatch?.()
         window.removeEventListener('keydown', handleGlobalKey)
     })
 
