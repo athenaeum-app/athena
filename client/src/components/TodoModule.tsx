@@ -1038,21 +1038,9 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                     <Show when={isDaily()}>
                         <span class="text-highlight border-element-accent rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide">Daily</span>
                     </Show>
-                    <span class="text-sub text-xs">
+                    <span class="text-sub whitespace-nowrap text-xs">
                         {done()}/{total()} done
                     </span>
-                    {/* A daily list clears itself, so it has to say when. The
-                        button above is only for clearing it early. */}
-                    <Show when={isDaily() && props.canManage}>
-                        <select
-                            value={props.list.reset_mode}
-                            onChange={(e) => props.onSetListResetMode(e.currentTarget.value as TodoResetMode)}
-                            title="When ticks clear on their own"
-                            class="bg-element-matte text-sub border-element-accent focus:border-highlight ml-auto rounded border px-1 py-0.5 text-[10px] focus:outline-none hover:cursor-pointer"
-                        >
-                            <For each={LIST_RESET_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
-                        </select>
-                    </Show>
                     <Show when={!isDaily() && total() > 0}>
                         <div class="bg-element-accent ml-auto h-1.5 w-16 overflow-hidden rounded-full">
                             <div class="bg-highlight-strongest h-full rounded-full transition-all" style={{ width: `${percent()}%` }} />
@@ -1060,6 +1048,22 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                         <span class="text-sub font-mono text-[10px]">{percent()}%</span>
                     </Show>
                 </div>
+
+                {/* A daily list clears itself, so it has to say when. The button
+                    above is only for clearing it early. On its own row: beside
+                    the counter it squeezed "0/1 done" onto two lines, and the
+                    longer of the two labels would not have fitted a 288px
+                    column at all. */}
+                <Show when={isDaily() && props.canManage}>
+                    <select
+                        value={props.list.reset_mode}
+                        onChange={(e) => props.onSetListResetMode(e.currentTarget.value as TodoResetMode)}
+                        title="When ticks clear on their own"
+                        class="bg-element-matte text-sub border-element-accent focus:border-highlight w-full rounded border px-1.5 py-1 text-[11px] focus:outline-none hover:cursor-pointer"
+                    >
+                        <For each={LIST_RESET_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
+                    </select>
+                </Show>
             </div>
 
             {/* Scrollable item stack */}
