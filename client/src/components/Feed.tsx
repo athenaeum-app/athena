@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, onMount, onCleanup, type Component
 import type { Moment, Tag, Archive } from '../api'
 import { Line } from './Line'
 import { MomentBody } from './MomentBody'
+import { MarkdownText } from './MarkdownText'
 import { LinkPreviewList } from './LinkPreview'
 import { AttachmentList } from './AttachmentList'
 import { MomentSwiper } from './MomentSwiper'
@@ -26,17 +27,34 @@ export function activeFilterCount(f: FeedFilters): number {
     return (f.from ? 1 : 0) + (f.to ? 1 : 0) + (f.media ? 1 : 0) + (f.link ? 1 : 0)
 }
 
-// A clean plain-text preview of a moment's body for the mobile swiper card:
-// the first paragraph, with markdown/link/ref syntax stripped. The card is a
-// non-interactive preview (tap opens the reader), so no live embeds here.
-function previewSnippet(content: string): string {
-    const firstPara = content.split(/\n\s*\n/)[0] || ''
-    return firstPara
-        .replace(/!\[[^\]]*\]\([^)]*\)/g, '') // images
-        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // links -> label
-        .replace(/\[\[[^\]]+\]\]/g, '') // [[refs]]
-        .replace(/[*_`#>~]/g, '') // md punctuation
+// How much source markdown a mobile preview card renders. The card clips at its
+// own height and fades out, so this is not the visible limit; it is a ceiling on
+// the work each card does. The swiper mounts a card for every loaded moment at
+// once, and highlighting a long code block twenty times over for text that is
+// then clipped is pure waste. Set well above what a phone-sized card can show,
+// so what ends the text is the clip and not the budget.
+const PREVIEW_BUDGET = 1200
+
+// The body of a moment as markdown, for the mobile swiper card. Embed tokens are
+// dropped rather than rendered: MomentBody fetches each one at render time, and
+// the swiper would fire that burst for every card in the feed at once.
+function previewMarkdown(content: string): string {
+    let text = (content || '')
+        .replace(/::(todo|canvas):[0-9a-fA-F-]{6,}::/g, '')
+        .replace(/\[\[[0-9a-fA-F-]{6,}\]\]/g, '')
         .trim()
+
+    if (text.length > PREVIEW_BUDGET) {
+        // Cut on a line break so the truncation can't land inside a link or an
+        // emphasis run and leave its syntax on screen as literal text.
+        const cut = text.lastIndexOf('\n', PREVIEW_BUDGET)
+        text = text.slice(0, cut > 0 ? cut : PREVIEW_BUDGET)
+    }
+    // An odd number of fences means the cut fell inside a code block. Without a
+    // closer, micromark treats everything after it as one open <pre> and the
+    // rest of the card renders as unstyled source.
+    if ((text.match(/^```/gm) || []).length % 2 === 1) text += '\n```'
+    return text
 }
 
 interface FeedProps {
@@ -348,10 +366,12 @@ export const Feed: Component<FeedProps> = (props) => {
     )
 
     // Non-interactive preview card for the mobile swiper: archive, date, title,
-    // a text snippet, and tags, with no inline action icons and no live embeds. This is
-    // what makes swipe-anywhere work (nothing on the card claims the gesture);
-    // tap opens the reader, long-press raises the action sheet.
-    const MomentPreviewCard: Component<{ moment: Moment }> = (p) => (
+    // the rendered body, and tags, with no inline action icons and no live
+    // embeds. This is what makes swipe-anywhere work (nothing on the card claims
+    // the gesture); tap opens the reader, long-press raises the action sheet.
+    const MomentPreviewCard: Component<{ moment: Moment }> = (p) => {
+        const body = () => previewMarkdown(p.moment.content)
+        return (
         <div
             class="bg-element-matte border-element-accent flex h-full w-full flex-col gap-2 rounded-xl border p-5"
             classList={{ 'border-highlight': p.moment.pinned }}
@@ -369,10 +389,18 @@ export const Feed: Component<FeedProps> = (props) => {
             </div>
             <span class="text-sub text-xs font-semibold tracking-wider">{formatDate(p.moment.timestamp)}</span>
             <h2 class="text-main font-serif text-2xl font-semibold break-words">{p.moment.title || 'Untitled'}</h2>
-            <Show when={p.moment.content}>
-                <p class="text-sub min-h-0 flex-1 overflow-hidden text-sm leading-relaxed whitespace-pre-wrap">
-                    {previewSnippet(p.moment.content)}
-                </p>
+            <Show when={body()}>
+                {/* pointer-events-none is load-bearing, not a nicety. The swiper
+                    abandons the entire gesture when a press lands on a
+                    button/a/input (MomentSwiper.isInteractive), so a rendered
+                    link or image would be a dead patch of card where swipe,
+                    tap-to-read and long-press all silently stop working. Letting
+                    presses fall straight through to the card keeps the whole
+                    surface swipeable, and costs nothing: the tap belongs to the
+                    swiper here, not to anything in the text. */}
+                <div class="moment-preview pointer-events-none min-h-0 flex-1 overflow-hidden">
+                    <MarkdownText content={body()} class="text-sub text-sm" />
+                </div>
             </Show>
             <Show when={(p.moment.tag_ids || []).length > 0}>
                 <div class="mt-1 flex flex-wrap gap-1">
@@ -390,7 +418,8 @@ export const Feed: Component<FeedProps> = (props) => {
                 </div>
             </Show>
         </div>
-    )
+        )
+    }
 
     // Long-press on a swiper card raises this: the same actions the reader has,
     // for a quick path that doesn't require opening the reader first.

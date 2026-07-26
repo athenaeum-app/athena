@@ -593,6 +593,27 @@ input[type='checkbox']:not(.native-checkbox):focus-visible {
     border: 1px solid var(--color-element-accent);
 }
 
+/* Mobile swiper preview card: a clipped glance at a moment, not a document.
+   Media renders at its document size by default, so one image or a long code
+   block would fill the card on its own and push the text that gives the moment
+   its identity out of view. Capped here rather than in the component because
+   the caps belong to the rendered markdown, which the component never sees. */
+.moment-preview img {
+    max-height: 8rem;
+    object-fit: cover;
+}
+.moment-preview .md-gallery-item img {
+    height: 8rem;
+}
+.moment-preview pre {
+    max-height: 10rem;
+}
+/* The preview is pointer-events: none, so this button could never be pressed
+   even where it is offered. Showing it would be a lie about what the card does. */
+.moment-preview .copy-btn {
+    display: none;
+}
+
 /* Code-block copy button (MarkdownText attaches these after each render).
    Revealed by hovering the block on a pointer, permanently visible without one:
    on touch it used to take a stray tap on the code to surface the button, and
