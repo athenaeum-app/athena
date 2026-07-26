@@ -48,6 +48,14 @@ const RESET_MODES: { value: TodoResetMode; label: string; hint: string }[] = [
     { value: 'interval', label: 'A full period after completion', hint: 'Finishing early pushes the next one out by the same amount.' },
 ]
 
+// The same two rules at the level of a whole daily list, which is what clears
+// its items now. Worded concretely, since this control sits in the open rather
+// than behind a details panel.
+const LIST_RESET_MODES: { value: TodoResetMode; label: string }[] = [
+    { value: 'calendar', label: 'Clears at midnight' },
+    { value: 'interval', label: 'Clears 24h after each tick' },
+]
+
 const startOfToday = () => {
     const d = new Date()
     d.setHours(0, 0, 0, 0)
@@ -247,9 +255,9 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
 
     const resetDay = async (list: TodoList) => {
         const ok = await ui.confirm({
-            title: 'Reset day?',
-            message: 'Completed items are cleared and unfinished items roll over to today.',
-            confirmLabel: 'Reset',
+            title: 'Start the day again?',
+            message: 'Every ticked item is unchecked. Nothing is deleted.',
+            confirmLabel: 'Uncheck all',
         })
         if (!ok) return
         try {
@@ -263,6 +271,48 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
         } catch (err) {
             console.error('Failed to reset list:', err)
             ui.toast('Could not reset the day.', 'error')
+        }
+    }
+
+    // The broom on a general list. Unlike the reset above this does delete, so
+    // it says how many and cannot be a one-tap action.
+    const clearCompleted = async (list: TodoList) => {
+        const finished = list.items.filter((i) => i.done).length
+        if (finished === 0) {
+            ui.toast('Nothing completed to clear.', 'info')
+            return
+        }
+        const ok = await ui.confirm({
+            title: 'Clear completed?',
+            message: `${finished} completed ${finished === 1 ? 'task is' : 'tasks are'} deleted for good. Anything still open stays.`,
+            confirmLabel: 'Delete them',
+            danger: true,
+        })
+        if (!ok) return
+        try {
+            const updated = await api.cleanupTodoList(list.id)
+            withList(list.id, (l) => {
+                l.items = updated.items ?? []
+                l.updated_at = updated.updated_at
+            })
+            notifyTodoChanged(list.id)
+            ui.toast('Completed tasks cleared.', 'success')
+        } catch (err) {
+            console.error('Failed to clear completed items:', err)
+            ui.toast('Could not clear completed tasks.', 'error')
+        }
+    }
+
+    // Daily lists only: whether ticks clear at midnight or 24h after each tick.
+    const setListResetMode = async (list: TodoList, mode: TodoResetMode) => {
+        const before = list.reset_mode
+        withList(list.id, (l) => (l.reset_mode = mode))
+        try {
+            await api.updateTodoList(list.id, { reset_mode: mode })
+        } catch (err) {
+            console.error('Failed to set list reset mode:', err)
+            withList(list.id, (l) => (l.reset_mode = before))
+            ui.toast('Could not change when the list clears.', 'error')
         }
     }
 
@@ -303,16 +353,6 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
         } catch (err) {
             console.error('Failed to edit item:', err)
             ui.toast('Could not update item.', 'error')
-        }
-    }
-
-    const pullIntoToday = async (list: TodoList, item: TodoItem) => {
-        try {
-            const updated = await api.updateTodoItem(item.id, { rolled_over: false })
-            withItem(list.id, item.id, (i) => Object.assign(i, updated))
-        } catch (err) {
-            console.error('Failed to pull item:', err)
-            ui.toast('Could not pull item into today.', 'error')
         }
     }
 
@@ -381,7 +421,7 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
     // position PATCH. Subtasks are grouped under their parent, so only
     // parentless items participate in the drag order.
     const reorderItems = (list: TodoList, fromId: string, toId: string) => {
-        const items = list.items.filter((i) => !i.rolled_over && !i.parent_id)
+        const items = list.items.filter((i) => !i.parent_id)
         const from = items.findIndex((i) => i.id === fromId)
         const to = items.findIndex((i) => i.id === toId)
         if (from < 0 || to < 0 || from === to) return
@@ -584,11 +624,12 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                                                 onDelete={() => removeList(list)}
                                                 onSaveNotes={(n) => saveNotes(list, n)}
                                                 onReset={() => resetDay(list)}
+                                                onCleanup={() => clearCompleted(list)}
+                                                onSetListResetMode={(m) => setListResetMode(list, m)}
                                                 onAddItem={(t) => addItem(list, t)}
                                                 onAddSubtask={(parentId, t) => addItem(list, t, parentId)}
                                                 onToggle={(it) => toggleItem(list, it)}
                                                 onEditItem={(it, t) => editItem(list, it, t)}
-                                                onPull={(it) => pullIntoToday(list, it)}
                                                 onRemoveItem={(it) => removeItem(list, it)}
                                                 onSetPriority={(it, p) => setPriority(list, it, p)}
                                                 onSetDue={(it, d) => setDue(list, it, d)}
@@ -723,8 +764,12 @@ const AgendaView: Component<{
         const titles = new Map(props.lists.map((l) => [l.id, l.title]))
         const rows: { item: TodoItem; listTitle: string }[] = []
         for (const l of props.lists) {
+            // Daily lists are excluded: their items carry no due date you can
+            // see or set, so any left over from before would show up here as
+            // rows with no explanation and no way to change them.
+            if (l.kind === 'daily') continue
             for (const it of l.items) {
-                if (it.done || !it.due_at || it.rolled_over) continue
+                if (it.done || !it.due_at) continue
                 if (q && !it.text.toLowerCase().includes(q)) continue
                 rows.push({ item: it, listTitle: titles.get(it.list_id) ?? '' })
             }
@@ -839,11 +884,12 @@ interface ListColumnProps {
     onDelete: () => void
     onSaveNotes: (notes: string) => void
     onReset?: () => void
+    onCleanup: () => void
+    onSetListResetMode: (mode: TodoResetMode) => void
     onAddItem: (text: string) => void
     onAddSubtask: (parentId: string, text: string) => void
     onToggle: (item: TodoItem) => void
     onEditItem: (item: TodoItem, text: string) => void
-    onPull: (item: TodoItem) => void
     onRemoveItem: (item: TodoItem) => void
     onSetPriority: (item: TodoItem, priority: number) => void
     onSetDue: (item: TodoItem, dateInput: string) => void
@@ -891,8 +937,7 @@ const ListColumn: Component<ListColumnProps> = (props) => {
     }
 
     // Top-level (parentless) items drive the column; subtasks nest under them.
-    const rolled = () => visible(props.list.items.filter((i) => i.rolled_over && !i.parent_id))
-    const current = () => visible(props.list.items.filter((i) => !i.rolled_over && !i.parent_id))
+    const current = () => visible(props.list.items.filter((i) => !i.parent_id))
     const childrenOf = (parentId: string) => visible(props.list.items.filter((i) => i.parent_id === parentId))
     // True subtask progress (unaffected by the board filter/sort).
     const subProgress = (parentId: string) => {
@@ -967,8 +1012,20 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                             class="bg-element-matte text-main font-serif border-element-accent focus:border-highlight flex-1 rounded-md border px-2 py-1 text-sm font-semibold focus:outline-none"
                         />
                         <Show when={isDaily() && props.onReset}>
-                            <button onClick={() => props.onReset?.()} title="Reset day" class="text-sub hover:text-main shrink-0 hover:cursor-pointer">
+                            <button
+                                onClick={() => props.onReset?.()}
+                                title="Uncheck everything now"
+                                class="text-sub hover:text-main shrink-0 hover:cursor-pointer"
+                            >
                                 <span class="material-symbols-outlined text-base">restart_alt</span>
+                            </button>
+                        </Show>
+                        {/* Deleting finished work belongs to a task list: a daily
+                            list's entries are the routine itself, and it clears
+                            its own ticks without anything being thrown away. */}
+                        <Show when={!isDaily()}>
+                            <button onClick={props.onCleanup} title="Clear completed tasks" class="text-sub hover:text-main shrink-0 hover:cursor-pointer">
+                                <span class="material-symbols-outlined text-base">cleaning_services</span>
                             </button>
                         </Show>
                         <button onClick={props.onDelete} title="Delete list" class="text-sub hover:text-danger shrink-0 hover:cursor-pointer">
@@ -984,6 +1041,18 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                     <span class="text-sub text-xs">
                         {done()}/{total()} done
                     </span>
+                    {/* A daily list clears itself, so it has to say when. The
+                        button above is only for clearing it early. */}
+                    <Show when={isDaily() && props.canManage}>
+                        <select
+                            value={props.list.reset_mode}
+                            onChange={(e) => props.onSetListResetMode(e.currentTarget.value as TodoResetMode)}
+                            title="When ticks clear on their own"
+                            class="bg-element-matte text-sub border-element-accent focus:border-highlight ml-auto rounded border px-1 py-0.5 text-[10px] focus:outline-none hover:cursor-pointer"
+                        >
+                            <For each={LIST_RESET_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
+                        </select>
+                    </Show>
                     <Show when={!isDaily() && total() > 0}>
                         <div class="bg-element-accent ml-auto h-1.5 w-16 overflow-hidden rounded-full">
                             <div class="bg-highlight-strongest h-full rounded-full transition-all" style={{ width: `${percent()}%` }} />
@@ -995,33 +1064,6 @@ const ListColumn: Component<ListColumnProps> = (props) => {
 
             {/* Scrollable item stack */}
             <div class="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-                <Show when={isDaily() && rolled().length > 0}>
-                    <div class="border-highlight/40 bg-highlight-strongest/5 space-y-2 rounded-md border border-dashed p-2">
-                        <p class="text-sub text-[10px] font-medium uppercase tracking-wide">Unfinished from yesterday</p>
-                        <For each={rolled()}>
-                            {(item) => (
-                                <ItemCard
-                                    item={item}
-                                    canManage={props.canManage}
-                                    rolledStyle
-                                    canDrag={false}
-                                    onToggle={() => props.onToggle(item)}
-                                    onEdit={(t) => props.onEditItem(item, t)}
-                                    onPull={() => props.onPull(item)}
-                                    onRemove={() => props.onRemoveItem(item)}
-                                    onSetPriority={(p) => props.onSetPriority(item, p)}
-                                    onSetDue={(d) => props.onSetDue(item, d)}
-                                    onSetRecurrence={(r) => props.onSetRecurrence(item, r)}
-                                    onSetResetMode={(m) => props.onSetResetMode(item, m)}
-                                    onLinkMoment={() => props.onLinkMoment(item)}
-                                    onUnlinkMoment={() => props.onUnlinkMoment(item)}
-                                    onOpenMoment={props.onOpenMoment}
-                                />
-                            )}
-                        </For>
-                    </div>
-                </Show>
-
                 <Show when={current().length > 0} fallback={<p class="text-sub/50 py-2 text-center text-xs italic">No items.</p>}>
                     <For each={current()}>
                         {(item, index) => (
@@ -1050,10 +1092,10 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                                         item={item}
                                         canManage={props.canManage}
                                         canDrag={canDrag()}
+                                        daily={isDaily()}
                                         subCount={subProgress(item.id)}
                                         onToggle={() => props.onToggle(item)}
                                         onEdit={(t) => props.onEditItem(item, t)}
-                                        onPull={() => props.onPull(item)}
                                         onRemove={() => props.onRemoveItem(item)}
                                         onSetPriority={(p) => props.onSetPriority(item, p)}
                                         onSetDue={(d) => props.onSetDue(item, d)}
@@ -1087,10 +1129,10 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                                                     item={sub}
                                                     canManage={props.canManage}
                                                     canDrag={false}
+                                                    daily={isDaily()}
                                                     subtask
                                                     onToggle={() => props.onToggle(sub)}
                                                     onEdit={(t) => props.onEditItem(sub, t)}
-                                                    onPull={() => props.onPull(sub)}
                                                     onRemove={() => props.onRemoveItem(sub)}
                                                     onSetPriority={(p) => props.onSetPriority(sub, p)}
                                                     onSetDue={(d) => props.onSetDue(sub, d)}
@@ -1172,7 +1214,10 @@ const ListColumn: Component<ListColumnProps> = (props) => {
 interface ItemCardProps {
     item: TodoItem
     canManage: boolean
-    rolledStyle?: boolean
+    // On a daily list. Due dates and Repeat are hidden there: everything on
+    // such a list is today's business, and the list clears its own ticks, so
+    // both controls only ever said the same thing twice.
+    daily?: boolean
     canDrag: boolean
     // subtask renders the card more compactly (nested under a parent);
     // subCount shows a done/total badge for a parent that has children.
@@ -1180,7 +1225,6 @@ interface ItemCardProps {
     subCount?: { done: number; total: number }
     onToggle: () => void
     onEdit: (text: string) => void
-    onPull: () => void
     onRemove: () => void
     onSetPriority: (priority: number) => void
     onSetDue: (dateInput: string) => void
@@ -1232,8 +1276,7 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                             class="flex-1 break-words text-sm"
                             classList={{
                                 'text-sub line-through': props.item.done,
-                                'text-main': !props.item.done && !props.rolledStyle,
-                                'text-sub': !props.item.done && props.rolledStyle,
+                                'text-main': !props.item.done,
                                 'cursor-text': props.canManage,
                             }}
                         >
@@ -1264,11 +1307,6 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                         {props.subCount!.done}/{props.subCount!.total}
                     </span>
                 </Show>
-                <Show when={props.canManage && props.rolledStyle}>
-                    <button onClick={props.onPull} title="Pull into today" class="text-sub hover:text-main shrink-0 hover:cursor-pointer">
-                        <span class="material-symbols-outlined text-base">arrow_downward</span>
-                    </button>
-                </Show>
                 <Show when={props.canManage}>
                     <button
                         onClick={() => setDetail((v) => !v)}
@@ -1294,10 +1332,12 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                 </Show>
             </div>
 
-            {/* Chips row: due / recurrence / linked moment */}
-            <Show when={props.item.due_at || props.item.recurrence || props.item.moment_id}>
+            {/* Chips row: due / recurrence / linked moment. The first two are
+                general-list only, so a daily item is never labelled with a
+                schedule it has no control over. */}
+            <Show when={(!props.daily && (props.item.due_at || props.item.recurrence)) || props.item.moment_id}>
                 <div class="flex flex-wrap items-center gap-1 pl-6">
-                    <Show when={props.item.due_at}>
+                    <Show when={!props.daily && props.item.due_at}>
                         <span
                             class="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold"
                             classList={{
@@ -1311,7 +1351,7 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                             {formatDue(props.item.due_at!)}
                         </span>
                     </Show>
-                    <Show when={props.item.recurrence}>
+                    <Show when={!props.daily && props.item.recurrence}>
                         {/* A completed repeating task stays ticked until its next
                             occurrence comes round and the server unchecks it, so
                             say when that is rather than leaving the due chip beside
@@ -1359,44 +1399,49 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                             )}
                         </For>
                     </div>
-                    <div class="flex items-center gap-1">
-                        <span class="text-sub w-16 text-[10px] font-bold uppercase tracking-wide">Due</span>
-                        <input
-                            type="date"
-                            value={isoToDateInput(props.item.due_at)}
-                            onChange={(e) => props.onSetDue(e.currentTarget.value)}
-                            class="bg-element text-main border-element-accent focus:border-highlight flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
-                        />
-                        <Show when={props.item.due_at}>
-                            <button onClick={() => props.onSetDue('')} title="Clear due date" class="text-sub hover:text-danger shrink-0">
-                                <span class="material-symbols-outlined text-sm">close</span>
-                            </button>
-                        </Show>
-                    </div>
-                    <div class="flex items-center gap-1">
-                        <span class="text-sub w-16 text-[10px] font-bold uppercase tracking-wide">Repeat</span>
-                        <select
-                            value={props.item.recurrence}
-                            onChange={(e) => props.onSetRecurrence(e.currentTarget.value)}
-                            class="bg-element text-main border-element-accent flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
-                        >
-                            <For each={RECURRENCES}>{(r) => <option value={r}>{r === '' ? 'Never' : r}</option>}</For>
-                        </select>
-                    </div>
-                    {/* Only meaningful once the item repeats, so it stays out
-                        of the way until then. */}
-                    <Show when={props.item.recurrence}>
+                    {/* Scheduling is general-list only. On a daily list a due
+                        date could only ever be today, and Repeat would be a
+                        second, invisible cycle competing with the list's own. */}
+                    <Show when={!props.daily}>
                         <div class="flex items-center gap-1">
-                            <span class="text-sub w-16 text-[10px] font-bold uppercase tracking-wide">Resets</span>
+                            <span class="text-sub w-16 text-[10px] font-bold uppercase tracking-wide">Due</span>
+                            <input
+                                type="date"
+                                value={isoToDateInput(props.item.due_at)}
+                                onChange={(e) => props.onSetDue(e.currentTarget.value)}
+                                class="bg-element text-main border-element-accent focus:border-highlight flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
+                            />
+                            <Show when={props.item.due_at}>
+                                <button onClick={() => props.onSetDue('')} title="Clear due date" class="text-sub hover:text-danger shrink-0">
+                                    <span class="material-symbols-outlined text-sm">close</span>
+                                </button>
+                            </Show>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-sub w-16 text-[10px] font-bold uppercase tracking-wide">Repeat</span>
                             <select
-                                value={props.item.reset_mode}
-                                onChange={(e) => props.onSetResetMode(e.currentTarget.value as TodoResetMode)}
-                                title={RESET_MODES.find((m) => m.value === props.item.reset_mode)?.hint}
+                                value={props.item.recurrence}
+                                onChange={(e) => props.onSetRecurrence(e.currentTarget.value)}
                                 class="bg-element text-main border-element-accent flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
                             >
-                                <For each={RESET_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
+                                <For each={RECURRENCES}>{(r) => <option value={r}>{r === '' ? 'Never' : r}</option>}</For>
                             </select>
                         </div>
+                        {/* Only meaningful once the item repeats, so it stays out
+                            of the way until then. */}
+                        <Show when={props.item.recurrence}>
+                            <div class="flex items-center gap-1">
+                                <span class="text-sub w-16 text-[10px] font-bold uppercase tracking-wide">Resets</span>
+                                <select
+                                    value={props.item.reset_mode}
+                                    onChange={(e) => props.onSetResetMode(e.currentTarget.value as TodoResetMode)}
+                                    title={RESET_MODES.find((m) => m.value === props.item.reset_mode)?.hint}
+                                    class="bg-element text-main border-element-accent flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
+                                >
+                                    <For each={RESET_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
+                                </select>
+                            </div>
+                        </Show>
                     </Show>
                     {/* Reordering is otherwise HTML5 drag-and-drop, which touch
                         browsers do not fire at all, so a phone gets a grip it

@@ -22,6 +22,7 @@ const board: TodoList[] = [
         title: 'Groceries',
         notes: 'Line one\nLine two',
         position: 0,
+        reset_mode: 'calendar',
         created_at: '2026-07-01T00:00:00Z',
         updated_at: '2026-07-01T00:00:00Z',
         items: [

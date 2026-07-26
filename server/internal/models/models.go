@@ -158,7 +158,7 @@ type Setting struct {
 
 // TodoKind distinguishes the two flavours of todo list.
 const (
-	// TodoKindDaily is a resettable daily list; unchecked items roll over.
+	// TodoKindDaily is a list whose ticks clear on their own each cycle.
 	TodoKindDaily = "daily"
 	// TodoKindGeneral is a Trello-like named task list with a progress bar.
 	TodoKindGeneral = "general"
@@ -173,9 +173,13 @@ type TodoList struct {
 	AuthorID    *string    `json:"author_id,omitempty"`
 	Position    int        `json:"position"`
 	LastResetAt *time.Time `json:"last_reset_at,omitempty"` // daily lists
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	Items       []TodoItem `json:"items"`
+	// When a daily list's ticks clear: 'calendar' at the start of each local
+	// day, 'interval' 24 hours after each item was ticked. Ignored on general
+	// lists, which never clear themselves.
+	ResetMode string     `json:"reset_mode"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Items     []TodoItem `json:"items"`
 }
 
 // TodoItem is a single checkable entry within a TodoList.

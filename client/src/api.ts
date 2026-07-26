@@ -183,10 +183,14 @@ export const api = {
         ((await request<TodoList[]>('/api/v1/todos')) ?? []).find((l) => l.id === id),
     createTodoList: (kind: 'daily' | 'general', title: string) =>
         request<TodoList>('/api/v1/todos', { method: 'POST', body: JSON.stringify({ kind, title }) }),
-    updateTodoList: (id: string, body: { title?: string; notes?: string; position?: number }) =>
+    updateTodoList: (id: string, body: { title?: string; notes?: string; position?: number; reset_mode?: TodoResetMode }) =>
         request<TodoList>(`/api/v1/todos/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     deleteTodoList: (id: string) => request(`/api/v1/todos/${id}`, { method: 'DELETE' }),
+    // Unchecks every ticked item; deletes nothing.
     resetTodoList: (id: string) => request<TodoList>(`/api/v1/todos/${id}/reset`, { method: 'POST' }),
+    // Deletes every ticked item, bar a ticked parent that still has open
+    // subtasks. Destructive, so callers confirm first.
+    cleanupTodoList: (id: string) => request<TodoList>(`/api/v1/todos/${id}/cleanup`, { method: 'POST' }),
     createTodoItem: (listId: string, text: string, parentId?: string) =>
         request<TodoItem>(`/api/v1/todos/${listId}/items`, {
             method: 'POST',
@@ -370,8 +374,9 @@ export interface TodoItem {
     updated_at: string
 }
 
-// When a repeating item comes back: at the start of the next period, or a
-// whole period after it was completed. Mirrors domain.ResetMode* on the server.
+// When a repeating item, or a daily list, comes back: at the start of the next
+// period, or a whole period after it was completed. Mirrors domain.ResetMode*
+// on the server.
 export type TodoResetMode = 'calendar' | 'interval'
 
 export interface TodoList {
@@ -382,6 +387,9 @@ export interface TodoList {
     author_id?: string
     position: number
     last_reset_at?: string
+    // Daily lists only: 'calendar' clears every item at midnight, 'interval'
+    // clears each item 24 hours after it was ticked.
+    reset_mode: TodoResetMode
     created_at: string
     updated_at: string
     items: TodoItem[]

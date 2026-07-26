@@ -116,6 +116,7 @@ func (s *Server) routes() {
 	s.mux.Handle("PATCH /api/v1/todos/{id}", auth.RequirePermission(permissions.ManageTodos)(http.HandlerFunc(s.handleUpdateTodoList)))
 	s.mux.Handle("DELETE /api/v1/todos/{id}", auth.RequirePermission(permissions.ManageTodos)(http.HandlerFunc(s.handleDeleteTodoList)))
 	s.mux.Handle("POST /api/v1/todos/{id}/reset", auth.RequirePermission(permissions.ManageTodos)(http.HandlerFunc(s.handleResetTodoList)))
+	s.mux.Handle("POST /api/v1/todos/{id}/cleanup", auth.RequirePermission(permissions.ManageTodos)(http.HandlerFunc(s.handleCleanupTodoList)))
 	s.mux.Handle("POST /api/v1/todos/{id}/items", auth.RequirePermission(permissions.ManageTodos)(http.HandlerFunc(s.handleCreateTodoItem)))
 	s.mux.Handle("PATCH /api/v1/todo-items/{id}", auth.RequirePermission(permissions.ManageTodos)(http.HandlerFunc(s.handleUpdateTodoItem)))
 	s.mux.Handle("DELETE /api/v1/todo-items/{id}", auth.RequirePermission(permissions.ManageTodos)(http.HandlerFunc(s.handleDeleteTodoItem)))

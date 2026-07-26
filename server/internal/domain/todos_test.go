@@ -3,6 +3,8 @@ package domain
 import (
 	"testing"
 	"time"
+
+	"github.com/athenaeum-app/athena/server/internal/db"
 )
 
 // helper: make a general list and return it.
@@ -317,54 +319,215 @@ func TestSweep_UnchecksSubtasksWithTheirParent(t *testing.T) {
 	}
 }
 
-// A daily list's Reset-day button clears out completed items. A recurring item
-// is a standing habit, not a one-off, so it has to survive that.
-func TestResetDailyList_KeepsRecurringItems(t *testing.T) {
-	setupDB(t)
-	list, err := CreateTodoList("daily", "Rituals", nil)
+// helper: make a daily list and return it.
+func newDailyList(t *testing.T) string {
+	t.Helper()
+	l, err := CreateTodoList("daily", "Rituals", nil)
 	if err != nil {
 		t.Fatalf("create list: %v", err)
 	}
-	habit, _ := CreateTodoItem(list.ID, "stretch", nil)
-	step, _ := CreateTodoItem(list.ID, "touch toes", &habit.ID)
-	oneOff, _ := CreateTodoItem(list.ID, "call the dentist", nil)
-	unfinished, _ := CreateTodoItem(list.ID, "read a chapter", nil)
+	return l.ID
+}
 
-	daily := "daily"
-	if _, err := UpdateTodoItem(habit.ID, TodoItemPatch{Recurrence: &daily}); err != nil {
-		t.Fatalf("set recurrence: %v", err)
+// helper: pretend a list was last cleared, and an item last completed, at a
+// given time. Both are written straight to the database because nothing in the
+// API can backdate them.
+func backdateReset(t *testing.T, listID string, at time.Time) {
+	t.Helper()
+	if _, err := db.DB.Exec(`UPDATE todo_lists SET last_reset_at = ? WHERE id = ?`, at.UTC(), listID); err != nil {
+		t.Fatalf("backdate reset: %v", err)
 	}
-	complete(t, habit.ID)
-	complete(t, step.ID)
-	complete(t, oneOff.ID)
+}
 
-	reset, err := ResetDailyList(list.ID)
+func backdateCompletion(t *testing.T, itemID string, at time.Time) {
+	t.Helper()
+	if _, err := db.DB.Exec(`UPDATE todo_items SET completed_at = ? WHERE id = ?`, at.UTC(), itemID); err != nil {
+		t.Fatalf("backdate completion: %v", err)
+	}
+}
+
+// Reset is the manual "start the day again" button. It unchecks; it must not
+// delete, which is what it used to do to anything already ticked off.
+func TestResetDailyList_UnchecksWithoutDeleting(t *testing.T) {
+	setupDB(t)
+	listID := newDailyList(t)
+	ticked, _ := CreateTodoItem(listID, "stretch", nil)
+	step, _ := CreateTodoItem(listID, "touch toes", &ticked.ID)
+	if _, err := CreateTodoItem(listID, "read a chapter", nil); err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	complete(t, ticked.ID)
+	complete(t, step.ID)
+
+	reset, err := ResetDailyList(listID)
 	if err != nil {
 		t.Fatalf("reset: %v", err)
 	}
 
-	byID := map[string]bool{}
-	rolled := map[string]bool{}
+	if len(reset.Items) != 3 {
+		t.Fatalf("a reset should keep every item, got %d of 3", len(reset.Items))
+	}
 	for _, it := range reset.Items {
+		if it.Done {
+			t.Errorf("%q should have been unchecked", it.Text)
+		}
+		if it.CompletedAt != nil {
+			t.Errorf("%q kept its completion stamp: %v", it.Text, it.CompletedAt)
+		}
+		if it.RolledOver {
+			t.Errorf("%q should not be parked in a rolled-over pile", it.Text)
+		}
+	}
+	if reset.LastResetAt == nil {
+		t.Error("a reset should stamp last_reset_at")
+	}
+}
+
+// The point of a daily list: yesterday's ticks are not still sitting there
+// this morning, without anyone having pressed anything.
+func TestSweepDaily_ClearsWhenTheDayTurns(t *testing.T) {
+	setupDB(t)
+	listID := newDailyList(t)
+	item, _ := CreateTodoItem(listID, "make the bed", nil)
+	complete(t, item.ID)
+	backdateReset(t, listID, time.Now().AddDate(0, 0, -1))
+
+	list, err := GetTodoList(listID)
+	if err != nil {
+		t.Fatalf("read list: %v", err)
+	}
+	if list.Items[0].Done {
+		t.Error("a daily list should clear itself once the day has turned")
+	}
+	if list.LastResetAt == nil || list.LastResetAt.Before(startOfLocalDay(time.Now().UTC())) {
+		t.Errorf("the clear should stamp today's date, got %v", list.LastResetAt)
+	}
+}
+
+func TestSweepDaily_LeavesTodaysTicksAlone(t *testing.T) {
+	setupDB(t)
+	listID := newDailyList(t)
+	item, _ := CreateTodoItem(listID, "make the bed", nil)
+	complete(t, item.ID)
+	backdateReset(t, listID, time.Now())
+
+	list, _ := GetTodoList(listID)
+	if !list.Items[0].Done {
+		t.Error("an item ticked since the last clear should stay ticked")
+	}
+}
+
+// Interval mode measures from each tick rather than from midnight, so two
+// items ticked at different times clear at different times.
+func TestSweepDaily_IntervalWaitsAFullDayPerItem(t *testing.T) {
+	setupDB(t)
+	listID := newDailyList(t)
+	interval := ResetModeInterval
+	if _, err := UpdateTodoList(listID, nil, nil, nil, &interval); err != nil {
+		t.Fatalf("set list reset mode: %v", err)
+	}
+	old, _ := CreateTodoItem(listID, "ticked yesterday", nil)
+	recent, _ := CreateTodoItem(listID, "ticked an hour ago", nil)
+	complete(t, old.ID)
+	complete(t, recent.ID)
+	backdateCompletion(t, old.ID, time.Now().Add(-25*time.Hour))
+	backdateCompletion(t, recent.ID, time.Now().Add(-time.Hour))
+	// Well past a calendar boundary, so a list still clearing by the calendar
+	// would wrongly take both.
+	backdateReset(t, listID, time.Now().AddDate(0, 0, -3))
+
+	list, _ := GetTodoList(listID)
+	byID := map[string]bool{}
+	for _, it := range list.Items {
 		byID[it.ID] = it.Done
-		rolled[it.ID] = it.RolledOver
 	}
-	if _, ok := byID[oneOff.ID]; ok {
-		t.Error("a completed one-off should be cleared by the daily reset")
+	if byID[old.ID] {
+		t.Error("an item ticked over 24 hours ago should have cleared")
 	}
-	for _, id := range []string{habit.ID, step.ID} {
-		done, ok := byID[id]
-		if !ok {
-			t.Fatalf("recurring item %s was deleted by the daily reset", id)
-		}
-		if done {
-			t.Errorf("recurring item %s should come back unchecked", id)
-		}
-		if rolled[id] {
-			t.Errorf("recurring item %s was completed, so it is not unfinished business", id)
-		}
+	if !byID[recent.ID] {
+		t.Error("an item ticked an hour ago should still be ticked")
 	}
-	if !rolled[unfinished.ID] {
-		t.Error("an item left unchecked should be flagged as rolled over")
+}
+
+// Repeat is not offered on daily items, so a rule left over from before must
+// not keep unchecking one behind the list's own cycle.
+func TestSweepDaily_IgnoresRecurrenceOnDailyItems(t *testing.T) {
+	setupDB(t)
+	listID := newDailyList(t)
+	item, _ := CreateTodoItem(listID, "old habit", nil)
+	daily := "daily"
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{Recurrence: &daily}); err != nil {
+		t.Fatalf("set recurrence: %v", err)
+	}
+	complete(t, item.ID)
+	past := time.Now().UTC().AddDate(0, 0, -3)
+	if _, err := UpdateTodoItem(item.ID, TodoItemPatch{DueAt: &past}); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	// The list itself was cleared moments ago, so any uncheck here is the
+	// recurrence sweep acting on a daily item.
+	backdateReset(t, listID, time.Now())
+
+	list, _ := GetTodoList(listID)
+	if !list.Items[0].Done {
+		t.Error("recurrence should not drive a daily item; the list's own cycle does")
+	}
+}
+
+// A general list keeps its Repeat rules and never clears itself.
+func TestSweepDaily_LeavesGeneralListsAlone(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	item, _ := CreateTodoItem(listID, "one-off task", nil)
+	complete(t, item.ID)
+	backdateReset(t, listID, time.Now().AddDate(0, 0, -5))
+
+	list, _ := GetTodoList(listID)
+	if !list.Items[0].Done {
+		t.Error("a general list should never clear its own ticks")
+	}
+}
+
+func TestClearCompletedItems_DeletesOnlyFinishedWork(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	finished, _ := CreateTodoItem(listID, "draft the readme", nil)
+	open, _ := CreateTodoItem(listID, "wire up CI", nil)
+	complete(t, finished.ID)
+
+	list, err := ClearCompletedItems(listID)
+	if err != nil {
+		t.Fatalf("clear completed: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].ID != open.ID {
+		t.Fatalf("expected only the open item to survive, got %+v", list.Items)
+	}
+}
+
+// parent_id cascades on delete, so clearing a ticked parent would take its
+// unticked subtasks with it. Finishing work must never delete unfinished work.
+func TestClearCompletedItems_KeepsAParentWithOpenSubtasks(t *testing.T) {
+	setupDB(t)
+	listID := newGeneralList(t)
+	parent, _ := CreateTodoItem(listID, "ship v3", nil)
+	sub, _ := CreateTodoItem(listID, "write the notes", &parent.ID)
+	complete(t, parent.ID)
+
+	list, err := ClearCompletedItems(listID)
+	if err != nil {
+		t.Fatalf("clear completed: %v", err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("the parent and its open subtask should both survive, got %d items", len(list.Items))
+	}
+
+	// Once the subtask is done too, the whole branch is finished work.
+	complete(t, sub.ID)
+	list, err = ClearCompletedItems(listID)
+	if err != nil {
+		t.Fatalf("clear completed: %v", err)
+	}
+	if len(list.Items) != 0 {
+		t.Errorf("a fully ticked branch should clear, got %d items", len(list.Items))
 	}
 }

@@ -19,12 +19,11 @@ import (
 // ListTodoLists returns every todo list with its items attached, ordered by
 // position then creation time.
 func ListTodoLists() ([]models.TodoList, error) {
-	if err := sweepRecurringItems(); err != nil {
+	if err := sweepTodos(); err != nil {
 		return nil, err
 	}
 	rows, err := db.DB.Query(
-		`SELECT id, kind, title, notes, author_id, position, last_reset_at, created_at, updated_at
-		 FROM todo_lists ORDER BY position ASC, created_at ASC`,
+		`SELECT ` + todoListColumns + ` FROM todo_lists ORDER BY position ASC, created_at ASC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list todo lists: %w", err)
@@ -66,12 +65,11 @@ func ListTodoLists() ([]models.TodoList, error) {
 
 // GetTodoList fetches one list with its items. Returns nil if not found.
 func GetTodoList(id string) (*models.TodoList, error) {
-	if err := sweepRecurringItems(); err != nil {
+	if err := sweepTodos(); err != nil {
 		return nil, err
 	}
 	list, err := scanTodoList(db.DB.QueryRow(
-		`SELECT id, kind, title, notes, author_id, position, last_reset_at, created_at, updated_at
-		 FROM todo_lists WHERE id = ?`, id,
+		`SELECT `+todoListColumns+` FROM todo_lists WHERE id = ?`, id,
 	))
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -98,10 +96,13 @@ func CreateTodoList(kind, title string, authorID *string) (*models.TodoList, err
 	}
 	now := time.Now().UTC()
 	list := &models.TodoList{
-		ID:        uuid.NewString(),
-		Kind:      kind,
-		Title:     title,
-		AuthorID:  authorID,
+		ID:       uuid.NewString(),
+		Kind:     kind,
+		Title:    title,
+		AuthorID: authorID,
+		// Mirror the column default rather than handing the client an empty
+		// mode it would have to guess at.
+		ResetMode: ResetModeCalendar,
 		CreatedAt: now,
 		UpdatedAt: now,
 		Items:     []models.TodoItem{},
@@ -120,13 +121,18 @@ func CreateTodoList(kind, title string, authorID *string) (*models.TodoList, err
 	return list, nil
 }
 
-// UpdateTodoList partially updates title/notes/position. nil = unchanged.
-func UpdateTodoList(id string, title, notes *string, position *int) (*models.TodoList, error) {
+// UpdateTodoList partially updates title/notes/position/reset mode.
+// nil = unchanged.
+func UpdateTodoList(id string, title, notes *string, position *int, resetMode *string) (*models.TodoList, error) {
 	sets := []string{}
 	args := []any{}
 	if title != nil {
 		sets = append(sets, "title = ?")
 		args = append(args, *title)
+	}
+	if resetMode != nil {
+		sets = append(sets, "reset_mode = ?")
+		args = append(args, normalizeResetMode(*resetMode))
 	}
 	if notes != nil {
 		sets = append(sets, "notes = ?")
@@ -160,16 +166,20 @@ func DeleteTodoList(id string) error {
 	return nil
 }
 
-// ResetDailyList applies the daily-reset rules: completed items are
-// removed, and unchecked items are flagged rolled_over (the "unfinished from
-// yesterday" pile) so the client can offer to pull them into the new day.
-// last_reset_at is stamped. Returns the refreshed list.
+// ResetDailyList unchecks every ticked item in a list and stamps
+// last_reset_at. Returns the refreshed list, or nil if it is gone.
 //
-// Recurring items are the exception to the clear-out. They are the list's
-// standing habits rather than one-off entries, and deleting a completed one
-// would retire the habit for good, so a reset unchecks them in place instead
-// (the same thing their own cycle does, just early). Their subtasks come with
-// them, since the parent's rule governs the whole routine.
+// It used to delete the completed items and shunt the rest into a rolled_over
+// "unfinished from yesterday" pile. That made the one button on a daily list
+// destructive: a routine you had actually done was the part it threw away, and
+// the entries had to be retyped to do them again tomorrow. A daily list is a
+// standing set of things, so the day turning over should only clear the ticks.
+// Deleting finished entries is now the general list's Clear completed, where
+// it is asked for explicitly (see ClearCompletedItems).
+//
+// rolled_over is cleared alongside, so any list still holding a pile from the
+// old behaviour comes back whole rather than keeping items in a section the
+// client no longer renders.
 func ResetDailyList(id string) (*models.TodoList, error) {
 	now := time.Now().UTC()
 	tx, err := db.DB.Begin()
@@ -178,23 +188,10 @@ func ResetDailyList(id string) (*models.TodoList, error) {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(
-		`DELETE FROM todo_items WHERE list_id = ? AND done = 1 AND `+notRecurring, id,
+		`UPDATE todo_items SET done = 0, completed_at = NULL, rolled_over = 0, updated_at = ?
+		 WHERE list_id = ? AND (done = 1 OR rolled_over = 1)`, now, id,
 	); err != nil {
-		return nil, fmt.Errorf("clear done items: %w", err)
-	}
-	// Only what is still unchecked counts as "unfinished from yesterday"; the
-	// recurring items are still done at this point, and are cleared below.
-	if _, err := tx.Exec(
-		`UPDATE todo_items SET rolled_over = 1, updated_at = ? WHERE list_id = ? AND done = 0`, now, id,
-	); err != nil {
-		return nil, fmt.Errorf("roll over items: %w", err)
-	}
-	// Everything still done is recurring (or a subtask of something that is):
-	// uncheck rather than delete.
-	if _, err := tx.Exec(
-		`UPDATE todo_items SET done = 0, completed_at = NULL, updated_at = ? WHERE list_id = ? AND done = 1`, now, id,
-	); err != nil {
-		return nil, fmt.Errorf("reset recurring items: %w", err)
+		return nil, fmt.Errorf("uncheck items: %w", err)
 	}
 	if _, err := tx.Exec(
 		`UPDATE todo_lists SET last_reset_at = ?, updated_at = ? WHERE id = ?`, now, now, id,
@@ -203,6 +200,24 @@ func ResetDailyList(id string) (*models.TodoList, error) {
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit daily reset: %w", err)
+	}
+	return GetTodoList(id)
+}
+
+// ClearCompletedItems deletes the ticked-off items of a list, which is the
+// broom on a general list. Returns the refreshed list, or nil if it is gone.
+//
+// A ticked parent that still has unticked subtasks stays: parent_id cascades
+// on delete, so removing it would silently take unfinished work with it, and
+// "clear the things I have finished" should never do that. Ticking the last
+// subtask makes the parent eligible on the next sweep of the button.
+func ClearCompletedItems(id string) (*models.TodoList, error) {
+	if _, err := db.DB.Exec(
+		`DELETE FROM todo_items WHERE list_id = ? AND done = 1 AND NOT EXISTS (
+			SELECT 1 FROM todo_items child WHERE child.parent_id = todo_items.id AND child.done = 0
+		)`, id,
+	); err != nil {
+		return nil, fmt.Errorf("clear completed items: %w", err)
 	}
 	return GetTodoList(id)
 }
@@ -413,11 +428,122 @@ func nextOccurrence(from time.Time, rule string, mode string) time.Time {
 	}
 }
 
+// sweepTodos brings the board up to date with the clock: daily lists whose day
+// has turned over, then repeating items on general lists whose next occurrence
+// has arrived. Both run on the read path (see sweepRecurringItems).
+func sweepTodos() error {
+	if err := sweepDailyLists(); err != nil {
+		return err
+	}
+	return sweepRecurringItems()
+}
+
+// sweepDailyLists unchecks the items of a daily list once its cycle comes
+// round, which is what makes a daily list daily. Until this existed the only
+// thing that ever cleared one was someone pressing Reset, so yesterday's ticks
+// were still sitting there this morning.
+//
+// Two cycles, per list (models.TodoList.ResetMode):
+//
+//	calendar: everything clears at the start of each local day, whatever time
+//	          it was ticked off. This is the default and the usual reading of
+//	          "daily".
+//	interval: each item clears 24 hours after it was ticked, so a late tick
+//	          holds until the same time tomorrow rather than clearing at
+//	          midnight an hour later.
+//
+// Calendar boundaries are the server's local midnight, matching
+// nextOccurrence: this is a self-hosted, one-library-per-server app (ADR-0004),
+// so the server's clock is the library's clock.
+func sweepDailyLists() error {
+	now := time.Now().UTC()
+	rows, err := db.DB.Query(
+		`SELECT id, reset_mode, last_reset_at, created_at FROM todo_lists WHERE kind = ?`, models.TodoKindDaily,
+	)
+	if err != nil {
+		return fmt.Errorf("scan daily lists: %w", err)
+	}
+	defer rows.Close()
+
+	type dailyList struct {
+		id        string
+		mode      string
+		lastReset time.Time
+	}
+	stale := []dailyList{}
+	for rows.Next() {
+		var l dailyList
+		var lastReset sql.NullTime
+		var createdAt time.Time
+		if err := rows.Scan(&l.id, &l.mode, &lastReset, &createdAt); err != nil {
+			return fmt.Errorf("scan daily list: %w", err)
+		}
+		// A list that has never been reset counts from its creation, so one
+		// made yesterday and ticked yesterday still clears this morning.
+		l.lastReset = createdAt
+		if lastReset.Valid {
+			l.lastReset = lastReset.Time
+		}
+		l.mode = normalizeResetMode(l.mode)
+		if l.mode == ResetModeCalendar && !l.lastReset.Before(startOfLocalDay(now)) {
+			continue // already cleared today
+		}
+		stale = append(stale, l)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	for _, l := range stale {
+		if l.mode == ResetModeInterval {
+			// Per item, so ticking one thing at noon and another at midnight
+			// does not clear both at noon tomorrow. An item completed before
+			// completed_at existed has nothing to measure from and is left for
+			// the calendar path or a manual reset.
+			if _, err := db.DB.Exec(
+				`UPDATE todo_items SET done = 0, completed_at = NULL, updated_at = ?
+				 WHERE list_id = ? AND done = 1 AND completed_at IS NOT NULL AND completed_at <= ?`,
+				now, l.id, now.Add(-24*time.Hour),
+			); err != nil {
+				return fmt.Errorf("clear interval daily list %s: %w", l.id, err)
+			}
+			continue
+		}
+		if _, err := db.DB.Exec(
+			`UPDATE todo_items SET done = 0, completed_at = NULL, updated_at = ? WHERE list_id = ? AND done = 1`,
+			now, l.id,
+		); err != nil {
+			return fmt.Errorf("clear daily list %s: %w", l.id, err)
+		}
+		// Stamped even when nothing was ticked, so the day is only considered
+		// once however often the board is opened.
+		if _, err := db.DB.Exec(
+			`UPDATE todo_lists SET last_reset_at = ? WHERE id = ?`, now, l.id,
+		); err != nil {
+			return fmt.Errorf("stamp daily list %s: %w", l.id, err)
+		}
+	}
+	return nil
+}
+
+// startOfLocalDay is midnight of the day t falls in, in the server's local
+// time, returned as UTC for comparison against stored timestamps.
+func startOfLocalDay(t time.Time) time.Time {
+	local := t.Local()
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location()).UTC()
+}
+
 // sweepRecurringItems unchecks completed recurring items whose next occurrence
 // has come round, which is what makes a repeating task repeat. It runs on the
 // read path because nothing polls this module server-side and the board is
 // fetched fresh every time it opens, so "when you next look at it" is exactly
 // when a stale checkbox would be visible.
+//
+// Daily lists are excluded: their own cycle governs them, and Repeat is not
+// offered on their items (migration 0012 cleared the rules that were already
+// there). Without this, an old rule could still uncheck an item on a schedule
+// the daily list gives no way to see or change.
 //
 // An item's next occurrence is its due date (scheduleNextOccurrence put it
 // there on completion); an item completed before it was given a rule has no
@@ -428,8 +554,9 @@ func nextOccurrence(from time.Time, rule string, mode string) time.Time {
 func sweepRecurringItems() error {
 	now := time.Now().UTC()
 	rows, err := db.DB.Query(
-		`SELECT ` + todoItemColumns + ` FROM todo_items
-		 WHERE done = 1 AND recurrence != '' AND parent_id IS NULL`,
+		`SELECT `+todoItemColumns+` FROM todo_items
+		 WHERE done = 1 AND recurrence != '' AND parent_id IS NULL
+		   AND list_id NOT IN (SELECT id FROM todo_lists WHERE kind = ?)`, models.TodoKindDaily,
 	)
 	if err != nil {
 		return fmt.Errorf("scan recurring items: %w", err)
@@ -515,15 +642,10 @@ func resetRecurringItem(item *models.TodoItem, now time.Time) error {
 	return nil
 }
 
-// notRecurring matches items that take no part in a recurring cycle: no rule
-// of their own, and not a step of something that has one.
-const notRecurring = `recurrence = '' AND NOT EXISTS (
-	SELECT 1 FROM todo_items parent WHERE parent.id = todo_items.parent_id AND parent.recurrence != ''
-)`
-
-// Reset modes for a repeating task. Anything unrecognised is normalised to
-// ResetModeCalendar, which is also the column default, so a task always has a
-// well-defined answer to "when does this come back".
+// Reset modes, shared by a repeating task and a daily list: clear at the start
+// of the next period, or a whole period after the tick. Anything unrecognised
+// is normalised to ResetModeCalendar, which is also the column default, so
+// both always have a well-defined answer to "when does this come back".
 const (
 	ResetModeCalendar = "calendar"
 	ResetModeInterval = "interval"
@@ -632,12 +754,17 @@ func getTodoItemsForLists(listIDs []string) (map[string][]models.TodoItem, error
 	return out, rows.Err()
 }
 
+// todoListColumns is the canonical SELECT list for a list row, kept in one
+// place so the readers and scanTodoList never drift.
+const todoListColumns = `id, kind, title, notes, author_id, position, last_reset_at, reset_mode, created_at, updated_at`
+
 func scanTodoList(s scannerT) (*models.TodoList, error) {
 	list := &models.TodoList{Items: []models.TodoItem{}}
 	var lastReset sql.NullTime
-	if err := s.Scan(&list.ID, &list.Kind, &list.Title, &list.Notes, &list.AuthorID, &list.Position, &lastReset, &list.CreatedAt, &list.UpdatedAt); err != nil {
+	if err := s.Scan(&list.ID, &list.Kind, &list.Title, &list.Notes, &list.AuthorID, &list.Position, &lastReset, &list.ResetMode, &list.CreatedAt, &list.UpdatedAt); err != nil {
 		return nil, err
 	}
+	list.ResetMode = normalizeResetMode(list.ResetMode)
 	if lastReset.Valid {
 		list.LastResetAt = &lastReset.Time
 	}

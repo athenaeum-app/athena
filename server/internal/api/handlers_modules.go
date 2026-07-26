@@ -124,6 +124,9 @@ type updateTodoListRequest struct {
 	Title    *string `json:"title,omitempty"`
 	Notes    *string `json:"notes,omitempty"`
 	Position *int    `json:"position,omitempty"`
+	// ResetMode: when a daily list's ticks clear, "calendar" or "interval".
+	// Anything else normalises to calendar in the domain layer.
+	ResetMode *string `json:"reset_mode,omitempty"`
 }
 
 func (s *Server) handleUpdateTodoList(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +137,7 @@ func (s *Server) handleUpdateTodoList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := auth.UserFromContext(r.Context())
-	list, err := domain.UpdateTodoList(id, req.Title, req.Notes, req.Position)
+	list, err := domain.UpdateTodoList(id, req.Title, req.Notes, req.Position, req.ResetMode)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update todo list")
 		return
@@ -173,6 +176,25 @@ func (s *Server) handleResetTodoList(w http.ResponseWriter, r *http.Request) {
 	}
 	sync.RecordEvent("TODO_LIST_UPDATED", "TODO_LIST", id, &user.ID, list)
 	sync.RecordAudit(user.ID, "todo.list.reset", "TODO_LIST", id, nil)
+	writeJSON(w, http.StatusOK, list)
+}
+
+// Deletes the ticked-off items of a list. Separate from the reset above, which
+// only unchecks: this is the destructive one, and the client confirms first.
+func (s *Server) handleCleanupTodoList(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	user := auth.UserFromContext(r.Context())
+	list, err := domain.ClearCompletedItems(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to clear completed items")
+		return
+	}
+	if list == nil {
+		writeError(w, http.StatusNotFound, "todo list not found")
+		return
+	}
+	sync.RecordEvent("TODO_LIST_UPDATED", "TODO_LIST", id, &user.ID, list)
+	sync.RecordAudit(user.ID, "todo.list.cleanup", "TODO_LIST", id, nil)
 	writeJSON(w, http.StatusOK, list)
 }
 

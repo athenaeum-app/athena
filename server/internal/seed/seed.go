@@ -353,14 +353,11 @@ func (s *seeder) seedTodos() {
 	morning := s.todoItem(s.todoDaily.ID, "Morning pages", nil, owner)
 	s.updateItem(s.todoDaily.ID, morning.ID, domain.TodoItemPatch{Done: ptrBool(true)}, owner)
 	s.todoItem(s.todoDaily.ID, "Stretch for 10 minutes", nil, owner)
+	// Repeat and due dates are general-list features: a daily list clears
+	// itself, and everything on it is today's business by definition.
 	inbox := s.todoItem(s.todoDaily.ID, "Triage inbox", nil, owner)
-	s.updateItem(s.todoDaily.ID, inbox.ID, domain.TodoItemPatch{
-		Priority:   ptrInt(1),
-		Recurrence: strptr("daily"),
-		DueAt:      ptrTime(s.daysAhead(0)),
-	}, owner)
-	rolled := s.todoItem(s.todoDaily.ID, "Water the plants (from yesterday)", nil, owner)
-	s.updateItem(s.todoDaily.ID, rolled.ID, domain.TodoItemPatch{RolledOver: ptrBool(true)}, owner)
+	s.updateItem(s.todoDaily.ID, inbox.ID, domain.TodoItemPatch{Priority: ptrInt(1)}, owner)
+	s.todoItem(s.todoDaily.ID, "Water the plants", nil, owner)
 
 	// General list: a Trello-like named list with notes and a progress bar.
 	s.todoGeneral = s.todoList(models.TodoKindGeneral, "Launch Checklist", &owner)
@@ -418,7 +415,7 @@ func (s *seeder) updateItem(listID, id string, p domain.TodoItemPatch, author st
 }
 
 func (s *seeder) must1UpdateList(id string, notes *string, author string) {
-	list := must1(domain.UpdateTodoList(id, nil, notes, nil))
+	list := must1(domain.UpdateTodoList(id, nil, notes, nil, nil))
 	sync.RecordEvent("TODO_LIST_UPDATED", "TODO_LIST", id, &author, list)
 }
 

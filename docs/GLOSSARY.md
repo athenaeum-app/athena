@@ -53,10 +53,12 @@ messages may carry a `display_name` instead of an author.
 _Avoid_: buffer message, post.
 
 **Todo list**:
-An embeddable checklist of items. A list is either `daily` (resets, rolling
-unfinished items forward) or `general` (long-lived, multiple named lists). Items
-carry a due date, priority, recurrence, one level of subtasks, and an optional
-link to a Moment. See [ADR-0013](adr/0013-server-synced-embeddable-modules.md).
+An embeddable checklist of items. A list is either `daily` (unchecks itself each
+cycle, either at midnight or 24 hours after each tick, and never deletes) or
+`general` (long-lived, multiple named lists, with a broom that deletes the
+completed ones). Items carry a priority, one level of subtasks, and an optional
+link to a Moment; general-list items add a due date and recurrence. See
+[ADR-0013](adr/0013-server-synced-embeddable-modules.md).
 _Avoid_: task list, checklist (as a proper noun), agenda.
 
 **Canvas**:
