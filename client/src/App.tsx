@@ -316,6 +316,12 @@ export const App: Component = () => {
                         }
                         return [moment, ...prev]
                     })
+                    // A pinned moment is rendered from pinnedMoments, not from
+                    // the list above (filteredMoments drops it), so patching
+                    // only `moments` leaves the visible card on its old
+                    // content. A newly created moment is never pinned, which
+                    // makes this a no-op for MOMENT_CREATED.
+                    setPinnedMoments((prev) => prev.map((m) => (m.id === moment.id ? moment : m)))
                 } else if (event.type === 'MOMENT_PINNED') {
                     const moment = JSON.parse(event.payload!) as Moment
                     setMoments((prev) => prev.map((m) => (m.id === moment.id ? moment : m)))
@@ -476,6 +482,10 @@ export const App: Component = () => {
         }
         setShowEditor(false)
         loadMoments(true)
+        // The edited moment may be pinned, in which case the feed list above
+        // doesn't render it and reloading that list alone changes nothing on
+        // screen.
+        loadPinned()
         refetchArchives()
         refetchTags()
     }
@@ -483,6 +493,7 @@ export const App: Component = () => {
     const handleDeleteMoment = async (id: string) => {
         await api.deleteMoment(id)
         setMoments((prev) => prev.filter((m) => m.id !== id))
+        setPinnedMoments((prev) => prev.filter((m) => m.id !== id))
     }
 
     // Inline creator (SmartEditor, 4.5): create-only, then refresh the feed.
