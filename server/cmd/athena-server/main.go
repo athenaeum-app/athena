@@ -21,12 +21,6 @@ func main() {
 	// default behaviour).
 	if len(os.Args) >= 2 {
 		switch os.Args[1] {
-		case "migrate":
-			os.Exit(migrateCmd(os.Args[2:]))
-		case "repair-legacy-timestamps":
-			os.Exit(repairTimestampsCmd(os.Args[2:]))
-		case "repair-legacy-assets":
-			os.Exit(repairAssetsCmd(os.Args[2:]))
 		case "seed":
 			os.Exit(seedCmd(os.Args[2:]))
 		case "-h", "--help", "help":
@@ -42,11 +36,8 @@ func printUsage() {
 	fmt.Println("athena-server [subcommand]")
 	fmt.Println()
 	fmt.Println("Subcommands:")
-	fmt.Println("  migrate                   Migrate a v1 database and uploads directory into v2.")
-	fmt.Println("  repair-legacy-timestamps  Re-encode a migrated v2 database's legacy timestamps in place.")
-	fmt.Println("  repair-legacy-assets      Import v1 upload files a migrated v2 library still refers to.")
-	fmt.Println("  seed                      Seed a rich, deterministic demo library (use --reset to wipe first).")
-	fmt.Println("  (none)                    Run the HTTP server (default).")
+	fmt.Println("  seed      Seed a rich, deterministic demo library (use --reset to wipe first).")
+	fmt.Println("  (none)    Run the HTTP server (default).")
 	fmt.Println()
 	fmt.Println("Run a subcommand with no further args (or -h) to see its flags.")
 }

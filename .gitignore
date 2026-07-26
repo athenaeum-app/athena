@@ -40,3 +40,17 @@ Thumbs.db
 
 # Local working notes, drafts, and host-specific deploy scripts
 .dev/
+
+# The one-shot v1 importer and its two follow-up repair commands. They were
+# written for one operator's personal v1 servers, so they are dead weight in a
+# public repo, but a local copy still has to be runnable. Restore one with
+# `git show <commit>:<path> > <path>` and re-add its case to main.go's switch;
+# these entries keep it from being committed back.
+server/cmd/athena-server/migrate.go
+server/cmd/athena-server/migrate_test.go
+server/cmd/athena-server/migrate_assets_test.go
+server/cmd/athena-server/repair_assets.go
+server/cmd/athena-server/repair_assets_test.go
+server/cmd/athena-server/repair_timestamps.go
+server/cmd/athena-server/repair_timestamps_test.go
+/MIGRATION.md

@@ -192,8 +192,11 @@ _Avoid_: history, activity log.
 **Legacy**:
 A flag on moments and chat messages indicating the content was imported from a v1
 server. Legacy moments are authored by the owner; legacy chat messages retain
-their original `display_name`. Badges for legacy content are toggleable per
-content type in server settings.
+their original `display_name`, which is the only record of who wrote them.
+Badges for legacy content are toggleable per content type in server settings.
+Nothing in the tree sets the flag any more: the v1 importer was personal to one
+operator and no longer ships here, so this describes data that already exists in
+a migrated library rather than anything a new server can produce.
 _Avoid_: imported, v1, old.
 
 ## Client
@@ -249,14 +252,3 @@ A per-server (or per-archive) deviation from the Global default, specified per
 setting. Resolution is innermost-wins: archive override, then server Override,
 then Global default.
 _Avoid_: custom theme, local theme, exception.
-
-## Migration
-
-**Migration**:
-The one-shot import of data from a v1 server into a v2 server, performed by the
-`migrate` subcommand on the server binary. Reads the v1 SQLite database and
-uploads directory, transforms the data (attributes content to the owner,
-preserves chat `display_name`, marks everything legacy), and writes into the v2
-database. Run once per server. See [MIGRATION.md](../MIGRATION.md) and
-[ADR-0001](adr/0001-big-bang-greenfield-rewrite.md).
-_Avoid_: import, upgrade, conversion.
