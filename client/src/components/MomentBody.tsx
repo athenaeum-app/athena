@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, on, onMount, type Component, type JSX } from 'solid-js'
-import { api, type TodoList, type Canvas, type Moment } from '../api'
+import { api, type TodoList, type TodoItem, type Canvas, type Moment } from '../api'
 import { MarkdownText } from './MarkdownText'
 import { notifyTodoChanged, todoVersion } from '../todoBus'
 
@@ -209,6 +209,10 @@ const TodoEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (pro
     const done = () => (list()?.items || []).filter((i) => i.done).length
     const total = () => (list()?.items || []).length
 
+    // Nesting is one level (a subtask can't have subtasks), same as the board.
+    const topLevel = () => (list()?.items || []).filter((i) => !i.parent_id)
+    const childrenOf = (parentId: string) => (list()?.items || []).filter((i) => i.parent_id === parentId)
+
     // Optimistic inline toggle: flip locally, patch, revert on failure.
     const toggle = async (itemId: string, next: boolean) => {
         setList((l) =>
@@ -223,6 +227,25 @@ const TodoEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (pro
             )
         }
     }
+
+    // One checkable row, shared by a task and its subtasks so a subtask reads
+    // and behaves exactly like its parent, only indented.
+    const ItemRow: Component<{ item: TodoItem }> = (row) => (
+        <button
+            type="button"
+            // Don't let a checkbox click bubble to the card's open handler.
+            onClick={(e) => {
+                e.stopPropagation()
+                void toggle(row.item.id, !row.item.done)
+            }}
+            class="text-sub hover:text-main flex items-center gap-2 text-left text-sm transition-colors"
+        >
+            <span class="material-symbols-outlined text-base" classList={{ 'text-highlight-strongest': row.item.done }}>
+                {row.item.done ? 'check_box' : 'check_box_outline_blank'}
+            </span>
+            <span classList={{ 'line-through opacity-60': row.item.done }}>{row.item.text}</span>
+        </button>
+    )
 
     return (
         <Show
@@ -248,25 +271,24 @@ const TodoEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (pro
                         </div>
                     </Show>
                     <div class="flex flex-col gap-1">
-                        <For each={l().items}>
+                        <For each={topLevel()}>
                             {(item) => (
-                                <button
-                                    type="button"
-                                    // Don't let a checkbox click bubble to the card's open handler.
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        void toggle(item.id, !item.done)
-                                    }}
-                                    class="text-sub hover:text-main flex items-center gap-2 text-left text-sm transition-colors"
-                                >
-                                    <span
-                                        class="material-symbols-outlined text-base"
-                                        classList={{ 'text-highlight-strongest': item.done }}
-                                    >
-                                        {item.done ? 'check_box' : 'check_box_outline_blank'}
-                                    </span>
-                                    <span classList={{ 'line-through opacity-60': item.done }}>{item.text}</span>
-                                </button>
+                                <div class="flex flex-col gap-1">
+                                    <ItemRow item={item} />
+                                    {/* Indented behind a rule, the way the Todo
+                                        board draws the same relationship. Flat,
+                                        a subtask was indistinguishable from a
+                                        task of its own and the pairing was
+                                        simply lost. */}
+                                    <Show when={childrenOf(item.id).length > 0}>
+                                        <div
+                                            data-testid="todo-embed-subtasks"
+                                            class="border-element-accent ml-2 flex flex-col gap-1 border-l pl-2.5"
+                                        >
+                                            <For each={childrenOf(item.id)}>{(sub) => <ItemRow item={sub} />}</For>
+                                        </div>
+                                    </Show>
+                                </div>
                             )}
                         </For>
                     </div>
