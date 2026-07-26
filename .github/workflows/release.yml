@@ -124,6 +124,14 @@ jobs:
         with:
           node-version: 20
 
+      # electron-builder builds the rpm through fpm, which shells out to
+      # rpmbuild. The ubuntu runner does not ship it, and without it the rpm
+      # is the only target that fails, after the other two have already
+      # uploaded.
+      - name: Install rpm tooling
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
       # No lockfile in electron/, so use npm install rather than npm ci.
       - name: Install dependencies
         run: npm install

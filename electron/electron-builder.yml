@@ -34,9 +34,15 @@ linux:
     # declares, so the desktop entry's Icon= resolved to nothing and desktops
     # fell back to a generic icon. Each file here becomes one hicolor entry.
     icon: build/icons
+    # Only the AppImage is self-updating. electron-updater has no feed for a
+    # deb or an rpm: those are the system package manager's to update, and here
+    # that means the user downloading the next one by hand. rpm builds through
+    # fpm, which shells out to rpmbuild, so the Linux release runner has to
+    # install it (see .github/workflows/release.yml).
     target:
         - AppImage
         - deb
+        - rpm
     category: Office
     desktop:
         # electron-builder defaults this to productName ("Athena"), but Chromium
