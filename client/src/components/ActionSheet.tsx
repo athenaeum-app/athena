@@ -25,6 +25,7 @@ export const ActionSheet: Component<ActionSheetOptions & { onClose: () => void }
     }
     return (
         <div
+            data-testid="action-sheet"
             class="animate-fade-in fixed inset-0 z-[80] flex flex-col justify-end p-2.5"
             style={{ background: 'rgb(0 0 0 / 0.5)' }}
             {...backdropDismiss(props.onClose)}

@@ -8,7 +8,7 @@ import { useUI } from '../ui'
 import { MomentBody } from './MomentBody'
 import { LinkPreviewList } from './LinkPreview'
 import { AttachmentList } from './AttachmentList'
-import { Editor } from './Editor'
+import { Editor, type EditorHandle } from './Editor'
 import { createLongPress } from '../longPress'
 
 // The chat surface (header, scrollback and composer) factored out of
@@ -40,6 +40,22 @@ const CHAT_PAGE_SIZE = 50
 interface GroupedMessage {
     msg: ChatMessage
     showHeader: boolean
+}
+
+// The message as a markdown blockquote, ready to type a reply under. Every line
+// is prefixed, so a multi-line message stays one quote instead of a quote
+// followed by loose prose that reads as part of the reply.
+//
+// Embed tokens are dropped: MomentBody splits `::todo:<id>::` and `[[<id>]]`
+// out of the text wherever they sit, so carrying one into a quote would leave
+// an empty `>` behind and render its card full size outside the quote.
+export function quoteFor(content: string): string {
+    const text = (content || '')
+        .replace(/::(todo|canvas):[0-9a-fA-F-]{6,}::/g, '')
+        .replace(/\[\[[0-9a-fA-F-]{6,}\]\]/g, '')
+        .trim()
+    if (!text) return ''
+    return text.split('\n').map((line) => `> ${line}`.trimEnd()).join('\n') + '\n\n'
 }
 
 // A message counts as edited when its updated_at moved meaningfully past its
@@ -259,6 +275,18 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
 
     const authorLabel = (msg: ChatMessage) => (msg.author_id ? userName(msg.author_id) : msg.display_name || 'Unknown')
 
+    // Handed over by the composer on mount. Undefined without SEND_CHAT_MESSAGE,
+    // where there is no composer to quote into and no Reply offered either.
+    let composer: EditorHandle | undefined
+    // A message with nothing but an embed in it quotes to nothing, and an
+    // action that silently does nothing is worse than one that isn't offered.
+    const canReply = (msg: ChatMessage) => canSend() && !!quoteFor(msg.content)
+    const reply = (msg: ChatMessage) => {
+        const quote = quoteFor(msg.content)
+        if (!quote) return
+        composer?.insertBlock(quote)
+    }
+
     // Wrapper objects for <For>, which diffs by reference. messages() gets a
     // new array on every poll (see mergeRecent), so recomputing this naively
     // would wrap every message in a fresh {msg, showHeader} object each time,
@@ -285,7 +313,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
     })
 
     return (
-        <div class={`flex min-h-0 flex-col ${props.class ?? ''}`}>
+        <div data-testid="chat-panel" class={`flex min-h-0 flex-col ${props.class ?? ''}`}>
             {/* Header */}
             <div class="bg-element border-element-accent flex items-center justify-between border-b p-3">
                 <div class="flex items-center gap-2">
@@ -319,6 +347,9 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                         const lp = createLongPress(() => {
                             if (editingId() === msg.id) return
                             const actions = []
+                            // First, and ungated: replying is the one action
+                            // that applies to someone else's message too.
+                            if (canReply(msg)) actions.push({ label: 'Reply', icon: 'reply', onSelect: () => reply(msg) })
                             if (canEdit(msg)) actions.push({ label: 'Edit', icon: 'edit', onSelect: () => startEdit(msg) })
                             if (canDelete(msg))
                                 actions.push({ label: 'Delete', icon: 'delete', danger: true, onSelect: () => deleteMessage(msg) })
@@ -390,8 +421,20 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                     </Show>
 
                                     {/* Hover actions, each gated on its own permission */}
-                                    <Show when={(canEdit(msg) || canDelete(msg)) && editingId() !== msg.id}>
+                                    <Show when={(canReply(msg) || canEdit(msg) || canDelete(msg)) && editingId() !== msg.id}>
                                         <div class="shrink-0 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                                            {/* Ungated by author: quoting someone
+                                                else is the whole point. */}
+                                            <Show when={canReply(msg)}>
+                                                <button
+                                                    onClick={() => reply(msg)}
+                                                    title="Reply"
+                                                    aria-label={`Reply to ${authorLabel(msg)}`}
+                                                    class="text-sub hover:text-main hover:cursor-pointer"
+                                                >
+                                                    <span class="material-symbols-outlined text-sm">reply</span>
+                                                </button>
+                                            </Show>
                                             <Show when={canEdit(msg)}>
                                                 <button onClick={() => startEdit(msg)} title="Edit" class="text-sub hover:text-main hover:cursor-pointer">
                                                     <span class="material-symbols-outlined text-sm">edit</span>
@@ -425,7 +468,11 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                 }
             >
                 <div class="bg-element border-element-accent border-t p-3">
-                    <Editor chrome="chat" onSubmit={(_t, content) => sendMessage(content)} />
+                    <Editor
+                        chrome="chat"
+                        onSubmit={(_t, content) => sendMessage(content)}
+                        onReady={(handle) => (composer = handle)}
+                    />
                 </div>
             </Show>
         </div>

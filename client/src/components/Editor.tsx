@@ -45,6 +45,16 @@ export interface EditorProps {
     // When set, unsaved work is mirrored to localStorage under this key and
     // restored on mount. See the draft block below.
     draftKey?: string
+    // Handed over on mount, for a host that has to put text into a composer it
+    // does not own (chat quoting a message it was asked to reply to). A prop
+    // holding the content instead would make every keystroke the host's
+    // problem, for the sake of the rare write.
+    onReady?: (handle: EditorHandle) => void
+}
+
+export interface EditorHandle {
+    // Insert at the caret, on a line of its own, and leave the caret after it.
+    insertBlock: (text: string) => void
 }
 
 // --- drafts -----------------------------------------------------------------
@@ -278,6 +288,17 @@ export const Editor: Component<EditorProps> = (props) => {
         const pos = start + text.length
         restoreSelection(pos, pos)
     }
+
+    // Insert starting on a line of its own. A blockquote glued to the tail of
+    // whatever was already typed is neither a quote nor prose, and the caret
+    // sits at the end of the composer far more often than at the start of a
+    // line.
+    const insertBlock = (text: string) => {
+        const before = content().slice(0, contentRef ? contentRef.selectionStart : content().length)
+        insertAtCursor(before === '' || before.endsWith('\n') ? text : '\n' + text)
+    }
+
+    onMount(() => props.onReady?.({ insertBlock }))
 
     const tokenFor = (kind: SlashKind, id: string) =>
         kind === 'moment' ? `[[${id}]]` : kind === 'todo' ? `::todo:${id}::` : `::canvas:${id}::`
