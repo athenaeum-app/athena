@@ -192,6 +192,14 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
     // staying tighter than the typography plugin's airy 1.25em default, which
     // matters because chat messages render through this same component.
     //
+    // [&>*:first-child]:!mt-0 / [&>*:last-child]:!mb-0: that my-3 is trapped
+    // inside a flex item in ChatPanel (items-start), so it can't collapse out
+    // against the sibling message's own grouping margin. Left alone, every
+    // chat message carries a bonus 12px above and below itself no matter how
+    // tight ChatPanel's own same-author/same-minute grouping margin is. Zeroing
+    // just the outer edges leaves in-message paragraph breaks untouched while
+    // letting ChatPanel's grouping margin be the only gap between messages.
+    //
     // break-words: an unbreakable run of characters (a pasted URL is the
     // common one, and GFM autolinks it into a single <a>) has no wrap
     // opportunity, so it renders at its full width and overflows whatever
@@ -202,7 +210,7 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
     return (
         <div
             ref={containerRef}
-            class={`prose max-w-none break-words prose-p:my-3 prose-headings:my-2 prose-pre:my-2 prose-pre:bg-element-matte prose-pre:p-3 prose-pre:border prose-pre:border-element-accent prose-pre:rounded-lg prose-img:rounded-lg prose-img:border prose-img:border-element-accent prose-a:text-highlight-strongest prose-a:underline prose-strong:text-md-strong prose-h1:text-md-heading prose-h2:text-md-heading prose-h3:text-md-heading prose-code:text-sub prose-code:bg-element-accent prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none ${props.class || ''}`}
+            class={`prose max-w-none break-words prose-p:my-3 prose-headings:my-2 prose-pre:my-2 [&>*:first-child]:!mt-0 [&>*:last-child]:!mb-0 prose-pre:bg-element-matte prose-pre:p-3 prose-pre:border prose-pre:border-element-accent prose-pre:rounded-lg prose-img:rounded-lg prose-img:border prose-img:border-element-accent prose-a:text-highlight-strongest prose-a:underline prose-strong:text-md-strong prose-h1:text-md-heading prose-h2:text-md-heading prose-h3:text-md-heading prose-code:text-sub prose-code:bg-element-accent prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none ${props.class || ''}`}
         />
     )
 }
