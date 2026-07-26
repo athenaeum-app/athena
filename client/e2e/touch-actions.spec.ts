@@ -47,6 +47,27 @@ async function seedCanvases(page: Page) {
     await post(req, '/api/v1/canvases', { title: 'Touch board' })
 }
 
+// A moment whose body carries a fenced code block, so MarkdownText attaches its
+// copy button to the rendered <pre>.
+const CODE_MOMENT = 'Touch code block'
+async function seedCodeMoment(page: Page) {
+    const req = page.request
+    const existing = (await (await req.get('/api/v1/archives')).json()) as { name: string }[]
+    if (existing?.some((a) => a.name === 'TOUCH')) return
+
+    const arch = await post<{ id: string }>(req, '/api/v1/archives', { name: 'TOUCH' })
+    await post(req, '/api/v1/moments', {
+        archive_id: arch.id,
+        title: CODE_MOMENT,
+        content: 'Here is some code:\n\n```js\nconst copied = true\n```\n',
+        tag_ids: [],
+    })
+}
+
+// This spec seeds the only fenced code block in the suite, so there is exactly
+// one of these on screen wherever the body is rendered.
+const copyButton = (page: Page) => page.locator('.copy-btn')
+
 // Mobile route into a module: bottom nav "More" -> the module's row.
 async function openModuleOnMobile(page: Page, name: 'Todos' | 'Canvas') {
     await page.getByRole('button', { name: 'More' }).click()
@@ -95,10 +116,44 @@ test.describe('canvas list controls on touch', () => {
     })
 })
 
-// The counterweight. Pinning the control visible on touch must not turn it into
+// The code-block COPY button used to be revealed by a mouseenter handler. Touch
+// browsers do synthesise that event, but only after a tap on the code itself, so
+// the affordance was invisible until you happened to prod it.
+test.describe('code block copy button on touch', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+    test('the copy button is visible without hovering the block', async ({ page }) => {
+        await signIn(page)
+        await seedCodeMoment(page)
+        await page.goto('/')
+
+        // The mobile swiper shows plain-text preview cards, so the body (and
+        // with it the code block) is only rendered once the reader is open.
+        // Filtering to this spec's archive leaves one card to tap.
+        await page.getByRole('button', { name: 'Archives' }).click()
+        await page.getByRole('button', { name: 'TOUCH' }).click()
+        await page.getByText(CODE_MOMENT).click()
+
+        await expect(copyButton(page)).toHaveCSS('opacity', '1')
+    })
+})
+
+// The counterweight. Pinning these visible on touch must not turn them into
 // permanent clutter on a pointer, which is what the hover reveal is for.
-test.describe('todo item delete on a pointer', () => {
+test.describe('hover reveals survive on a pointer', () => {
     test.use({ viewport: { width: 1440, height: 900 } })
+
+    test('the copy button stays hidden until the code block is hovered', async ({ page }) => {
+        await signIn(page)
+        await seedCodeMoment(page)
+        await page.goto('/')
+
+        const btn = copyButton(page)
+        await expect(btn).toHaveCSS('opacity', '0')
+
+        await btn.hover()
+        await expect(btn).toHaveCSS('opacity', '1')
+    })
 
     test('the delete control stays hidden until the row is hovered', async ({ page }) => {
         await signIn(page)

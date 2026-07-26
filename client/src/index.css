@@ -589,6 +589,25 @@ input[type='checkbox']:not(.native-checkbox):focus-visible {
     border: 1px solid var(--color-element-accent);
 }
 
+/* Code-block copy button (MarkdownText attaches these after each render).
+   Revealed by hovering the block on a pointer, permanently visible without one:
+   on touch it used to take a stray tap on the code to surface the button, and
+   nothing on screen said it was there. Driven from CSS rather than mouseenter
+   handlers so the (hover: none) case is a rule and not a missing event. */
+.copy-btn {
+    opacity: 0;
+}
+@media (hover: hover) {
+    pre:hover .copy-btn {
+        opacity: 1;
+    }
+}
+@media (hover: none) {
+    .copy-btn {
+        opacity: 1;
+    }
+}
+
 /* Tables are sized by their content and cannot be told to shrink, so a table
    with more columns than the column is wide pushes past its card and hands the
    whole Moments column a horizontal scrollbar. Give each one its own scroll

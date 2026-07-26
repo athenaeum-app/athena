@@ -145,13 +145,12 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
             if (!codeBlock) return
 
             const btn = document.createElement('button')
+            // Visibility is CSS (.copy-btn in index.css), which keeps the button
+            // on screen where there is no hover to reveal it.
             btn.className =
-                'copy-btn absolute top-2 right-2 bg-element/80 hover:bg-highlight text-sub hover:text-plain px-2 py-1 rounded text-xs font-bold transition-all duration-200 opacity-0'
+                'copy-btn absolute top-2 right-2 bg-element/80 hover:bg-highlight text-sub hover:text-plain px-2 py-1 rounded text-xs font-bold transition-all duration-200'
             btn.innerText = 'COPY'
             btn.title = 'Copy to clipboard'
-
-            pre.addEventListener('mouseenter', () => (btn.style.opacity = '1'))
-            pre.addEventListener('mouseleave', () => (btn.style.opacity = '0'))
 
             btn.addEventListener('click', (e) => {
                 e.stopPropagation()
