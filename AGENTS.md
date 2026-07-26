@@ -134,3 +134,12 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 Bug fixes come with a regression test. Server behaviour goes in the relevant
 `server/internal/*/*_test.go`. Client behaviour goes in a Vitest file beside the
 component, or into the Playwright critical path if it is a user-visible flow.
+
+**A UI change is checked at both a desktop and a mobile viewport before it
+counts as done.** The client is one codebase serving two different shells (the
+Feed/Menu column layout versus the phone-width swiper and bottom nav), and a
+fix or feature that only got eyeballed at one width has only been half tested.
+Use the same two viewports the Playwright suite already standardizes on:
+`1440x900` for desktop, `390x844` with `hasTouch: true` for mobile (see e.g.
+`client/e2e/touch-actions.spec.ts`). Passing `tsc` and a single browser check
+is not a substitute for looking at both.

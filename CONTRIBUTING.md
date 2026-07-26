@@ -91,6 +91,13 @@ belongs in the relevant `internal/*/*_test.go`; new client behaviour goes in a
 Vitest file next to the component, or into the Playwright critical path if it is
 a user-visible flow.
 
+A UI change should be checked at both a desktop and a mobile viewport before
+you call it done. The client serves two different shells from one codebase
+(the Feed/Menu column layout versus the phone-width swiper and bottom nav), so
+a change eyeballed at only one width has only been half tested. The Playwright
+suite standardizes on `1440x900` for desktop and `390x844` with `hasTouch: true`
+for mobile; use the same two.
+
 ## Licensing
 
 Athena is [AGPL-3.0-only](LICENSE). By contributing, you agree your work is
