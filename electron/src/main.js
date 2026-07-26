@@ -24,7 +24,7 @@
 // dependencies (electron-store v10) are ESM-only and can no longer be
 // require()d from CommonJS.
 
-import { app, BrowserWindow, WebContentsView, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, WebContentsView, ipcMain, Menu, Tray, nativeImage, shell } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Store from 'electron-store'
@@ -46,6 +46,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // anything reads app.getPath('userData'), in particular before `new Store()`.
 if (!app.isPackaged) {
     app.setPath('userData', app.getPath('userData') + ' (dev)')
+}
+
+// Only one copy of the launcher may run at a time. A second instance would
+// open its own content view against the same persistent session partition and
+// the same electron-store config, so the two would overwrite each other's
+// last-opened server, appearance and rail state, and each would run its own
+// 30s health poll. Closing to the tray (see the window's close handler) makes
+// that easy to trip: the first copy is still resident when you relaunch.
+//
+// Requested here rather than next to the other lifecycle handlers so a losing
+// copy exits before constructing the store or registering IPC handlers. It
+// must still come after the setPath above, because the lock is keyed on the
+// userData directory, which is what lets a dev run and an installed copy
+// coexist. The loser hands its launch to the original via second-instance.
+const isPrimaryInstance = app.requestSingleInstanceLock()
+
+if (!isPrimaryInstance) {
+    app.quit()
+} else {
+    app.on('second-instance', () => {
+        revealMainWindow()
+    })
 }
 
 // App icon for the window/taskbar. electron-builder uses electron/build/icon.*
@@ -109,6 +131,13 @@ let activeServerId = null
 let railWidth = RAIL_HIDDEN
 // Periodic health-ping timer (status dots in the rail).
 let healthTimer = null
+// Tray icon. Must be held at module scope: a Tray that goes out of scope is
+// garbage collected and silently vanishes from the notification area.
+let tray = null
+// True once a real quit is under way (tray "Quit", the menu's quit role, or an
+// OS shutdown), which is what tells the window's close handler to let the
+// close through instead of hiding to the tray.
+let isQuitting = false
 // Last known reachability per server id, from those pings. The shell keeps its
 // own copy from the push events; this one exists so a *fresh* reader (the
 // embedded PWA's own switcher, which lists libraries on mount) sees the
@@ -164,6 +193,18 @@ function createWindow() {
         updateOverlayBounds()
     })
 
+    // Closing hides to the tray rather than quitting, the way Discord and
+    // Slack behave: the launcher keeps polling server health and stays a click
+    // away, instead of paying the full cold start (window, session partition,
+    // server page load) every time. Quitting for real goes through the tray's
+    // Quit item, the Servers menu's quit role, or an OS shutdown, all of which
+    // set isQuitting via before-quit first.
+    mainWindow.on('close', (event) => {
+        if (isQuitting || !tray) return
+        event.preventDefault()
+        mainWindow.hide()
+    })
+
     mainWindow.on('closed', () => {
         mainWindow = null
         contentView = null
@@ -172,6 +213,63 @@ function createWindow() {
     })
 
     return mainWindow
+}
+
+// revealMainWindow brings the launcher back from the tray, an OS taskbar
+// minimise, or (defensively) a window that somehow got torn down.
+function revealMainWindow() {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        createWindow()
+        mainWindow.webContents.once('did-finish-load', () => {
+            openLastServerOrWelcome()
+            pingAll()
+        })
+        return
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    if (!mainWindow.isVisible()) mainWindow.show()
+    mainWindow.focus()
+}
+
+// trayImage sizes the app icon for the notification area. Windows reads the
+// multi-resolution .ico directly, but everywhere else the source is a 512px
+// PNG that a menu bar or panel will not downscale for us.
+function trayImage() {
+    const image = nativeImage.createFromPath(APP_ICON)
+    if (image.isEmpty() || process.platform === 'win32') return APP_ICON
+    return image.resize({ width: 16, height: 16 })
+}
+
+// Returns null if the platform refuses a tray icon (no notification area on
+// some Linux desktops, a missing icon file). That is load-bearing: the close
+// handler only hides the window when a tray exists, so a failed tray leaves
+// close quitting normally rather than hiding the app somewhere unreachable.
+function createTray() {
+    if (tray) return tray
+    try {
+        tray = new Tray(trayImage())
+    } catch (err) {
+        console.warn('Tray unavailable, close will quit instead:', err.message)
+        return null
+    }
+    tray.setToolTip('Athena')
+    tray.setContextMenu(
+        Menu.buildFromTemplate([
+            { label: 'Open Athena', click: revealMainWindow },
+            { type: 'separator' },
+            {
+                label: 'Quit Athena',
+                click: () => {
+                    isQuitting = true
+                    app.quit()
+                },
+            },
+        ]),
+    )
+    // macOS opens the context menu on a plain click, so this only adds the
+    // one-click restore that Windows and Linux users expect.
+    tray.on('click', revealMainWindow)
+    return tray
 }
 
 // normalizeUrl prefixes a bare host with http:// so both the content view and
@@ -856,6 +954,10 @@ function openLastServerOrWelcome() {
 }
 
 app.whenReady().then(() => {
+    // A losing second instance can still reach ready before its quit lands;
+    // returning here keeps it from building a window and tray on the way out.
+    if (!isPrimaryInstance) return
+
     if (!devUrl && app.isPackaged) {
         // Auto-update reads the latest.yml that electron-builder publishes
         // beside the installers, so the release it points at is the publish
@@ -883,6 +985,7 @@ app.whenReady().then(() => {
 
     // Install the switch/toggle accelerators.
     rebuildMenu()
+    createTray()
 
     createWindow()
     // Open the last server once the shell page is ready so its sidebar can
@@ -895,18 +998,29 @@ app.whenReady().then(() => {
     // Poll health every 30s for the rail status dots.
     healthTimer = setInterval(pingAll, 30000)
 
+    // Clicking the dock icon reveals the hidden window now, rather than only
+    // rebuilding one when none is left.
     app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow()
-            mainWindow.webContents.once('did-finish-load', () => {
-                openLastServerOrWelcome()
-                pingAll()
-            })
-        }
+        revealMainWindow()
     })
+})
+
+// Set before any close handler runs, so the window's close listener can tell a
+// real quit from the close button. Covers the tray's Quit, the Servers menu's
+// quit role, and an OS shutdown.
+app.on('before-quit', () => {
+    isQuitting = true
+    // Windows leaves a ghost icon in the notification area until the user
+    // hovers over it if the tray is not torn down explicitly.
+    if (tray) {
+        tray.destroy()
+        tray = null
+    }
 })
 
 app.on('window-all-closed', () => {
     if (healthTimer) clearInterval(healthTimer)
+    // Reached only on a real quit now: an ordinary close is intercepted and
+    // hides the window instead, so the app stays resident in the tray.
     if (process.platform !== 'darwin') app.quit()
 })
