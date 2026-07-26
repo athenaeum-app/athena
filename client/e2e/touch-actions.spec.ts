@@ -70,9 +70,12 @@ async function seedCodeMoment(page: Page) {
     })
 }
 
-// This spec seeds the only fenced code block in the suite, so there is exactly
-// one of these on screen wherever the body is rendered.
-const copyButton = (page: Page) => page.locator('.copy-btn')
+// This spec seeds the only fenced code block in the suite, but the mobile
+// swiper card behind the reader renders the same body and attaches its own
+// button, which .moment-preview hides with display: none. Excluding what isn't
+// displayed leaves the one button under test; an opacity-0 button still counts
+// as visible here, which is what the pointer tests below assert on.
+const copyButton = (page: Page) => page.locator('.copy-btn:visible')
 
 // Mobile route into a module: bottom nav "More" -> the module's row.
 async function openModuleOnMobile(page: Page, name: 'Todos' | 'Canvas') {
@@ -168,9 +171,9 @@ test.describe('code block copy button on touch', () => {
         await seedCodeMoment(page)
         await page.goto('/')
 
-        // The mobile swiper shows plain-text preview cards, so the body (and
-        // with it the code block) is only rendered once the reader is open.
-        // Filtering to this spec's archive leaves one card to tap.
+        // The swiper card clips its render and hides the copy button, so the
+        // one under test only appears once the reader is open. Filtering to
+        // this spec's archive leaves one card to tap.
         await page.getByRole('button', { name: 'Archives' }).click()
         await page.getByRole('button', { name: 'TOUCH' }).click()
         await page.getByText(CODE_MOMENT).click()
