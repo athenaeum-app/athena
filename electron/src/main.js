@@ -70,11 +70,20 @@ if (!isPrimaryInstance) {
     })
 }
 
-// App icon for the window/taskbar. electron-builder uses electron/build/icon.*
-// for packaged apps, but a dev run (`npm run dev`) needs it set explicitly on
-// the BrowserWindow or Windows/Linux fall back to the default Electron icon.
-// (macOS shows the .icns from the app bundle and ignores the window icon.)
-const APP_ICON = path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png')
+// App icon for the window, the taskbar and the tray. Windows reads the
+// multi-resolution .ico; everywhere else takes the largest PNG of the hicolor
+// set, which is more than any window icon or tray needs and is still a fifth
+// of the 1024px source it was resized from.
+//
+// Both files have to be listed in electron-builder.yml's `files`, or this path
+// exists in a dev run and in no packaged build: the icon would silently fail to
+// load, leaving the window without a _NET_WM_ICON and Linux without a tray.
+const APP_ICON = path.join(
+    __dirname,
+    '..',
+    'build',
+    process.platform === 'win32' ? 'icon.ico' : 'icons/512x512.png',
+)
 
 const store = new Store({
     defaults: {

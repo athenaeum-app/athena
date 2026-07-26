@@ -9,6 +9,12 @@ directories:
     buildResources: build
 files:
     - src/**
+    # main.js loads the window and tray icon from these at runtime. They live
+    # under buildResources, which electron-builder leaves out of the app package
+    # unless it is named, so without these two lines the path resolves to
+    # nothing once packaged and the tray never appears.
+    - build/icon.ico
+    - build/icons/512x512.png
 win:
     target: nsis
 mac:
