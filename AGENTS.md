@@ -84,11 +84,43 @@ must keep working across upgrades. Add new bits at the end.
 contradicts an ADR, say so in the pull request and write a new ADR superseding
 the old one. Do not silently diverge.
 
+## Working through a batch of tasks
+
+When handed several things at once, the order is: investigate everything, queue
+everything, then build.
+
+**1. Investigate before filing.** Read the code for every proposal first. What
+is being asked for is often not what is wrong: a report that "editing a moment
+does not update" turned out to be only pinned moments, because they render from
+a second copy of the state. Filing an issue before finding that is filing the
+wrong issue.
+
+**2. Queue the whole batch, then build.** Open an issue per accepted proposal,
+all of them, before writing any code. Say what is actually broken and why, not
+just what to change. A proposal that turns out to be a non-issue gets said so
+rather than filed.
+
+**3. One commit per issue.** Group only work that cannot be separated, and say
+in the body why it could not. A test-only fixup that came out of the same
+session is its own commit; it closes nothing.
+
+**4. Push in batches.** One push at the end, or every five or so tasks,
+whichever keeps a red CI from sitting on top of unrelated finished work.
+
+**5. Release anything that reaches a user.** A change to `client/` or `server/`
+gets a version bump and a tag. `docs:`, `chore:` and repository plumbing do not.
+Bump `package.json` in the root, `client/` and `electron/` together (the version
+sync in CI checks all three), commit as the bare version number, tag `vX.Y.Z`,
+and push the tag. Verify the release un-drafted and CI is green before saying it
+shipped.
+
 ## Commits
 
 Conventional Commits: `feat(scope):`, `fix(scope):`, `docs:`, `refactor:`,
 `chore:`, `style:`. Keep the subject under about 72 characters and explain why
 in the body when it is not obvious.
+
+Close the issue from the commit (`Closes #12`), so the queue drains itself.
 
 Agent-assisted commits should carry a `Co-Authored-By:` trailer. Attribution is
 expected here, not hidden.
