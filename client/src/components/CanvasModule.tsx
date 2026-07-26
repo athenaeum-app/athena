@@ -789,7 +789,9 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                 <div class="bg-element border-element-accent flex items-center justify-between rounded-t-2xl border-b p-4">
                     <div class="flex items-center gap-2">
                         {/* Mobile: toggles the canvas-list drawer (the rail is hidden). */}
-                        <button onClick={() => setShowList((v) => !v)} class="text-sub hover:text-main transition-colors hover:cursor-pointer lg:hidden" title="Canvases">
+                        {/* aria-label, not just title: the only child is the icon
+                            ligature, so without it this announces as "menu". */}
+                        <button onClick={() => setShowList((v) => !v)} class="text-sub hover:text-main transition-colors hover:cursor-pointer lg:hidden" title="Canvases" aria-label="Canvases">
                             <span class="material-symbols-outlined">menu</span>
                         </button>
                         <span class="material-symbols-outlined text-highlight text-xl">dashboard</span>
@@ -848,18 +850,25 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                                                             >
                                                                 {canvas.title}
                                                             </button>
+                                                            {/* This rail is a drawer on mobile, so these are
+                                                                touch-reachable surfaces. Hover-revealed on a
+                                                                pointer, permanently visible without one: the
+                                                                nodes have a long-press menu to fall back on,
+                                                                the canvases in this list do not. */}
                                                             <Show when={props.canManage}>
                                                                 <button
                                                                     onClick={() => startRename(canvas)}
                                                                     title="Rename canvas"
-                                                                    class="text-sub hover:text-highlight-strongest shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:cursor-pointer"
+                                                                    aria-label={`Rename canvas ${canvas.title}`}
+                                                                    class="text-sub hover:text-highlight-strongest shrink-0 opacity-0 group-hover:opacity-100 no-hover:opacity-100 transition-opacity hover:cursor-pointer"
                                                                 >
                                                                     <span class="material-symbols-outlined text-base">edit</span>
                                                                 </button>
                                                                 <button
                                                                     onClick={() => removeCanvas(canvas)}
                                                                     title="Delete canvas"
-                                                                    class="text-sub hover:text-danger shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:cursor-pointer"
+                                                                    aria-label={`Delete canvas ${canvas.title}`}
+                                                                    class="text-sub hover:text-danger shrink-0 opacity-0 group-hover:opacity-100 no-hover:opacity-100 transition-opacity hover:cursor-pointer"
                                                                 >
                                                                     <span class="material-symbols-outlined text-base">delete</span>
                                                                 </button>

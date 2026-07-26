@@ -40,10 +40,17 @@ async function seedTodos(page: Page) {
     await post(req, `/api/v1/todos/${list.id}/items`, { text: 'Leave this one alone' })
 }
 
-// Mobile route into the module: bottom nav "More" -> "Todos".
-async function openTodosOnMobile(page: Page) {
+async function seedCanvases(page: Page) {
+    const req = page.request
+    const existing = (await (await req.get('/api/v1/canvases')).json()) as { title: string }[]
+    if (existing?.some((c) => c.title === 'Touch board')) return
+    await post(req, '/api/v1/canvases', { title: 'Touch board' })
+}
+
+// Mobile route into a module: bottom nav "More" -> the module's row.
+async function openModuleOnMobile(page: Page, name: 'Todos' | 'Canvas') {
     await page.getByRole('button', { name: 'More' }).click()
-    await page.getByRole('button', { name: 'Todos' }).click()
+    await page.getByRole('button', { name }).click()
 }
 
 const deleteItem = (page: Page, text: string) =>
@@ -56,7 +63,7 @@ test.describe('todo item delete on touch', () => {
         await signIn(page)
         await seedTodos(page)
         await page.goto('/')
-        await openTodosOnMobile(page)
+        await openModuleOnMobile(page, 'Todos')
 
         const target = deleteItem(page, 'Delete me on a phone')
         await expect(target).toHaveCSS('opacity', '1')
@@ -65,6 +72,26 @@ test.describe('todo item delete on touch', () => {
         await expect(page.getByText('Delete me on a phone')).toHaveCount(0)
         // The rest of the list survives: this deleted one item, not the column.
         await expect(page.getByText('Leave this one alone')).toBeVisible()
+    })
+})
+
+// The canvas list is a static rail on desktop and a slide-in drawer below lg,
+// so its per-canvas controls are touch surfaces too. Unlike the nodes on the
+// board, which have a long-press context menu, this list has no fallback.
+test.describe('canvas list controls on touch', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+    test('rename and delete are visible without hovering', async ({ page }) => {
+        await signIn(page)
+        await seedCanvases(page)
+        await page.goto('/')
+        await openModuleOnMobile(page, 'Canvas')
+
+        // The rail starts off-screen on mobile; the header button slides it in.
+        await page.getByRole('button', { name: 'Canvases' }).click()
+
+        await expect(page.getByRole('button', { name: 'Rename canvas Touch board' })).toHaveCSS('opacity', '1')
+        await expect(page.getByRole('button', { name: 'Delete canvas Touch board' })).toHaveCSS('opacity', '1')
     })
 })
 
