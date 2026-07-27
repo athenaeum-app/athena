@@ -1,6 +1,6 @@
 {
     "name": "athena-client",
-    "version": "2.7.3",
+    "version": "2.7.4",
     "description": "Athena desktop launcher",
     "license": "AGPL-3.0-only",
     "private": true,
