@@ -79,12 +79,6 @@ jobs:
       # it themselves, since electron-builder would otherwise have each platform
       # create its own separate draft release for the same tag.
       #
-      # --target pins the release to the exact commit the tag points to.
-      # Without it, gh has to resolve the tag itself, and right after a tag
-      # push GitHub's Releases API can lag behind the git ref, causing it to
-      # silently fall back to a phantom "untagged-<hash>" release instead of
-      # the real one, which then never gets the electron-builder assets.
-      #
       # RELEASES_TOKEN, not GITHUB_TOKEN: this workflow runs in athena-dev
       # (the private source repo), but releases are published to athena (a
       # separate, empty public repo, kept public so electron-updater and a
@@ -92,13 +86,23 @@ jobs:
       # scoped to whichever repo the workflow runs in, so it cannot write to
       # a different repo; RELEASES_TOKEN is a fine-grained PAT scoped to just
       # athena, with Contents: read/write.
+      #
+      # --target athena's own master, not github.sha: this tag has no
+      # corresponding commit in athena at all, since athena and athena-dev
+      # are unrelated histories (athena is just a README). Passing this
+      # workflow's own commit SHA as --target made sense back when the
+      # release lived in the same repo as the tag, pinning it against the
+      # Releases API lagging behind a just-pushed ref, but here it means
+      # asking athena to create a tag at a commit it has never heard of,
+      # which the API 500s on. athena has nothing resembling per-release
+      # commits anyway, so every tag just points at its one and only branch.
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           if output=$(gh release create "${{ github.ref_name }}" \
             --repo athenaeum-app/athena \
-            --target "${{ github.sha }}" \
+            --target master \
             --draft --title "${{ github.ref_name }}" --generate-notes 2>&1); then
             echo "$output"
           elif echo "$output" | grep -qi "already exists"; then
