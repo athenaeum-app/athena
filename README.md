@@ -104,7 +104,7 @@ pinned per archive so a given archive always opens in its own colours.
 Requirements: Node.js 20 or newer and Go 1.25 or newer.
 
 ```bash
-git clone https://github.com/athenaeum-app/athena.git && cd athena
+git clone https://github.com/athenaeum-app/athena-dev.git && cd athena-dev
 npm install
 npm run dev
 ```
@@ -168,10 +168,9 @@ Athena ships as a single container. The image contains the Go server with the
 web client compiled into it, so there is nothing else to run and no separate
 frontend to deploy.
 
-Grab [`docker-compose.yml`](docker-compose.yml) and start it:
+Grab [`docker-compose.yml`](docker-compose.yml) from a checkout of the repo and start it:
 
 ```bash
-curl -O https://raw.githubusercontent.com/athenaeum-app/athena/master/docker-compose.yml
 docker compose up -d
 ```
 

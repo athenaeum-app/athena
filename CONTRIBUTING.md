@@ -21,8 +21,8 @@ which covers the same conventions in a form agents read directly.
 Requirements: Node.js 20 or newer, Go 1.25 or newer.
 
 ```bash
-git clone https://github.com/athenaeum-app/athena.git
-cd athena
+git clone https://github.com/athenaeum-app/athena-dev.git
+cd athena-dev
 npm install          # also installs client/ and electron/ dependencies
 npm run dev          # Go server + client hot reload + desktop launcher
 ```

@@ -84,9 +84,17 @@ jobs:
       # push GitHub's Releases API can lag behind the git ref, causing it to
       # silently fall back to a phantom "untagged-<hash>" release instead of
       # the real one, which then never gets the electron-builder assets.
+      #
+      # RELEASES_TOKEN, not GITHUB_TOKEN: this workflow runs in athena-dev
+      # (the private source repo), but releases are published to athena (a
+      # separate, empty public repo, kept public so electron-updater and a
+      # plain `docker pull` work with no auth). The default GITHUB_TOKEN is
+      # scoped to whichever repo the workflow runs in, so it cannot write to
+      # a different repo; RELEASES_TOKEN is a fine-grained PAT scoped to just
+      # athena, with Contents: read/write.
       - name: Create draft release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           if output=$(gh release create "${{ github.ref_name }}" \
             --repo athenaeum-app/athena \
@@ -158,7 +166,9 @@ jobs:
       - name: Build & publish
         run: npm run build -- --publish always
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # See create-release's comment: publishing to athena, not this
+          # workflow's own athena-dev, needs the cross-repo PAT.
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
   publish-release:
     name: Publish release
@@ -171,7 +181,9 @@ jobs:
       # take the release out of draft and mark it the latest release.
       - name: Publish and mark latest
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # See create-release's comment: publishing to athena, not this
+          # workflow's own athena-dev, needs the cross-repo PAT.
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           gh release edit "${{ github.ref_name }}" \
             --repo athenaeum-app/athena \
