@@ -684,8 +684,15 @@ export const Editor: Component<EditorProps> = (props) => {
 
     const isImageFile = (file: File) => file.type.startsWith('image/')
 
+    // Numbers the placeholders so no two are the same string. A pasted
+    // screenshot is almost always called image.png, so two pastes in a row
+    // would otherwise sit in the content as identical text, and the replace
+    // below takes the first match: whichever upload finished first would claim
+    // the other's slot.
+    let uploadSeq = 0
+
     const uploadFile = async (file: File) => {
-        const placeholder = `[Attaching ${file.name}...]`
+        const placeholder = `[Attaching ${file.name} #${++uploadSeq}...]`
         insertAtCursor(placeholder)
         try {
             const asset = (await api.uploadAsset(file)) as { id: string }
@@ -738,8 +745,15 @@ export const Editor: Component<EditorProps> = (props) => {
 
     // ---- submit ----
 
+    // An upload is only in the content as placeholder text until it resolves, so
+    // submitting mid-upload saves that text as the body and loses the
+    // attachment. The resolving upload then rewrites a buffer that submit has
+    // already cleared, leaving the asset on the server with nothing pointing at
+    // it. The "Uploading N file(s)" hint already says why the button is inert.
+    const canSubmit = () => !saving() && uploading() === 0
+
     const submit = async () => {
-        if (saving()) return
+        if (!canSubmit()) return
         // Chat won't submit an empty line.
         if (props.chrome === 'chat' && !content().trim()) return
         setSaving(true)
@@ -1024,7 +1038,7 @@ export const Editor: Component<EditorProps> = (props) => {
                     <button
                         type="button"
                         onClick={() => void submit()}
-                        disabled={saving()}
+                        disabled={!canSubmit()}
                         class="bg-highlight-strongest text-white rounded-md px-4 py-1.5 text-sm font-bold hover:brightness-110 disabled:opacity-50 transition-[filter]"
                     >
                         {saving() ? 'Sending…' : 'Send'}
@@ -1100,7 +1114,7 @@ export const Editor: Component<EditorProps> = (props) => {
                         </button>
                         <button
                             onClick={() => void submit()}
-                            disabled={saving()}
+                            disabled={!canSubmit()}
                             class="bg-highlight-strongest text-white rounded-md px-5 py-2 text-sm font-bold hover:brightness-110 disabled:opacity-50 transition-[filter]"
                         >
                             {saving() ? 'Saving…' : 'Save'}
@@ -1121,7 +1135,7 @@ export const Editor: Component<EditorProps> = (props) => {
                     <button
                         type="button"
                         onClick={() => void submit()}
-                        disabled={saving()}
+                        disabled={!canSubmit()}
                         class="bg-highlight-strongest text-white rounded-md px-5 py-2 text-sm font-bold hover:brightness-110 disabled:opacity-50 transition-[filter]"
                     >
                         {saving() ? 'Posting…' : 'Post'}
