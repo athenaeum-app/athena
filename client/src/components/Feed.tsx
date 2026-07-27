@@ -1,4 +1,5 @@
-import { For, Show, createMemo, createSignal, onMount, onCleanup, type Component } from 'solid-js'
+import { For, Show, createMemo, createSignal, onMount, onCleanup, type Component, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import type { Moment, Tag, Archive } from '../api'
 import { Line } from './Line'
 import { MomentBody } from './MomentBody'
@@ -119,6 +120,26 @@ export const Feed: Component<FeedProps> = (props) => {
     const [showFilters, setShowFilters] = createSignal(false)
     let searchBarRef: HTMLInputElement | undefined
     let filterWrapRef: HTMLDivElement | undefined
+    let filterMenuRef: HTMLDivElement | undefined
+
+    // The filter row has overflow-x-hidden (for the search bar's width
+    // transition, see below), which per the CSS overflow spec silently forces
+    // its unset overflow-y to auto too: a lone axis of "hidden" coerces the
+    // other away from "visible". That turned the row into its own clipping
+    // box, so the popover, absolutely positioned inside it, rendered but was
+    // entirely invisible below the row's own single-line height. Portal it out
+    // to escape that ancestor instead of fighting the clipping in place.
+    const filterMenuStyle = (): JSX.CSSProperties => {
+        const el = filterWrapRef
+        if (!el) return { display: 'none' }
+        const a = el.getBoundingClientRect()
+        return {
+            position: 'fixed',
+            right: `${window.innerWidth - a.right}px`,
+            top: `${a.bottom + 8}px`,
+            width: '16rem', // matches the old w-64
+        }
+    }
 
     // Infinite scroll (desktop list/grid): a viewport-rooted observer with a
     // generous rootMargin fires onLoadMore before the sentinel actually scrolls
@@ -157,10 +178,15 @@ export const Feed: Component<FeedProps> = (props) => {
         }
         window.addEventListener('athena:focus-search', onFocusSearch)
 
-        // Dismiss the filter popover on an outside click.
+        // Dismiss the filter popover on an outside click. The popover itself
+        // is portaled (see filterMenuStyle), so it's no longer a DOM
+        // descendant of filterWrapRef, both refs have to be checked.
         const onDocPointer = (e: PointerEvent) => {
             if (!showFilters()) return
-            if (filterWrapRef && !filterWrapRef.contains(e.target as Node)) setShowFilters(false)
+            const target = e.target as Node
+            if (filterWrapRef?.contains(target)) return
+            if (filterMenuRef?.contains(target)) return
+            setShowFilters(false)
         }
         document.addEventListener('pointerdown', onDocPointer)
 
@@ -501,8 +527,11 @@ export const Feed: Component<FeedProps> = (props) => {
                         </button>
 
                         <Show when={showFilters()}>
+                            <Portal>
                             <div
-                                class="bg-element-matte border-element-accent absolute right-0 top-8 z-30 flex w-64 flex-col gap-3 rounded-xl border p-4 shadow-2xl"
+                                ref={filterMenuRef}
+                                style={filterMenuStyle()}
+                                class="bg-element-matte border-element-accent z-30 flex flex-col gap-3 rounded-xl border p-4 shadow-2xl"
                                 onClick={(e) => e.stopPropagation()}
                             >
                                 <div class="flex items-center justify-between">
@@ -564,6 +593,7 @@ export const Feed: Component<FeedProps> = (props) => {
                                     </button>
                                 </Show>
                             </div>
+                            </Portal>
                         </Show>
                     </div>
                     </Show>
