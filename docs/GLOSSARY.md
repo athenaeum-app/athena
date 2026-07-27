@@ -42,6 +42,14 @@ within moment content. Tracked by an `assets` row; stored on local disk under an
 opaque UUID filename.
 _Avoid_: attachment, file, upload, media.
 
+**Tag graph**:
+Whole-library counts of how often each tag is used and how often each pair of
+tags shares a moment. The composer ranks its tag suggestions from it, so picking
+one tag brings the tags most often filed alongside it to the front. Always
+computed over the entire library, never the loaded feed page or the reader's
+current filters.
+_Avoid_: tag affinity, related tags, co-occurrence matrix.
+
 **Link preview**:
 Server-side-scraped metadata (title, description, image) for a URL referenced in
 moment content. Cached in the `link_previews` table with a TTL.

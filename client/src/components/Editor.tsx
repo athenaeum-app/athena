@@ -1,6 +1,6 @@
 import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup, type Component, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
-import { api, type Archive, type Tag, type Moment } from '../api'
+import { api, type Archive, type Tag, type Moment, type TagGraph } from '../api'
 import { contrastingTextColor, randomTagColor } from '../tagColors'
 import { rankTags } from '../tagRank'
 import { keybinds, matchEvent } from '../keybinds'
@@ -31,9 +31,10 @@ export interface EditorProps {
     moment?: Moment | null
     archives?: Archive[]
     tags?: Tag[]
-    // Feeds tag-suggestion ranking (see tagRank). Only tag_ids is read, so the
-    // loaded page of moments is enough; suggestions get better as more load.
-    moments?: Moment[]
+    // Whole-library tag pairings, for suggestion ranking (see tagRank). null
+    // until the first fetch lands, which leaves the order alone rather than
+    // ranking off partial data.
+    tagGraph?: TagGraph | null
     defaultArchive?: string | null
     momentIndex?: { id: string; title: string }[]
     // Persist. tagIds/archiveId are empty for chat.
@@ -590,7 +591,7 @@ export const Editor: Component<EditorProps> = (props) => {
         )
         // Rank before slicing, or the ones shown are just the first the server
         // happened to return.
-        return rankTags(matching, props.moments || [], [...selectedIds]).slice(0, TAG_SUGGESTION_LIMIT)
+        return rankTags(matching, props.tagGraph ?? null, [...selectedIds]).slice(0, TAG_SUGGESTION_LIMIT)
     })
 
     // Whether to offer suggestions at all. Deliberately true for an empty

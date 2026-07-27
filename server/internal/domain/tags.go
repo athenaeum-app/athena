@@ -213,3 +213,83 @@ func TagFacets(archiveID *string, search string, selectedTagIDs []string, filter
 	}
 	return counts, rows.Err()
 }
+
+// TagGraph is how often each tag is used and how often each pair of tags lands
+// on the same moment. Pairs are recorded both ways round, so a caller holding
+// one tag reads its partners straight out of Pairs[thatTag].
+type TagGraph struct {
+	Totals map[string]int            `json:"totals"`
+	Pairs  map[string]map[string]int `json:"pairs"`
+}
+
+// TagCoOccurrence counts tag usage and tag pairings across every live moment in
+// the library.
+//
+// The composer ranks its tag suggestions from this. Counting client-side has
+// the failure TagFacets describes plus a worse one: the feed pages in at 100
+// moments and arrives already narrowed by whatever archive, search and date
+// filters the reader has set, so a client-side count answers "which tags go
+// together in what I am looking at right now" when the question asked is about
+// the library. Suggestions would reorder as the reader scrolled or switched
+// archive, which makes the ranking feel arbitrary at exactly the moment it is
+// supposed to be helping.
+//
+// Deliberately takes no filters. A pairing is a property of the library, so
+// the answer must not depend on the caller's current view.
+func TagCoOccurrence() (*TagGraph, error) {
+	graph := &TagGraph{Totals: map[string]int{}, Pairs: map[string]map[string]int{}}
+
+	totals, err := db.DB.Query(
+		`SELECT mt.tag_id, COUNT(*)
+		 FROM moment_tags mt
+		 JOIN moments moment ON moment.id = mt.moment_id
+		 WHERE moment.deleted_at IS NULL
+		 GROUP BY mt.tag_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("tag totals: %w", err)
+	}
+	defer totals.Close()
+	for totals.Next() {
+		var id string
+		var n int
+		if err := totals.Scan(&id, &n); err != nil {
+			return nil, fmt.Errorf("scan tag total: %w", err)
+		}
+		graph.Totals[id] = n
+	}
+	if err := totals.Err(); err != nil {
+		return nil, fmt.Errorf("tag totals: %w", err)
+	}
+
+	// `b.tag_id > a.tag_id` counts each unordered pair once instead of twice,
+	// and drops the self-join of a tag with itself.
+	pairs, err := db.DB.Query(
+		`SELECT a.tag_id, b.tag_id, COUNT(*)
+		 FROM moment_tags a
+		 JOIN moment_tags b ON b.moment_id = a.moment_id AND b.tag_id > a.tag_id
+		 JOIN moments moment ON moment.id = a.moment_id
+		 WHERE moment.deleted_at IS NULL
+		 GROUP BY a.tag_id, b.tag_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("tag pairs: %w", err)
+	}
+	defer pairs.Close()
+	for pairs.Next() {
+		var left, right string
+		var n int
+		if err := pairs.Scan(&left, &right, &n); err != nil {
+			return nil, fmt.Errorf("scan tag pair: %w", err)
+		}
+		if graph.Pairs[left] == nil {
+			graph.Pairs[left] = map[string]int{}
+		}
+		if graph.Pairs[right] == nil {
+			graph.Pairs[right] = map[string]int{}
+		}
+		graph.Pairs[left][right] = n
+		graph.Pairs[right][left] = n
+	}
+	return graph, pairs.Err()
+}

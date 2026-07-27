@@ -112,6 +112,16 @@ export const App: Component = () => {
     const availableTagIds = (): Set<string> | null =>
         facetsQuery.data ? new Set(Object.keys(facetsQuery.data.counts)) : null
 
+    // Whole-library tag pairings, for the composer's suggestion order. Takes no
+    // parameters, unlike the facets above: which tags belong together is a fact
+    // about the library, so it must not follow the reader's current filters.
+    // Keyed under qk.tags for the same reason the facets are, so retagging a
+    // moment refreshes it through the refetchTags() calls already in place.
+    const tagGraphQuery = useQuery(() => ({
+        queryKey: [...qk.tags, 'graph'],
+        queryFn: () => api.getTagGraph(),
+    }))
+
     const [moments, setMoments] = createSignal<Moment[]>([])
     const [pinnedMoments, setPinnedMoments] = createSignal<Moment[]>([])
     const [loadingMoments, setLoadingMoments] = createSignal(false)
@@ -701,7 +711,7 @@ export const App: Component = () => {
                         draftKey="inline-moment"
                         archives={archives() || []}
                         tags={tags() || []}
-                        moments={moments()}
+                        tagGraph={tagGraphQuery.data ?? null}
                         defaultArchive={selectedArchive()}
                         onSubmit={handleInlineCreate}
                         onCreateTag={handleInlineCreateTag}
@@ -1061,7 +1071,7 @@ export const App: Component = () => {
                     draftKey="inline-moment"
                     archives={archives() || []}
                     tags={tags() || []}
-                    moments={moments()}
+                    tagGraph={tagGraphQuery.data ?? null}
                     defaultArchive={selectedArchive()}
                     momentIndex={momentIndex()}
                     onSubmit={handleSaveMoment}

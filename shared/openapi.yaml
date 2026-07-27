@@ -1346,6 +1346,51 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /tags/graph:
+    get:
+      summary: Tag co-occurrence across the library
+      description: |
+        How often each tag is used, and how often each pair of tags appears on
+        the same moment, counted over every live moment in the library.
+
+        Takes no filter parameters by design. The composer ranks its tag
+        suggestions from this, and which tags belong together is a property of
+        the library rather than of the caller's current view.
+
+        `pairs` is symmetric: `pairs[a][b]` and `pairs[b][a]` both hold the
+        count. A pair that never co-occurs is absent rather than zero, as is a
+        tag on no moments.
+
+        Requires the `VIEW_MOMENTS` permission.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Tag totals and pair counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totals:
+                    type: object
+                    description: Tag ID to the number of moments carrying it.
+                    additionalProperties:
+                      type: integer
+                  pairs:
+                    type: object
+                    description: Tag ID to a map of partner tag ID to shared moment count.
+                    additionalProperties:
+                      type: object
+                      additionalProperties:
+                        type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /tags/{id}:
     patch:
       summary: Update a tag

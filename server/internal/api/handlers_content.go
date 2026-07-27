@@ -447,6 +447,19 @@ func (s *Server) handleTagFacets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"counts": counts})
 }
 
+// handleTagGraph answers "which tags go together", over the whole library. It
+// takes no filter parameters on purpose: the composer ranks its suggestions
+// from this, and that ranking must not shift with whatever the reader happens
+// to be looking at.
+func (s *Server) handleTagGraph(w http.ResponseWriter, r *http.Request) {
+	graph, err := domain.TagCoOccurrence()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to compute tag graph")
+		return
+	}
+	writeJSON(w, http.StatusOK, graph)
+}
+
 type createTagRequest struct {
 	Name  string `json:"name"`
 	Color string `json:"color"`

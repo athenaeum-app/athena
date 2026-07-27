@@ -166,6 +166,12 @@ export const api = {
         const queryString = searchParams.toString()
         return request<{ counts: Record<string, number> }>(`/api/v1/tags/facets${queryString ? '?' + queryString : ''}`)
     },
+    // How often each tag is used and how often each pair shares a moment,
+    // across the whole library. Deliberately unfiltered: the composer ranks
+    // its suggestions from this, and that order must not move with whatever
+    // archive or search the reader had open when they started writing.
+    getTagGraph: () => request<TagGraph>('/api/v1/tags/graph'),
+
     createTag: (name: string, color: string) =>
         request<Tag>('/api/v1/tags', { method: 'POST', body: JSON.stringify({ name, color }) }),
     updateTag: (id: string, name?: string, color?: string) =>
@@ -463,6 +469,14 @@ export interface Tag {
     color: string
     created_at: string
     updated_at: string
+}
+
+// Whole-library tag usage. `pairs` is symmetric: pairs[a][b] and pairs[b][a]
+// both hold the number of moments carrying both tags, so a lookup by either
+// half works. A pair that never occurs is absent, not zero.
+export interface TagGraph {
+    totals: Record<string, number>
+    pairs: Record<string, Record<string, number>>
 }
 
 export interface ChatMessage {
