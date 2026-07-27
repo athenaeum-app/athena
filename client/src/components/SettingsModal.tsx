@@ -48,6 +48,7 @@ import { isDesktop, desktop } from '../desktop'
 import { scope, setScope, overriddenKeys, resetOverride, appearanceIsGlobal, OVERRIDE_BUCKETS } from '../appearance'
 import { useUI } from '../ui'
 import { useAuth } from '../auth'
+import { currentNotes } from '../releaseNotes'
 import { FormField } from './FormField'
 
 interface SettingsModalProps {
@@ -1832,6 +1833,19 @@ const AboutTab: Component = () => {
                 </dd>
             </dl>
         </div>
+
+        {/* The same notes the update notice shows once, kept somewhere they can
+            be found again after it is dismissed. */}
+        <Show when={currentNotes()}>
+            {(notes) => (
+                <div class="border-element-accent space-y-2 rounded-lg border p-4">
+                    <p class="text-main mb-1 text-xs font-bold uppercase tracking-widest">New in v{__APP_VERSION__}</p>
+                    <ul class="text-sub list-disc space-y-1 pl-4 text-xs leading-relaxed">
+                        <For each={notes()}>{(note) => <li>{note}</li>}</For>
+                    </ul>
+                </div>
+            )}
+        </Show>
 
         <div class="border-element-accent space-y-2 rounded-lg border p-4">
             <p class="text-sub text-xs leading-relaxed">

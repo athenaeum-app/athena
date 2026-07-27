@@ -129,6 +129,14 @@ sync in CI checks all three), commit as the bare version number, tag `vX.Y.Z`,
 and push the tag. Verify the release un-drafted and CI is green before saying it
 shipped.
 
+**6. Write the patch notes before tagging, not after.** If the release changes
+anything a user would notice, add an entry for the new version to
+[`client/src/releaseNotes.ts`](client/src/releaseNotes.ts) and get the wording
+approved before the bump commit. The client shows that entry once, on the update
+that lands it, so it is the only explanation most people get for the page
+refreshing under them. A version with no entry shows nothing, which is the right
+answer for a release nobody needs told about: leave it out rather than pad it.
+
 ## Commits
 
 Conventional Commits: `feat(scope):`, `fix(scope):`, `docs:`, `refactor:`,

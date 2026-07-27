@@ -32,6 +32,8 @@ import { MenuPanel } from './components/MenuPanel'
 import { FocusedMomentModal } from './components/FocusedMomentModal'
 import { Lightbox } from './components/Lightbox'
 import { watchForNewBuild } from './staleClient'
+import { UpdateNotice } from './components/UpdateNotice'
+import { pendingNotes, markVersionSeen } from './releaseNotes'
 
 // Moments are cheap rows, so we pull a large page at a time and rely on
 // infinite scroll to fetch the next one automatically (no manual "load more").
@@ -428,8 +430,16 @@ export const App: Component = () => {
         }
     }
 
+    const [updateNotes, setUpdateNotes] = createSignal<string[] | null>(null)
+
     let stopBuildWatch: (() => void) | undefined
     onMount(() => {
+        // Read before marking, since the mark overwrites what the read compares
+        // against. Marking runs either way, so a build that says nothing still
+        // moves this browser forward.
+        setUpdateNotes(pendingNotes())
+        markVersionSeen()
+
         loadMoments(true)
         loadPinned()
         pollTimer = window.setInterval(pollEvents, 3000)
@@ -859,6 +869,16 @@ export const App: Component = () => {
                 <div aria-hidden="true" />
             </header>
             <Line class="bg-element-accent h-0.5 w-full" />
+
+            <Show when={updateNotes()}>
+                {(notes) => (
+                    <UpdateNotice
+                        version={__APP_VERSION__}
+                        notes={notes()}
+                        onDismiss={() => setUpdateNotes(null)}
+                    />
+                )}
+            </Show>
 
             {/* Tag bar is desktop-only; on mobile tags live in the Filter sheet. */}
             <Show when={auth.user() && isDesktop()}>
