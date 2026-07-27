@@ -92,8 +92,22 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
 
     let scrollRef: HTMLDivElement | undefined
     let listRef: HTMLDivElement | undefined
+    // Set right before we move the scrollbar ourselves, so the native 'scroll'
+    // event that assignment triggers doesn't reach onScroll's isAtBottom()
+    // check. That event fires asynchronously, not in the same tick, so
+    // without this, content that grows the list in the gap (an image, an
+    // embed, a link preview finishing after we scrolled) makes isAtBottom()
+    // measure against a taller scrollHeight than the one we scrolled to. It
+    // reads as "not at the bottom" and permanently turns stickToBottom off,
+    // even though the user never touched the scrollbar.
+    let ownScroll = false
     const scrollToBottom = () => {
-        if (scrollRef) scrollRef.scrollTop = scrollRef.scrollHeight
+        if (!scrollRef) return
+        ownScroll = true
+        scrollRef.scrollTop = scrollRef.scrollHeight
+        requestAnimationFrame(() => {
+            ownScroll = false
+        })
     }
     // Treat "within 60px of the bottom" as pinned, so polls only auto-scroll
     // when the user is already reading the latest messages.
@@ -180,6 +194,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
     }
 
     const onScroll = () => {
+        if (ownScroll) return
         // Scrolling up is how you say "stop following the bottom", and coming
         // back down is how you say "resume".
         stickToBottom = isAtBottom()
@@ -343,7 +358,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
             </div>
 
             {/* Messages */}
-            <div ref={scrollRef} onScroll={onScroll} class="min-h-0 flex-1 overflow-y-auto p-4">
+            <div ref={scrollRef} onScroll={onScroll} data-testid="chat-scroll" class="min-h-0 flex-1 overflow-y-auto p-4">
               <div ref={listRef}>
                 <Show when={loading()}>
                     <p class="text-sub text-center text-sm">Loading…</p>
