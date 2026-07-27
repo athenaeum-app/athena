@@ -1,6 +1,6 @@
 {
     "name": "athena-web",
-    "version": "2.7.5",
+    "version": "2.7.6",
     "description": "Athena PWA client",
     "license": "AGPL-3.0-only",
     "private": true,
