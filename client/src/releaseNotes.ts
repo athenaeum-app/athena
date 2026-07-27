@@ -9,6 +9,7 @@
 // nothing. AGENTS.md covers who writes an entry and who approves the wording.
 export const RELEASE_NOTES: Record<string, string[]> = {
     '2.8.0': ['The app now displays release notes when updated.'],
+    '2.8.1': ['Security update for the desktop app.'],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
