@@ -107,7 +107,8 @@ test.describe('moment drafts', () => {
         await expect(page.getByPlaceholder('Untitled')).toHaveValue('Half written')
         await expect(page.getByText('Restored an unsaved draft.')).toBeVisible()
 
-        await page.getByRole('button', { name: 'Post' }).click()
+        // Exact, or this also matches any tag chip whose name contains "post".
+        await page.getByRole('button', { name: 'Post', exact: true }).click()
         await expect(page.getByTestId('moment-card').filter({ hasText: 'Half written' })).toBeVisible()
 
         // Posting is what a draft is *for*, so nothing should be left behind.
