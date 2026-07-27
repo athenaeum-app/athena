@@ -10,6 +10,10 @@
 export const RELEASE_NOTES: Record<string, string[]> = {
     '2.8.0': ['The app now displays release notes when updated.'],
     '2.8.1': ['Security update for the desktop app.'],
+    '2.9.0': [
+        'Tag suggestions now rank by the archive you are writing into.',
+        'Sending while a file is still uploading no longer loses the attachment.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
