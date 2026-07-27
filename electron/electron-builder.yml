@@ -44,15 +44,18 @@ linux:
         - deb
         - rpm
     category: Office
+    # electron-builder 26 moved the [Desktop Entry] keys under `entry`. A flat
+    # map here is a schema error that fails the build before it packages.
     desktop:
-        # electron-builder defaults this to productName ("Athena"), but Chromium
-        # takes WM_CLASS from the executable, which is named after the electron
-        # package.json "name". `xprop WM_CLASS` on a running window agrees:
-        # "athena-client", "athena-client". GNOME still matched the window to
-        # its launcher by falling back on the desktop file's own name, so this
-        # was a trap rather than a visible break. Keep it equal to the
-        # executable name if that is ever renamed.
-        StartupWMClass: athena-client
+        entry:
+            # electron-builder defaults this to productName ("Athena"), but
+            # Chromium takes WM_CLASS from the executable, which is named after
+            # the electron package.json "name". `xprop WM_CLASS` on a running
+            # window agrees: "athena-client", "athena-client". GNOME still
+            # matched the window to its launcher by falling back on the desktop
+            # file's own name, so this was a trap rather than a visible break.
+            # Keep it equal to the executable name if that is ever renamed.
+            StartupWMClass: athena-client
 # electron-updater reads the latest.yml files published beside the installers
 # here, so this block is also the update feed. It must point at a public repo
 # and at a release that is published rather than left as a draft.

@@ -132,9 +132,11 @@ jobs:
       # automatically, but from v6 that only happens when package.json declares
       # `packageManager`/`devEngines.packageManager` as npm, which none of this
       # repo's manifests do, so the electron install stays uncached as before.
+      # electron 43 declares engines.node ">= 22.12.0", so npm install fails the
+      # engine check on 20.
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
 
       # electron-builder builds the rpm through fpm, which shells out to
       # rpmbuild. The ubuntu runner does not ship it, and without it the rpm
