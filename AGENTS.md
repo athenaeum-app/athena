@@ -35,6 +35,21 @@ So if you change client code and then test the compiled server binary without
 rebuilding the client first, you are looking at a stale bundle and your change
 appears to have done nothing. Rebuild the client, then the server.
 
+## Two repositories, and only one of them is yours to write to
+
+`athenaeum-app/athena-dev` (private) is this repository: all source, issues,
+pull requests and tags. Everything you do goes here.
+
+`athenaeum-app/athena` (public) holds nothing but a README. It exists so
+`docker pull` and electron-updater work without auth, and release.yml publishes
+binaries into it using a PAT scoped to that repo alone.
+
+Never write to `athena` directly. No issues, no comments, no commits, no
+releases created by hand. It looked like the source repository until recently
+and still answers to the old name, so check `git remote get-url origin` and pass
+`--repo athenaeum-app/athena-dev` explicitly to every `gh` command rather than
+letting it infer. An issue filed in the wrong one has to be deleted, not moved.
+
 ## Layout
 
 ```
