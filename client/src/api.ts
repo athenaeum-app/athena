@@ -474,9 +474,13 @@ export interface Tag {
 // Whole-library tag usage. `pairs` is symmetric: pairs[a][b] and pairs[b][a]
 // both hold the number of moments carrying both tags, so a lookup by either
 // half works. A pair that never occurs is absent, not zero.
+// `archive_totals` is the same usage count sliced by archive, so the composer
+// can rank for the archive it is filing into. An archive with no tagged
+// moments is absent rather than an empty map.
 export interface TagGraph {
     totals: Record<string, number>
     pairs: Record<string, Record<string, number>>
+    archive_totals: Record<string, Record<string, number>>
 }
 
 export interface ChatMessage {

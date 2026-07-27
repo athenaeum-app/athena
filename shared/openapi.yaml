@@ -1355,7 +1355,10 @@ paths:
 
         Takes no filter parameters by design. The composer ranks its tag
         suggestions from this, and which tags belong together is a property of
-        the library rather than of the caller's current view.
+        the library rather than of the caller's current view. `archive_totals`
+        is the one per-archive slice, shipped as a dimension of the same answer
+        so the composer can rank for the archive it is filing into without
+        turning this into a filtered query.
 
         `pairs` is symmetric: `pairs[a][b]` and `pairs[b][a]` both hold the
         count. A pair that never co-occurs is absent rather than zero, as is a
@@ -1380,6 +1383,18 @@ paths:
                   pairs:
                     type: object
                     description: Tag ID to a map of partner tag ID to shared moment count.
+                    additionalProperties:
+                      type: object
+                      additionalProperties:
+                        type: integer
+                  archive_totals:
+                    type: object
+                    description: |
+                      Archive ID to a map of tag ID to the number of moments in
+                      that archive carrying it. The composer ranks tags absent
+                      from the archive it is filing into behind the ones present
+                      in it. An archive with no tagged moments is absent rather
+                      than an empty map.
                     additionalProperties:
                       type: object
                       additionalProperties:

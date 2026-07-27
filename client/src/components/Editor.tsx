@@ -591,7 +591,10 @@ export const Editor: Component<EditorProps> = (props) => {
         )
         // Rank before slicing, or the ones shown are just the first the server
         // happened to return.
-        return rankTags(matching, props.tagGraph ?? null, [...selectedIds]).slice(0, TAG_SUGGESTION_LIMIT)
+        return rankTags(matching, props.tagGraph ?? null, [...selectedIds], archiveId()).slice(
+            0,
+            TAG_SUGGESTION_LIMIT,
+        )
     })
 
     // Whether to offer suggestions at all. Deliberately true for an empty

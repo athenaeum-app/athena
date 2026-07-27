@@ -217,9 +217,19 @@ func TagFacets(archiveID *string, search string, selectedTagIDs []string, filter
 // TagGraph is how often each tag is used and how often each pair of tags lands
 // on the same moment. Pairs are recorded both ways round, so a caller holding
 // one tag reads its partners straight out of Pairs[thatTag].
+// ArchiveTotals is the same usage count sliced by the archive the moment was
+// filed in. The composer ranks a tag it has never seen in the archive being
+// written into behind every tag that archive does use, so writing into Work
+// stops offering the vocabulary of a different archive first.
+//
+// Shipped as a dimension of the same answer rather than as a filter parameter,
+// which is what keeps this endpoint free of the caller's current view: the
+// client picks the slice for the archive its composer is pointed at, and
+// changing that dropdown costs no request.
 type TagGraph struct {
-	Totals map[string]int            `json:"totals"`
-	Pairs  map[string]map[string]int `json:"pairs"`
+	Totals        map[string]int            `json:"totals"`
+	Pairs         map[string]map[string]int `json:"pairs"`
+	ArchiveTotals map[string]map[string]int `json:"archive_totals"`
 }
 
 // TagCoOccurrence counts tag usage and tag pairings across every live moment in
@@ -237,7 +247,11 @@ type TagGraph struct {
 // Deliberately takes no filters. A pairing is a property of the library, so
 // the answer must not depend on the caller's current view.
 func TagCoOccurrence() (*TagGraph, error) {
-	graph := &TagGraph{Totals: map[string]int{}, Pairs: map[string]map[string]int{}}
+	graph := &TagGraph{
+		Totals:        map[string]int{},
+		Pairs:         map[string]map[string]int{},
+		ArchiveTotals: map[string]map[string]int{},
+	}
 
 	totals, err := db.DB.Query(
 		`SELECT mt.tag_id, COUNT(*)
@@ -260,6 +274,32 @@ func TagCoOccurrence() (*TagGraph, error) {
 	}
 	if err := totals.Err(); err != nil {
 		return nil, fmt.Errorf("tag totals: %w", err)
+	}
+
+	archived, err := db.DB.Query(
+		`SELECT moment.archive_id, mt.tag_id, COUNT(*)
+		 FROM moment_tags mt
+		 JOIN moments moment ON moment.id = mt.moment_id
+		 WHERE moment.deleted_at IS NULL
+		 GROUP BY moment.archive_id, mt.tag_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("tag archive totals: %w", err)
+	}
+	defer archived.Close()
+	for archived.Next() {
+		var archiveID, tagID string
+		var n int
+		if err := archived.Scan(&archiveID, &tagID, &n); err != nil {
+			return nil, fmt.Errorf("scan tag archive total: %w", err)
+		}
+		if graph.ArchiveTotals[archiveID] == nil {
+			graph.ArchiveTotals[archiveID] = map[string]int{}
+		}
+		graph.ArchiveTotals[archiveID][tagID] = n
+	}
+	if err := archived.Err(); err != nil {
+		return nil, fmt.Errorf("tag archive totals: %w", err)
 	}
 
 	// `b.tag_id > a.tag_id` counts each unordered pair once instead of twice,

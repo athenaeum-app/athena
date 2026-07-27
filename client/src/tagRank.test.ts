@@ -11,7 +11,11 @@ const tag = (id: string): Tag => ({
 })
 
 // graph builds the symmetric pair map the server sends, from one direction.
-const graph = (totals: Record<string, number>, pairs: Record<string, Record<string, number>> = {}): TagGraph => {
+const graph = (
+    totals: Record<string, number>,
+    pairs: Record<string, Record<string, number>> = {},
+    archiveTotals: Record<string, Record<string, number>> = {},
+): TagGraph => {
     const symmetric: Record<string, Record<string, number>> = {}
     for (const [left, partners] of Object.entries(pairs)) {
         for (const [right, n] of Object.entries(partners)) {
@@ -19,7 +23,7 @@ const graph = (totals: Record<string, number>, pairs: Record<string, Record<stri
             symmetric[right] = { ...symmetric[right], [left]: n }
         }
     }
-    return { totals, pairs: symmetric }
+    return { totals, pairs: symmetric, archive_totals: archiveTotals }
 }
 
 const names = (tags: Tag[]) => tags.map((t) => t.id)
@@ -76,5 +80,63 @@ describe('rankTags', () => {
     it('leaves unused tags in their incoming order', () => {
         const tags = [tag('b'), tag('a'), tag('c')]
         expect(names(rankTags(tags, graph({})))).toEqual(['b', 'a', 'c'])
+    })
+})
+
+describe('rankTags, filing into an archive', () => {
+    it('sinks tags the archive has never carried behind the ones it has', () => {
+        const tags = [tag('elsewhere'), tag('local')]
+        const g = graph({ elsewhere: 90, local: 2 }, {}, { work: { local: 2 } })
+        expect(names(rankTags(tags, g, [], 'work'))).toEqual(['local', 'elsewhere'])
+    })
+
+    it('orders tags inside the archive by how often that archive uses them', () => {
+        const tags = [tag('rare'), tag('daily'), tag('weekly')]
+        const g = graph(
+            { rare: 100, daily: 1, weekly: 1 },
+            {},
+            { work: { rare: 1, daily: 30, weekly: 6 } },
+        )
+        expect(names(rankTags(tags, g, [], 'work'))).toEqual(['daily', 'weekly', 'rare'])
+    })
+
+    // The decision this feature turns on. A tag habitually filed with the pick
+    // still loses to the archive if the archive has never carried it, because
+    // the archive is what the writer just declared they are filing into.
+    it('puts archive membership above co-occurrence', () => {
+        const tags = [tag('partner'), tag('colleague')]
+        const g = graph(
+            { partner: 50, colleague: 1 },
+            { picked: { partner: 9 } },
+            { work: { colleague: 1 } },
+        )
+        expect(names(rankTags(tags, g, ['picked'], 'work'))).toEqual(['colleague', 'partner'])
+    })
+
+    // Below the gate the old ranking is intact, so tags the archive does not
+    // have are still offered in a useful order rather than an arbitrary one.
+    it('still ranks the tags it sinks by co-occurrence among themselves', () => {
+        const tags = [tag('stranger'), tag('partner'), tag('local')]
+        const g = graph(
+            { stranger: 80, partner: 3, local: 1 },
+            { picked: { partner: 4 } },
+            { work: { local: 1 } },
+        )
+        expect(names(rankTags(tags, g, ['picked'], 'work'))).toEqual(['local', 'partner', 'stranger'])
+    })
+
+    it('ranks the way it always did when no archive is selected', () => {
+        const tags = [tag('elsewhere'), tag('local')]
+        const g = graph({ elsewhere: 90, local: 2 }, {}, { work: { local: 2 } })
+        expect(names(rankTags(tags, g, [], ''))).toEqual(['elsewhere', 'local'])
+    })
+
+    // A brand new archive, and an id the graph has never heard of, are the same
+    // case: no slice to rank by, so the archive signals drop out rather than
+    // sinking every tag equally and scrambling the order.
+    it('ranks the way it always did for an archive with nothing filed in it', () => {
+        const tags = [tag('elsewhere'), tag('local')]
+        const g = graph({ elsewhere: 90, local: 2 }, {}, { work: { local: 2 } })
+        expect(names(rankTags(tags, g, [], 'freshly-made'))).toEqual(['elsewhere', 'local'])
     })
 })

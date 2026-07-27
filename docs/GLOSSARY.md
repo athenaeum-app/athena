@@ -43,11 +43,14 @@ opaque UUID filename.
 _Avoid_: attachment, file, upload, media.
 
 **Tag graph**:
-Whole-library counts of how often each tag is used and how often each pair of
-tags shares a moment. The composer ranks its tag suggestions from it, so picking
-one tag brings the tags most often filed alongside it to the front. Always
-computed over the entire library, never the loaded feed page or the reader's
-current filters.
+Whole-library counts of how often each tag is used, how often each pair of tags
+shares a moment, and how often each tag is used inside each archive. The composer
+ranks its tag suggestions from it, so picking one tag brings the tags most often
+filed alongside it to the front, and choosing an archive sinks the tags that
+archive has never carried. Always computed over the entire library, never the
+loaded feed page or the reader's current filters. The per-archive slice is not an
+exception to that: it is keyed by the archive a moment is being filed into, which
+the writer chose, not the one they happen to be reading.
 _Avoid_: tag affinity, related tags, co-occurrence matrix.
 
 **Link preview**:
