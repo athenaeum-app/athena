@@ -88,6 +88,16 @@ export interface Prefs {
     // default because a row under every task reads as clutter; toggle it on to
     // add subtasks (existing subtasks always render regardless).
     showSubtaskAdders: boolean
+    // Render a link's preview card in place of the link itself, splitting the
+    // content around it, instead of stacking every card after the body. Off by
+    // default so turning it on is the only thing that moves anyone's previews.
+    // A URL that cannot be replaced without breaking syntax (a `[label](url)`
+    // destination) still gets its card in the stack below.
+    inlineLinkPreviews: boolean
+    // How many inline cards may share one row when links sit back to back.
+    // Clamped to 1 through 4 on load: past four the cards are narrower than
+    // their own titles in a feed column.
+    inlineLinkPreviewsPerRow: number
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -110,6 +120,8 @@ export const DEFAULT_PREFS: Prefs = {
     menuWidgets: DEFAULT_MENU_WIDGETS,
     chatWidgetFull: false,
     showSubtaskAdders: false,
+    inlineLinkPreviews: false,
+    inlineLinkPreviewsPerRow: 3,
     font: '',
     animationsEnabled: true,
     animationSpeed: 1,
@@ -142,6 +154,14 @@ function normalizeMenuWidgets(stored: unknown): MenuWidget[] {
     return out
 }
 
+export const INLINE_PREVIEW_ROW_LIMITS = { min: 1, max: 4 } as const
+
+function clampPerRow(value: unknown): number {
+    const n = Math.round(Number(value))
+    if (!Number.isFinite(n)) return DEFAULT_PREFS.inlineLinkPreviewsPerRow
+    return Math.min(INLINE_PREVIEW_ROW_LIMITS.max, Math.max(INLINE_PREVIEW_ROW_LIMITS.min, n))
+}
+
 function load(): Prefs {
     try {
         const raw = localStorage.getItem(STORAGE_KEY)
@@ -157,6 +177,7 @@ function load(): Prefs {
             merged.menuLayout = DEFAULT_PREFS.menuLayout
         }
         merged.menuWidgets = normalizeMenuWidgets(merged.menuWidgets)
+        merged.inlineLinkPreviewsPerRow = clampPerRow(merged.inlineLinkPreviewsPerRow)
         return merged
     } catch {
         return { ...DEFAULT_PREFS }

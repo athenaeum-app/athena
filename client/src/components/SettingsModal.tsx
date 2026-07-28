@@ -357,6 +357,51 @@ const GeneralTab: Component = () => {
                         />
                     </label>
 
+                    {/* Inline link previews. The row-width control only means
+                        anything once the toggle is on, so it stays hidden until
+                        then rather than sitting there inert. */}
+                    <div class="bg-element border-element-accent rounded-lg border p-4">
+                        <label class="flex items-center justify-between gap-3 cursor-pointer">
+                            <div>
+                                <span class="text-main text-sm font-bold block">Inline Link Previews</span>
+                                <span class="text-sub text-xs">
+                                    Show a link's preview card where the link is, instead of stacking every card at
+                                    the end of the moment.
+                                </span>
+                            </div>
+                            <input
+                                type="checkbox"
+                                checked={prefs().inlineLinkPreviews}
+                                onChange={(e) => setPref('inlineLinkPreviews', e.currentTarget.checked)}
+                                class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                            />
+                        </label>
+                        <Show when={prefs().inlineLinkPreviews}>
+                            <div class="border-element-accent mt-3 border-t pt-3">
+                                <span class="text-main text-sm font-bold block">Cards Per Row</span>
+                                <span class="text-sub text-xs">
+                                    How many previews sit side by side when links are written back to back.
+                                </span>
+                                <div class="border-element-accent mt-2 inline-flex overflow-hidden rounded-md border">
+                                    <For each={[1, 2, 3, 4]}>
+                                        {(n, i) => (
+                                            <button
+                                                onClick={() => setPref('inlineLinkPreviewsPerRow', n)}
+                                                class={`px-3 py-1.5 text-xs transition-colors hover:cursor-pointer ${i() > 0 ? 'border-element-accent border-l' : ''} ${
+                                                    prefs().inlineLinkPreviewsPerRow === n
+                                                        ? 'bg-highlight-strongest text-white font-semibold'
+                                                        : 'text-sub hover:bg-element-accent hover:text-main'
+                                                }`}
+                                            >
+                                                {n}
+                                            </button>
+                                        )}
+                                    </For>
+                                </div>
+                            </div>
+                        </Show>
+                    </div>
+
                     {/* Time format: pins the clock used for every rendered time. */}
                     <div class="bg-element border-element-accent rounded-lg border p-4">
                         <div class="mb-2">

@@ -55,7 +55,13 @@ _Avoid_: tag affinity, related tags, co-occurrence matrix.
 
 **Link preview**:
 Server-side-scraped metadata (title, description, image) for a URL referenced in
-moment content. Cached in the `link_previews` table with a TTL.
+moment content. Cached in the `link_previews` table with a TTL. Rendered either
+as a stack of cards after the body (the default) or, with the inline preference
+on, in place of the URL that produced it, with the content resuming below.
+Inline placement only applies to a bare URL: one written as `[label](url)` keeps
+its label and its card goes in the stack, because replacing that text would
+destroy the link. Distinct from an Embed, which references another entity in
+this library rather than an external page.
 _Avoid_: embed, card, unfurl.
 
 **Chat message**:

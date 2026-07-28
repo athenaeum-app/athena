@@ -1,6 +1,20 @@
-import { For, Show, createEffect, createSignal, on, onMount, type Component, type JSX } from 'solid-js'
+import {
+    For,
+    Match,
+    Show,
+    Switch,
+    createEffect,
+    createSignal,
+    on,
+    onMount,
+    type Component,
+    type JSX,
+} from 'solid-js'
 import { api, type TodoList, type TodoItem, type Canvas, type Moment } from '../api'
 import { MarkdownText } from './MarkdownText'
+import { LinkPreviewRow } from './LinkPreview'
+import { findBareUrls } from '../linkPreviews'
+import { prefs } from '../prefs'
 import { notifyTodoChanged, todoVersion } from '../todoBus'
 
 // MomentBody renders moment content, interleaving markdown with live embeds of
@@ -15,33 +29,90 @@ import { notifyTodoChanged, todoVersion } from '../todoBus'
 // Moment previews are NON-RECURSIVE (a flattened excerpt, never a nested
 // MomentBody) so an embed cycle is structurally impossible (ADR-0015).
 // Unknown/deleted/forbidden entities render a small "unavailable" chip.
+//
+// With the inlineLinkPreviews pref on, a bare URL is a fourth kind of split: the
+// URL text is replaced by its preview card and the content resumes below it.
 
 type EmbedKind = 'moment' | 'todo' | 'canvas'
 
-type Part =
+export type Part =
     | { type: 'md'; text: string }
     | { type: 'embed'; kind: EmbedKind; id: string }
+    | { type: 'links'; urls: string[] }
 
 // Matches a todo/canvas token OR a [[moment]] reference. Capture groups:
 // 1 = 'todo'|'canvas', 2 = its id; 3 = moment id (for the [[id]] form).
 const TOKEN = /::(todo|canvas):([0-9a-fA-F-]{6,})::|\[\[([0-9a-fA-F-]{6,})\]\]/g
 
-function parse(content: string): Part[] {
+const THEMATIC_BREAK = /^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/m
+const TRAILING_BULLET = /(?:^|\n)[ \t]*(?:[-*+]|\d+[.)])[ \t]*$/
+
+// Text that only ever existed to carry links which are now cards: whitespace,
+// list bullets, blockquote markers. A run of links written as a bullet list is
+// still a run, and leaving the markers behind renders a column of empty bullets
+// beside the row. A thematic break is real content and stops the run.
+function isScaffold(text: string): boolean {
+    if (THEMATIC_BREAK.test(text)) return false
+    return text.replace(/\d+[.)]/g, '').replace(/[\s>*+-]/g, '') === ''
+}
+
+export function parse(content: string, inlineLinks = false): Part[] {
+    const cuts: { start: number; end: number; part: Part }[] = []
+
+    TOKEN.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = TOKEN.exec(content)) !== null) {
+        const part: Part = m[3]
+            ? { type: 'embed', kind: 'moment', id: m[3] }
+            : { type: 'embed', kind: m[1] as 'todo' | 'canvas', id: m[2] }
+        cuts.push({ start: m.index, end: m.index + m[0].length, part })
+    }
+    if (inlineLinks) {
+        for (const u of findBareUrls(content)) {
+            cuts.push({ start: u.start, end: u.end, part: { type: 'links', urls: [u.url] } })
+        }
+    }
+    cuts.sort((a, b) => a.start - b.start)
+
     const parts: Part[] = []
     let last = 0
-    let m: RegExpExecArray | null
-    TOKEN.lastIndex = 0
-    while ((m = TOKEN.exec(content)) !== null) {
-        if (m.index > last) parts.push({ type: 'md', text: content.slice(last, m.index) })
-        if (m[3]) {
-            parts.push({ type: 'embed', kind: 'moment', id: m[3] })
-        } else {
-            parts.push({ type: 'embed', kind: m[1] as 'todo' | 'canvas', id: m[2] })
-        }
-        last = m.index + m[0].length
+    for (const cut of cuts) {
+        if (cut.start < last) continue
+        if (cut.start > last) parts.push({ type: 'md', text: content.slice(last, cut.start) })
+        parts.push(cut.part)
+        last = cut.end
     }
     if (last < content.length) parts.push({ type: 'md', text: content.slice(last) })
-    return parts
+    return inlineLinks ? mergeLinkRuns(parts) : parts
+}
+
+// Links written back to back collapse into one row. The text between them has
+// to be scaffolding: any real words mean the author was introducing each link
+// separately, and a shared row would put both cards above the words for one.
+function mergeLinkRuns(parts: Part[]): Part[] {
+    const kept: Part[] = []
+    parts.forEach((part, i) => {
+        const nextIsLinks = parts[i + 1]?.type === 'links'
+        if (part.type === 'md' && isScaffold(part.text)) {
+            if (parts[i - 1]?.type === 'links' || nextIsLinks) return
+        }
+        if (part.type === 'md' && nextIsLinks) {
+            kept.push({ type: 'md', text: part.text.replace(TRAILING_BULLET, '') })
+            return
+        }
+        kept.push(part)
+    })
+
+    const out: Part[] = []
+    for (const part of kept) {
+        const prev = out[out.length - 1]
+        if (part.type === 'links' && prev?.type === 'links') {
+            out[out.length - 1] = { type: 'links', urls: [...prev.urls, ...part.urls] }
+            continue
+        }
+        out.push(part)
+    }
+    return out
 }
 
 // excerpt flattens moment markdown to a short plain-text summary for compact
@@ -68,35 +139,34 @@ export interface MomentBodyProps {
 }
 
 export const MomentBody: Component<MomentBodyProps> = (props) => {
-    const parts = () => parse(props.content || '')
+    const parts = () => parse(props.content || '', prefs().inlineLinkPreviews)
     return (
         <div class="flex w-full flex-col gap-2">
             <For each={parts()}>
                 {(part) => (
-                    <Show
-                        when={part.type === 'embed' ? part : null}
-                        fallback={
-                            <Show when={(part as { text: string }).text.trim()}>
-                                <MarkdownText content={(part as { text: string }).text} class={props.class} />
-                            </Show>
-                        }
-                    >
-                        {(embed) => (
-                            <Show
-                                when={embed().kind === 'moment'}
-                                fallback={
-                                    <Show
-                                        when={embed().kind === 'todo'}
-                                        fallback={<CanvasEmbed id={embed().id} onOpen={props.onOpenCanvas} />}
-                                    >
-                                        <TodoEmbed id={embed().id} onOpen={props.onOpenTodo} />
-                                    </Show>
-                                }
-                            >
-                                <MomentEmbed id={embed().id} onOpen={props.onOpenMoment} resolveRef={props.resolveRef} />
-                            </Show>
-                        )}
-                    </Show>
+                    <Switch>
+                        <Match when={part.type === 'md' ? part : null}>
+                            {(md) => (
+                                <Show when={md().text.trim()}>
+                                    <MarkdownText content={md().text} class={props.class} />
+                                </Show>
+                            )}
+                        </Match>
+                        <Match when={part.type === 'links' ? part : null}>
+                            {(links) => <LinkPreviewRow urls={links().urls} />}
+                        </Match>
+                        <Match when={part.type === 'embed' && part.kind === 'moment' ? part : null}>
+                            {(e) => (
+                                <MomentEmbed id={e().id} onOpen={props.onOpenMoment} resolveRef={props.resolveRef} />
+                            )}
+                        </Match>
+                        <Match when={part.type === 'embed' && part.kind === 'todo' ? part : null}>
+                            {(e) => <TodoEmbed id={e().id} onOpen={props.onOpenTodo} />}
+                        </Match>
+                        <Match when={part.type === 'embed' && part.kind === 'canvas' ? part : null}>
+                            {(e) => <CanvasEmbed id={e().id} onOpen={props.onOpenCanvas} />}
+                        </Match>
+                    </Switch>
                 )}
             </For>
         </div>
