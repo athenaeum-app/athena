@@ -60,6 +60,18 @@ interface SettingsModalProps {
 
 type SettingsTab = 'account' | 'general' | 'appearance' | 'tags' | 'keybinds' | 'server' | 'backups' | 'about'
 
+// The panel used to be a flat max-w-3xl, and a user with both admin tabs ends
+// up with eight tabs, which is wider than 768px. That turned the tab row into a
+// horizontal scroller, hiding whole tabs behind a drag. The panel grows to fit
+// the row instead, up to a cap, so a settings dialog never sprawls across a
+// wide monitor just because it can.
+const PANEL_MIN_WIDTH = 768
+const PANEL_MAX_WIDTH = 1024
+
+// Inside the panel's width but outside the measured row: the row's own p-2 and
+// the panel's 1px border.
+const TAB_ROW_CHROME = 18
+
 const BASE_TABS: { id: SettingsTab; label: string; icon: string }[] = [
     // General stays first so Settings still opens where it always did, rather
     // than greeting everyone with a password form.
@@ -84,12 +96,32 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
         return tabs
     }
 
+    let tabRow: HTMLDivElement | undefined
+    const [tabRowWidth, setTabRowWidth] = createSignal(0)
+
+    onMount(() => {
+        if (!tabRow || typeof ResizeObserver === 'undefined') return
+        // The row is w-max, so its box is the width the tabs want rather than
+        // the width the panel currently gives them. Observed rather than
+        // measured once, because the icon font arrives after first paint and
+        // the admin tabs appear only once permissions are known.
+        const observer = new ResizeObserver(() => setTabRowWidth(tabRow!.getBoundingClientRect().width))
+        observer.observe(tabRow)
+        onCleanup(() => observer.disconnect())
+    })
+
+    const panelWidth = () =>
+        Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, Math.ceil(tabRowWidth()) + TAB_ROW_CHROME))
+
     return (
         <div
             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in"
             {...backdropDismiss(props.onClose)}
         >
-            <div class="bg-element-matte border-element-accent flex h-[85vh] w-full max-w-3xl flex-col rounded-lg border shadow-2xl overflow-hidden">
+            <div
+                class="bg-element-matte border-element-accent flex h-[85vh] w-full flex-col rounded-lg border shadow-2xl overflow-hidden"
+                style={{ 'max-width': `${panelWidth()}px` }}
+            >
                 {/* Header */}
                 <div class="bg-element border-element-accent flex items-center justify-between rounded-t-lg border-b p-4">
                     <div class="flex items-center gap-2">
@@ -102,22 +134,24 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
                 </div>
 
                 {/* Tabs */}
-                <div class="bg-element border-element-accent flex gap-1 border-b p-2 overflow-x-auto">
-                    <For each={tabs()}>
-                        {(t) => (
-                            <button
-                                onClick={() => setTab(t.id)}
-                                class={`flex items-center gap-1.5 rounded-md px-3 py-2 font-serif text-sm transition-colors ${
-                                    tab() === t.id
-                                        ? 'bg-highlight-strongest text-white'
-                                        : 'text-sub hover:bg-element-accent hover:text-main'
-                                }`}
-                            >
-                                <span class="material-symbols-outlined text-base">{t.icon}</span>
-                                {t.label}
-                            </button>
-                        )}
-                    </For>
+                <div class="bg-element border-element-accent border-b p-2 overflow-x-auto" data-testid="settings-tabs">
+                    <div ref={tabRow} class="flex w-max gap-1">
+                        <For each={tabs()}>
+                            {(t) => (
+                                <button
+                                    onClick={() => setTab(t.id)}
+                                    class={`flex items-center gap-1.5 rounded-md px-3 py-2 font-serif text-sm transition-colors ${
+                                        tab() === t.id
+                                            ? 'bg-highlight-strongest text-white'
+                                            : 'text-sub hover:bg-element-accent hover:text-main'
+                                    }`}
+                                >
+                                    <span class="material-symbols-outlined text-base">{t.icon}</span>
+                                    {t.label}
+                                </button>
+                            )}
+                        </For>
+                    </div>
                 </div>
 
                 {/* Body */}
