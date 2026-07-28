@@ -74,3 +74,32 @@ export function pendingNotes(): string[] | null {
 export function currentNotes(): string[] | null {
     return RELEASE_NOTES[__APP_VERSION__] ?? null
 }
+
+// Order two versions by their numeric parts. Sorting these as plain strings
+// gets it backwards the moment a component reaches double digits: "2.9.0" sorts
+// above "2.10.0" because "9" > "1" character by character.
+export function compareVersions(a: string, b: string): number {
+    const parts = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0)
+    const [pa, pb] = [parts(a), parts(b)]
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+        if (diff !== 0) return diff
+    }
+    return 0
+}
+
+// Every release older than the one running, newest first, for a history view.
+//
+// Strictly older, so the running version is not repeated under a heading that
+// says "earlier". That also does the right thing for a build with no entry of
+// its own: its predecessor is simply the first row, which is the last thing
+// anyone was actually told about.
+export function releaseHistory(
+    current: string = __APP_VERSION__,
+    notes: Record<string, string[]> = RELEASE_NOTES,
+): { version: string; notes: string[] }[] {
+    return Object.keys(notes)
+        .filter((version) => compareVersions(version, current) < 0)
+        .sort((a, b) => compareVersions(b, a))
+        .map((version) => ({ version, notes: notes[version] }))
+}

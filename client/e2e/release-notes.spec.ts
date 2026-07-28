@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { RELEASE_NOTES } from '../src/releaseNotes'
+import { RELEASE_NOTES, releaseHistory } from '../src/releaseNotes'
 
 // The notice is driven by the build's own version, so the expectation is read
 // from the same table the app renders from rather than hard-coded. A release
@@ -82,5 +82,71 @@ test.describe('release notes on update', () => {
         await page.reload()
         await expect(page.locator('header h1')).toBeVisible()
         await expect(page.getByTestId('update-notice')).toHaveCount(0)
+    })
+})
+
+// Dismissing the notice is not the only chance to read it. About keeps the
+// running build's notes, and folds every earlier release in behind a toggle.
+test.describe('release notes in About', () => {
+    test.use({ viewport: { width: 1440, height: 900 } })
+
+    async function openAbout(page: Page): Promise<void> {
+        await signIn(page)
+        await page.goto('/')
+        await expect(page.locator('header h1')).toBeVisible()
+        await page.getByRole('button', { name: 'Settings', exact: true }).click()
+        await page.getByRole('button', { name: 'About' }).click()
+    }
+
+    test("the running build's notes are still there after the notice is gone", async ({ page }) => {
+        await openAbout(page)
+        const version = await runningVersion(page)
+        const expected = RELEASE_NOTES[version]
+
+        const panel = page.getByTestId('current-release-notes')
+        if (!expected) {
+            // A release with no entry of its own renders no panel at all,
+            // rather than an empty box under a promising heading.
+            await expect(panel).toHaveCount(0)
+            return
+        }
+        await expect(panel).toBeVisible()
+        await expect(panel).toContainText(`New in v${version}`)
+        for (const line of expected) await expect(panel).toContainText(line)
+    })
+
+    test('earlier releases are collapsed, and open in newest-first order', async ({ page }) => {
+        await openAbout(page)
+        const version = await runningVersion(page)
+        const history = releaseHistory(version)
+
+        const toggle = page.getByRole('button', { name: 'Earlier releases' })
+        if (history.length === 0) {
+            await expect(toggle).toHaveCount(0)
+            return
+        }
+
+        // Collapsed by default: the list only grows, and About is not a
+        // changelog page.
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+        await expect(page.getByTestId('release-history')).toHaveCount(0)
+
+        await toggle.click()
+        const list = page.getByTestId('release-history')
+        await expect(list).toBeVisible()
+
+        for (const release of history) {
+            await expect(list).toContainText(`v${release.version}`)
+            for (const line of release.notes) await expect(list).toContainText(line)
+        }
+
+        // Newest first. Asserted on rendered position, since this is exactly
+        // what a plain string sort of the version keys would get backwards.
+        const rendered = await list.locator('p').allInnerTexts()
+        expect(rendered.map((t) => t.trim())).toEqual(history.map((r) => `v${r.version}`))
+
+        // ...and it closes again.
+        await toggle.click()
+        await expect(page.getByTestId('release-history')).toHaveCount(0)
     })
 })

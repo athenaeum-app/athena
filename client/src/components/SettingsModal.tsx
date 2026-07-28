@@ -48,7 +48,7 @@ import { isDesktop, desktop } from '../desktop'
 import { scope, setScope, overriddenKeys, resetOverride, appearanceIsGlobal, OVERRIDE_BUCKETS } from '../appearance'
 import { useUI } from '../ui'
 import { useAuth } from '../auth'
-import { currentNotes } from '../releaseNotes'
+import { currentNotes, releaseHistory } from '../releaseNotes'
 import { FormField } from './FormField'
 
 interface SettingsModalProps {
@@ -1843,6 +1843,7 @@ const AboutTab: Component = () => {
     // mismatch visible instead of mysterious.
     const [server, setServer] = createSignal<{ version: string; go_version: string; os: string; arch: string } | null>(null)
     const [serverFailed, setServerFailed] = createSignal(false)
+    const [historyOpen, setHistoryOpen] = createSignal(false)
     onMount(async () => {
         try {
             setServer(await api.getServerVersion())
@@ -1892,13 +1893,50 @@ const AboutTab: Component = () => {
             be found again after it is dismissed. */}
         <Show when={currentNotes()}>
             {(notes) => (
-                <div class="border-element-accent space-y-2 rounded-lg border p-4">
+                <div class="border-element-accent space-y-2 rounded-lg border p-4" data-testid="current-release-notes">
                     <p class="text-main mb-1 text-xs font-bold uppercase tracking-widest">New in v{__APP_VERSION__}</p>
                     <ul class="text-sub list-disc space-y-1 pl-4 text-xs leading-relaxed">
                         <For each={notes()}>{(note) => <li>{note}</li>}</For>
                     </ul>
                 </div>
             )}
+        </Show>
+
+        {/* Everything written before this build. Collapsed by default: it only
+            grows, and About is not a changelog page. Only rendered at all when
+            there is history, so the first release does not offer an empty
+            disclosure. */}
+        <Show when={releaseHistory().length > 0}>
+            <div class="border-element-accent rounded-lg border p-4">
+                <button
+                    type="button"
+                    onClick={() => setHistoryOpen((open) => !open)}
+                    aria-expanded={historyOpen()}
+                    class="text-main flex w-full items-center justify-between gap-3 text-xs font-bold uppercase tracking-widest hover:cursor-pointer"
+                >
+                    Earlier releases
+                    <span
+                        class="material-symbols-outlined text-sub text-base transition-transform"
+                        classList={{ 'rotate-180': historyOpen() }}
+                    >
+                        expand_more
+                    </span>
+                </button>
+                <Show when={historyOpen()}>
+                    <div class="mt-3 space-y-3" data-testid="release-history">
+                        <For each={releaseHistory()}>
+                            {(release) => (
+                                <div>
+                                    <p class="text-sub font-mono text-[11px] font-bold">v{release.version}</p>
+                                    <ul class="text-sub mt-1 list-disc space-y-1 pl-4 text-xs leading-relaxed">
+                                        <For each={release.notes}>{(note) => <li>{note}</li>}</For>
+                                    </ul>
+                                </div>
+                            )}
+                        </For>
+                    </div>
+                </Show>
+            </div>
         </Show>
 
         <div class="border-element-accent space-y-2 rounded-lg border p-4">
