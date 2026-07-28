@@ -26,6 +26,7 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         "A server that can't be reached now says so and reconnects on its own, instead of showing a login form that couldn't work.",
         'Losing the connection mid-session shows a banner and leaves your writing untouched.',
     ],
+    '2.12.1': ['The Settings tabs no longer scroll sideways; the panel widens to fit them.'],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
