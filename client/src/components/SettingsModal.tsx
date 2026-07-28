@@ -49,6 +49,7 @@ import { scope, setScope, overriddenKeys, resetOverride, appearanceIsGlobal, OVE
 import { useUI } from '../ui'
 import { useAuth } from '../auth'
 import { currentNotes, releaseHistory } from '../releaseNotes'
+import { viewportWidth } from '../viewport'
 import { FormField } from './FormField'
 
 interface SettingsModalProps {
@@ -62,15 +63,21 @@ type SettingsTab = 'account' | 'general' | 'appearance' | 'tags' | 'keybinds' | 
 
 // The panel used to be a flat max-w-3xl, and a user with both admin tabs ends
 // up with eight tabs, which is wider than 768px. That turned the tab row into a
-// horizontal scroller, hiding whole tabs behind a drag. The panel grows to fit
-// the row instead, up to a cap, so a settings dialog never sprawls across a
-// wide monitor just because it can.
+// horizontal scroller, hiding whole tabs behind a drag. The panel is sized from
+// the row instead, with 3xl left as a floor.
+//
+// There is no fixed ceiling. Every tab is laid out in rem, so the row's width
+// moves with the UI Scale pref and with the desktop app's interface font, and
+// any number chosen here would be too small for somebody. The window is the
+// only honest limit, and the panel never asks for more than the tabs need.
 const PANEL_MIN_WIDTH = 768
-const PANEL_MAX_WIDTH = 1024
 
-// Inside the panel's width but outside the measured row: the row's own p-2 and
-// the panel's 1px border.
-const TAB_ROW_CHROME = 18
+// Keeps the panel off the window edges once it is wider than the floor.
+const PANEL_GUTTER = 32
+
+// The panel's own border, inside its width. Tailwind's border is a fixed 1px,
+// so unlike the tab strip's padding this one does not move with the UI scale.
+const PANEL_BORDER = 2
 
 const BASE_TABS: { id: SettingsTab; label: string; icon: string }[] = [
     // General stays first so Settings still opens where it always did, rather
@@ -97,21 +104,29 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
     }
 
     let tabRow: HTMLDivElement | undefined
-    const [tabRowWidth, setTabRowWidth] = createSignal(0)
+    const [neededWidth, setNeededWidth] = createSignal(PANEL_MIN_WIDTH)
 
     onMount(() => {
         if (!tabRow || typeof ResizeObserver === 'undefined') return
         // The row is w-max, so its box is the width the tabs want rather than
         // the width the panel currently gives them. Observed rather than
-        // measured once, because the icon font arrives after first paint and
-        // the admin tabs appear only once permissions are known.
-        const observer = new ResizeObserver(() => setTabRowWidth(tabRow!.getBoundingClientRect().width))
+        // measured once, because the icon font arrives after first paint, the
+        // admin tabs appear only once permissions are known, and the UI Scale
+        // pref resizes every tab under it while the panel is open. The strip's
+        // padding is read each time for that last reason: it is rem, so it
+        // scales too.
+        const measure = () => {
+            const strip = getComputedStyle(tabRow!.parentElement!)
+            const padding = parseFloat(strip.paddingLeft) + parseFloat(strip.paddingRight)
+            setNeededWidth(Math.ceil(tabRow!.getBoundingClientRect().width + padding) + PANEL_BORDER)
+        }
+        const observer = new ResizeObserver(measure)
         observer.observe(tabRow)
         onCleanup(() => observer.disconnect())
     })
 
     const panelWidth = () =>
-        Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, Math.ceil(tabRowWidth()) + TAB_ROW_CHROME))
+        Math.max(PANEL_MIN_WIDTH, Math.min(neededWidth(), viewportWidth() - PANEL_GUTTER))
 
     return (
         <div

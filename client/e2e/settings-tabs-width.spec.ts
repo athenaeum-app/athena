@@ -3,10 +3,12 @@ import { test, expect, type Page } from '@playwright/test'
 // The Settings panel was a flat max-w-3xl (768px), and an owner sees eight
 // tabs, which do not fit. The row turned into a horizontal scroller, so About
 // and Backups sat off the edge behind a drag nobody expects in a dialog. The
-// panel now widens to whatever the row needs, capped at 1024px, and only falls
-// back to scrolling where there is genuinely no room: a phone.
+// panel now sizes itself from the row, with no ceiling short of the window:
+// the tabs are laid out in rem, so raising the UI Scale pref widens them, and
+// a fixed cap just moved the same bug to a larger number. Scrolling is left
+// only for where there is genuinely no room, which is a phone.
 
-const PANEL_MAX_WIDTH = 1024
+const GUTTER = 32
 
 async function signIn(page: Page): Promise<void> {
     const setup = (await (await page.request.get('/api/v1/setup')).json()) as { needs_setup: boolean }
@@ -20,17 +22,21 @@ async function signIn(page: Page): Promise<void> {
 const tabRow = (page: Page) => page.getByTestId('settings-tabs')
 const overflowOf = (page: Page) => tabRow(page).evaluate((el) => el.scrollWidth - el.clientWidth)
 
+async function openSettings(page: Page): Promise<void> {
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await expect(tabRow(page)).toBeVisible()
+}
+
 test.describe('settings tab row, desktop', () => {
     test.use({ viewport: { width: 1440, height: 900 } })
 
     test('every tab fits without the row scrolling', async ({ page }) => {
         await signIn(page)
-        await page.goto('/')
-        await page.getByRole('button', { name: 'Settings', exact: true }).click()
-        await expect(tabRow(page)).toBeVisible()
+        await openSettings(page)
 
         // The first user owns the server, so both admin tabs are present and
-        // this is the widest the row ever gets.
+        // this is the widest the row gets at the default scale.
         await expect(tabRow(page).getByRole('button', { name: 'Server' })).toBeVisible()
         await expect(tabRow(page).getByRole('button', { name: 'Backups' })).toBeVisible()
 
@@ -42,12 +48,26 @@ test.describe('settings tab row, desktop', () => {
             tabRow(page).getByRole('button', { name: 'About' }).boundingBox(),
         ])
 
-        // Grown only as far as it had to: the cap keeps a settings dialog from
-        // sprawling across a wide monitor.
-        expect(panelBox!.width).toBeLessThanOrEqual(PANEL_MAX_WIDTH)
+        // Grown only as far as it had to, and still clear of the window edges.
+        expect(panelBox!.width).toBeGreaterThan(768)
+        expect(panelBox!.width).toBeLessThanOrEqual(1440 - GUTTER)
         // The last tab, the one that used to be off the edge, ends inside the
         // panel rather than under it.
         expect(aboutBox!.x + aboutBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width)
+    })
+
+    test('a raised UI scale widens the panel with the tabs', async ({ page }) => {
+        await signIn(page)
+        // Every tab is rem-sized, so this makes the row about half again as
+        // wide: the case a fixed cap of 1024px could not serve.
+        await page.addInitScript(() => localStorage.setItem('athena-prefs', JSON.stringify({ uiScale: 1.5 })))
+        await openSettings(page)
+
+        expect(await overflowOf(page)).toBeLessThanOrEqual(0)
+
+        const panelBox = (await tabRow(page).locator('..').boundingBox())!
+        expect(panelBox.width).toBeGreaterThan(1024)
+        expect(panelBox.width).toBeLessThanOrEqual(1440 - GUTTER)
     })
 })
 

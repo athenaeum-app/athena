@@ -2,6 +2,7 @@ import { createSignal, For, onMount, Show, type Component } from 'solid-js'
 import { api } from '../api'
 import { prefs } from '../prefs'
 import { findBareUrls } from '../linkPreviews'
+import { viewportWidth } from '../viewport'
 
 interface LinkPreviewData {
     url: string
@@ -18,14 +19,6 @@ interface LinkPreviewData {
 //   tile     a row of several: image on top, so the text is not squeezed into
 //            a column narrower than one word
 export type PreviewLayout = 'compact' | 'wide' | 'tile'
-
-// Shared by every row on the page rather than one listener per card.
-const [viewportWidth, setViewportWidth] = createSignal(
-    typeof window === 'undefined' ? 1440 : window.innerWidth,
-)
-if (typeof window !== 'undefined') {
-    window.addEventListener('resize', () => setViewportWidth(window.innerWidth))
-}
 
 const SHELL: Record<PreviewLayout, string> = {
     compact: 'max-w-md flex-col gap-2 p-3',
