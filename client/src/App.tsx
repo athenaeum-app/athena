@@ -34,6 +34,8 @@ import { Lightbox } from './components/Lightbox'
 import { watchForNewBuild } from './staleClient'
 import { UpdateNotice } from './components/UpdateNotice'
 import { pendingNotes, markVersionSeen } from './releaseNotes'
+import { isTransportError, serverUnreachable } from './reachability'
+import { desktop } from './desktop'
 
 // Moments are cheap rows, so we pull a large page at a time and rely on
 // infinite scroll to fetch the next one automatically (no manual "load more").
@@ -190,6 +192,20 @@ export const App: Component = () => {
     let libraryVersion = 0
     let pollTimer: number | undefined
 
+    // Mid-session reachability, fed by the delta-sync poll below rather than
+    // any extra traffic. Three consecutive transport failures (~9s on the 3s
+    // cadence) raise a banner; one answer of any kind clears it. This never
+    // escalates to the full unreachable screen: that swap unmounts the app
+    // tree, and mid-session the tree may hold a composer full of unsaved
+    // text (the same reasoning as staleClient's holdingUnsavedText guard).
+    const POLL_FAILURE_THRESHOLD = 3
+    let pollFailures = 0
+    const [connectionLost, setConnectionLost] = createSignal(false)
+    const pollAnswered = () => {
+        pollFailures = 0
+        setConnectionLost(false)
+    }
+
     // Auth guard: redirect to /setup when the server has no users yet,
     // otherwise to /login. The setup check is only done once when we
     // discover there's no session, to avoid hitting the endpoint on every
@@ -198,6 +214,12 @@ export const App: Component = () => {
     createEffect(() => {
         if (auth.loading()) return
         if (auth.user()) return
+        // No session because there was no *server*. The gate in index.tsx is
+        // showing the unreachable screen; navigating to /login underneath it
+        // would greet the recovery with a password form it never asked for.
+        // (Belt and braces: refresh() flips unreachable before loading, so
+        // this tree is normally unmounted before the effect can run.)
+        if (serverUnreachable()) return
         if (setupChecked) return
         setupChecked = true
         api.getSetup()
@@ -205,7 +227,13 @@ export const App: Component = () => {
                 if (s.needs_setup) navigate('/setup')
                 else navigate('/login')
             })
-            .catch(() => navigate('/login'))
+            .catch((err) => {
+                // The server died between the session check and this one.
+                // Same rule as above: a transport failure is not a logout,
+                // and the "once" latch is released so recovery re-asks.
+                if (isTransportError(err)) setupChecked = false
+                else navigate('/login')
+            })
     })
 
     const loadMoments = async (reset = false) => {
@@ -312,6 +340,9 @@ export const App: Component = () => {
     const pollEvents = async () => {
         try {
             const data = await api.getEvents(libraryVersion)
+            // Before the empty-batch return below, or a quiet library would
+            // never clear the banner.
+            pollAnswered()
             if (data.events.length === 0) return
             libraryVersion = data.current_version
 
@@ -371,7 +402,15 @@ export const App: Component = () => {
             if (permissionsChanged) await onPermissionsChanged()
             if (directoryChanged) await loadUsers(true)
         } catch (err) {
-            // Silent fail, will retry next poll
+            // An HTTP error (a 401 included) is the server *answering*, which
+            // for reachability purposes is a success; the poll itself still
+            // retries next tick, as it always has. Only a transport failure
+            // counts toward the connection-lost banner.
+            if (!isTransportError(err)) {
+                pollAnswered()
+            } else if (++pollFailures >= POLL_FAILURE_THRESHOLD) {
+                setConnectionLost(true)
+            }
         }
     }
 
@@ -878,6 +917,42 @@ export const App: Component = () => {
                         onDismiss={() => setUpdateNotes(null)}
                     />
                 )}
+            </Show>
+
+            {/* Connection lost, mid-session. An overlay strip rather than a
+                screen swap, so whatever is being written stays exactly where
+                it is. Clears itself on the first poll the server answers.
+                z-[60]: above the modals (z-50), so it stays visible over an
+                open Settings/chat, below the lightbox (z-[80]). */}
+            <Show when={auth.user() && connectionLost()}>
+                <div
+                    class="fixed inset-x-0 top-11 z-[60] flex justify-center px-4"
+                    data-testid="connection-banner"
+                >
+                    <div class="bg-element-matte border-danger/50 text-main flex items-center gap-3 rounded-lg border px-4 py-2 text-sm shadow-xl">
+                        <span class="material-symbols-outlined text-danger text-lg">cloud_off</span>
+                        <span>
+                            Can't reach this library. Nothing is saved to it until the connection
+                            returns.
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => void pollEvents()}
+                            class="text-highlight-strongest font-bold hover:underline hover:cursor-pointer"
+                        >
+                            Retry
+                        </button>
+                        <Show when={desktop()?.openRail}>
+                            <button
+                                type="button"
+                                onClick={() => void desktop()?.openRail()}
+                                class="text-highlight-strongest font-bold hover:underline hover:cursor-pointer"
+                            >
+                                Switch library
+                            </button>
+                        </Show>
+                    </div>
+                </div>
             </Show>
 
             {/* Tag bar is desktop-only; on mobile tags live in the Filter sheet. */}

@@ -14,6 +14,8 @@ import { applyLook, getActiveLook } from './looks'
 import { applyPrefs, reloadPrefs } from './prefs'
 import { hydrateAppearance } from './appearance'
 import { isElectron } from './electron'
+import { serverUnreachable } from './reachability'
+import { UnreachableScreen } from './components/UnreachableScreen'
 import './index.css'
 
 const root = document.getElementById('root')
@@ -58,12 +60,21 @@ const mount = () =>
                 <Show when={isElectron}>
                     <div class="app-drag-region fixed inset-x-0 top-0 z-40 h-9" />
                 </Show>
-                <Router>
-                    <Route path="/setup" component={Setup} />
-                    <Route path="/login" component={Login} />
-                    <Route path="/register" component={Register} />
-                    <Route path="/*" component={App} />
-                </Router>
+                {/* One gate above the Router, so every route answers a dead
+                    server the same way. /login and /setup are inside on
+                    purpose: a server that is not answering cannot take a
+                    password or a first account, and the form pretending
+                    otherwise was the dead end this replaces. Mid-session
+                    failures never flip this signal (see reachability.ts), so
+                    the app tree is never unmounted out from under a draft. */}
+                <Show when={!serverUnreachable()} fallback={<UnreachableScreen />}>
+                    <Router>
+                        <Route path="/setup" component={Setup} />
+                        <Route path="/login" component={Login} />
+                        <Route path="/register" component={Register} />
+                        <Route path="/*" component={App} />
+                    </Router>
+                </Show>
             </UIProvider>
         </AuthProvider>
         </QueryClientProvider>

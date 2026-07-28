@@ -50,6 +50,11 @@ export const api = {
     getSetup: () =>
         request<{ needs_setup: boolean; user_count: number }>('/api/v1/setup'),
 
+    // Liveness (public). The one endpoint safe to poll from the unreachable
+    // screen: no session in the mix, and the service worker denylists /api/ so
+    // the answer always comes from the real network, never a stale cache.
+    getHealth: () => request<{ status: string; library_version: number }>('/api/v1/health'),
+
     // Auth
     register: (username: string, password: string, invite_id?: string, stay_logged_in = true) =>
         request<{ id: string; username: string; is_owner: boolean }>('/api/v1/auth/register', {
