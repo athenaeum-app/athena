@@ -22,6 +22,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Dragging a card on a narrow window no longer selects its text instead of swiping.',
     ],
     '2.11.0': ['Past release notes can now be read any time in Settings, under About.'],
+    '2.12.0': [
+        "A server that can't be reached now says so and reconnects on its own, instead of showing a login form that couldn't work.",
+        'Losing the connection mid-session shows a banner and leaves your writing untouched.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
