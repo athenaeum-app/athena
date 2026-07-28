@@ -382,21 +382,30 @@ const GeneralTab: Component = () => {
                                 <span class="text-sub text-xs">
                                     How many previews sit side by side when links are written back to back.
                                 </span>
-                                <div class="border-element-accent mt-2 inline-flex overflow-hidden rounded-md border">
-                                    <For each={[1, 2, 3, 4]}>
-                                        {(n, i) => (
-                                            <button
-                                                onClick={() => setPref('inlineLinkPreviewsPerRow', n)}
-                                                class={`px-3 py-1.5 text-xs transition-colors hover:cursor-pointer ${i() > 0 ? 'border-element-accent border-l' : ''} ${
-                                                    prefs().inlineLinkPreviewsPerRow === n
-                                                        ? 'bg-highlight-strongest text-white font-semibold'
-                                                        : 'text-sub hover:bg-element-accent hover:text-main'
-                                                }`}
-                                            >
-                                                {n}
-                                            </button>
-                                        )}
-                                    </For>
+                                {/* The description above is inline text, and an
+                                    inline-flex button group flows on the same
+                                    line as an inline-level sibling rather than
+                                    breaking to its own. This wrapper forces a
+                                    block-level line so the group cannot end up
+                                    crowding the text it follows, and justify-end
+                                    is what actually right-aligns it. */}
+                                <div class="mt-2 flex justify-end">
+                                    <div class="border-element-accent inline-flex overflow-hidden rounded-md border">
+                                        <For each={[1, 2, 3, 4]}>
+                                            {(n, i) => (
+                                                <button
+                                                    onClick={() => setPref('inlineLinkPreviewsPerRow', n)}
+                                                    class={`px-3 py-1.5 text-xs transition-colors hover:cursor-pointer ${i() > 0 ? 'border-element-accent border-l' : ''} ${
+                                                        prefs().inlineLinkPreviewsPerRow === n
+                                                            ? 'bg-highlight-strongest text-white font-semibold'
+                                                            : 'text-sub hover:bg-element-accent hover:text-main'
+                                                    }`}
+                                                >
+                                                    {n}
+                                                </button>
+                                            )}
+                                        </For>
+                                    </div>
                                 </div>
                             </div>
                         </Show>

@@ -121,7 +121,7 @@ export const DEFAULT_PREFS: Prefs = {
     chatWidgetFull: false,
     showSubtaskAdders: false,
     inlineLinkPreviews: false,
-    inlineLinkPreviewsPerRow: 3,
+    inlineLinkPreviewsPerRow: 2,
     font: '',
     animationsEnabled: true,
     animationSpeed: 1,
