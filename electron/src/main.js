@@ -462,6 +462,21 @@ function setActiveServer(server) {
     // Pinned to the profile's URL rather than the view's live URL: the origin a
     // library view is allowed to stay on is fixed for the life of the view.
     routeExternalLinks(view.webContents, () => normalizeUrl(server.url))
+
+    // A server that never answers leaves Chromium's error page (or, on a blank
+    // failure, just the background colour above) filling the window, and with
+    // the rail hidden by default that window contains no way out: the rail,
+    // the other libraries, and Add library are all behind the view, and the
+    // only other escape is an accelerator on a menu that setMenuBarVisibility
+    // hides. So a failed load reopens the rail itself. Main-frame only, since
+    // a dead subresource is not a dead server, and ERR_ABORTED (-3) is
+    // ordinary navigation churn (a redirect or a new load superseding this
+    // one), not a failure.
+    view.webContents.on('did-fail-load', (_event, errorCode, _description, _url, isMainFrame) => {
+        if (!isMainFrame || errorCode === -3) return
+        revealRail()
+    })
+
     view.webContents.loadURL(normalizeUrl(server.url))
 
     // Open devtools for the dev server only when explicitly asked (ATHENA_DEVTOOLS).
@@ -510,6 +525,19 @@ function notifyRailVisibility() {
     if (contentView && !contentView.webContents.isDestroyed()) {
         contentView.webContents.send('ui:rail-visibility', railWidth > 0)
     }
+}
+
+// revealRail expands the native sidebar from the main process's side: bounds
+// first, then the shell (so its DOM un-hides), then the PWA (so its own
+// switcher stands down). The one path that must not depend on the PWA being
+// alive, because its other caller is the load-failure handler below.
+function revealRail() {
+    railWidth = RAIL_EXPANDED
+    updateContentBounds()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ui:expand-rail')
+    }
+    notifyRailVisibility()
 }
 
 // toHex normalizes a CSS colour to #rrggbb. The palette arrives as computed
@@ -763,12 +791,7 @@ ipcMain.handle('ui:railVisible', () => railWidth > 0)
 // ui:openRail is called from the embedded PWA (via athenaDesktop.openRail) to
 // surface the server rail. Here, ensure it is expanded and tell the shell.
 ipcMain.handle('ui:openRail', () => {
-    railWidth = RAIL_EXPANDED
-    updateContentBounds()
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ui:expand-rail')
-    }
-    notifyRailVisibility()
+    revealRail()
     return true
 })
 
