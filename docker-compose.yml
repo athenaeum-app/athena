@@ -10,6 +10,9 @@
 #
 #   docker compose pull && docker compose up -d
 #
+# The watchtower service below does that on its own every hour. Delete it if you
+# would rather update by hand.
+#
 # Data (the SQLite database, uploads, backups, and the runtime config file)
 # lives in ./data, bind-mounted below. Keep that directory and you keep the
 # library.
@@ -42,6 +45,11 @@ services:
       - MAX_UPLOAD_MB=50
     volumes:
       - ./data:/app/data
+    labels:
+      # Watchtower only touches containers carrying this, so everything else on
+      # the host is left alone. A mapping rather than a list so an overlay file
+      # can flip the value; list-form labels append instead of overriding.
+      com.centurylinklabs.watchtower.enable: "true"
     healthcheck:
       # wget is part of alpine's busybox, so nothing extra is installed for it.
       test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/api/v1/health"]
@@ -49,3 +57,22 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  # Pulls a newer athena image and restarts the container into it, so updating
+  # does not mean logging into the host.
+  #
+  # This is a maintained fork: containrrr/watchtower, the original, has had no
+  # release since 2023. Same flags and the same label namespace.
+  #
+  # It does not roll back. If a new image fails its healthcheck the container is
+  # left failing rather than reverted, so the backup schedule above is what makes
+  # an unattended update recoverable.
+  watchtower:
+    image: ghcr.io/nicholas-fedor/watchtower:latest
+    container_name: athena-watchtower
+    restart: unless-stopped
+    volumes:
+      # Not `:ro`. Replacing a container is a write, so read-only leaves it able
+      # to see a pending update and unable to apply it.
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 3600

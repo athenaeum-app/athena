@@ -18,3 +18,8 @@ services:
     # Tagged locally so a source build never masquerades as the published
     # image in `docker images`.
     image: athena-server:local
+    labels:
+      # There is no registry copy of athena-server:local, so leaving this on
+      # would have watchtower retrying a pull that cannot succeed, once an hour,
+      # and a source build is meant to stay on the source it was built from.
+      com.centurylinklabs.watchtower.enable: "false"

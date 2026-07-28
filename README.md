@@ -177,7 +177,9 @@ docker compose up -d
 Open `http://<host>:8080`. The first account you register becomes the owner.
 Everyone else joins by invitation from the admin panel.
 
-Updating is two commands, and your data is untouched:
+Updates apply themselves. The compose file includes a Watchtower service that
+checks hourly for a newer image and restarts the server into it, leaving your
+data untouched. Delete that service if you would rather do it by hand:
 
 ```bash
 docker compose pull && docker compose up -d
