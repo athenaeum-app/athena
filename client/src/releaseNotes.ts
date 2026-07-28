@@ -14,6 +14,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Tag suggestions now rank by the archive you are writing into.',
         'Sending while a file is still uploading no longer loses the attachment.',
     ],
+    '2.10.0': [
+        'Link previews can now be shown where the link is, instead of stacked at the end. Turn it on in Settings.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
