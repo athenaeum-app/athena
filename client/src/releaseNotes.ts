@@ -27,6 +27,7 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Losing the connection mid-session shows a banner and leaves your writing untouched.',
     ],
     '2.12.1': ['The Settings tabs no longer scroll sideways; the panel widens to fit them.'],
+    '2.12.2': ['The Settings panel now widens far enough for its tabs at any UI scale, not just the default one.'],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
