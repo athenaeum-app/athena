@@ -17,6 +17,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.10.0': [
         'Link previews can now be shown where the link is, instead of stacked at the end. Turn it on in Settings.',
     ],
+    '2.10.1': [
+        'Clicking outside an enlarged image now closes it.',
+        'Dragging a card on a narrow window no longer selects its text instead of swiping.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
