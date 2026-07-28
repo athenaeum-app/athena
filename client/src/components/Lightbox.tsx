@@ -105,6 +105,7 @@ export const Lightbox: Component = () => {
     return (
         <Show when={lightboxOpen()}>
             <div
+                data-testid="lightbox"
                 class="fixed inset-0 z-[80] flex flex-col bg-black/90 animate-fade-in"
                 onClick={(e) => {
                     if (e.target === e.currentTarget) closeLightbox()
@@ -139,8 +140,17 @@ export const Lightbox: Component = () => {
                     </button>
                 </div>
 
-                {/* Stage */}
-                <div class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+                {/* Stage. Its own click-outside check, not just the outer
+                    wrapper's: the padding around the image/video is this div,
+                    not the wrapper, so a click there has this as e.target and
+                    would otherwise fall through the wrapper's check silently. */}
+                <div
+                    data-testid="lightbox-stage"
+                    class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget) closeLightbox()
+                    }}
+                >
                     <Show when={count() > 1}>
                         <button
                             type="button"
