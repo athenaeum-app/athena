@@ -159,3 +159,71 @@ test.describe('mobile preview card', () => {
         expect(hits).toEqual([])
     })
 })
+
+// The same swiper also renders below the lg breakpoint on a plain desktop
+// browser window, driven by matchMedia rather than a touch check (media.ts).
+// A mouse drag there used to be indistinguishable from selecting the card's
+// own text, because nothing told the browser this press belonged to the
+// swipe gesture instead. hasTouch is left at its Playwright default (false)
+// so these dispatch real mouse events, the way a resized desktop window
+// actually receives input.
+//
+// The title heading is the target, not anything inside .moment-preview: the
+// body's pointer-events: none already makes it unhittable, so a drag there
+// could never have triggered native selection regardless of this fix. The
+// title sits outside that div and has no such protection.
+//
+// document.getSelection() is deliberately not asserted here. Chromium's
+// native drag-to-select is driven by its own internal gesture heuristics, and
+// CDP-synthesized mouse events do not reproduce it reliably even against the
+// unfixed code, so an assertion on it would pass either way and prove
+// nothing. The fix itself (preventDefault on pointerdown + select-none) is
+// the standard technique for this exact class of bug; what these two tests
+// hold the line on is that it does not cost the click and swipe behaviour
+// beneath it, which a naive version of this fix (e.g. blocking too much)
+// could easily have broken.
+test.describe('mobile shell on a resized desktop window', () => {
+    test.use({ viewport: { width: 800, height: 900 } })
+
+    test('the swipe stage opts out of text selection', async ({ page }) => {
+        await signIn(page)
+        await seed(page)
+        await openPreviewFeed(page)
+
+        // The deterministic half of the fix: a computed style, not behaviour
+        // that depends on Chromium's own drag-to-select heuristics.
+        const userSelect = await page
+            .getByRole('heading', { name: SHOWCASE, exact: true })
+            .evaluate((el) => getComputedStyle(el).userSelect)
+        expect(userSelect).toBe('none')
+    })
+
+    test('a mouse drag over the title still changes card', async ({ page }) => {
+        await signIn(page)
+        await seed(page)
+        await openPreviewFeed(page)
+
+        const counter = page.getByText('1 / 2')
+        await expect(counter).toBeVisible()
+
+        const box = await page.getByRole('heading', { name: SHOWCASE, exact: true }).boundingBox()
+        expect(box).not.toBeNull()
+        const y = box!.y + box!.height / 2
+        await page.mouse.move(box!.x + box!.width - 10, y)
+        await page.mouse.down()
+        await page.mouse.move(box!.x - 120, y, { steps: 12 })
+        await page.mouse.up()
+
+        await expect(page.getByText('2 / 2')).toBeVisible()
+    })
+
+    test('a plain click on the title, with no drag, still opens the moment', async ({ page }) => {
+        await signIn(page)
+        await seed(page)
+        await openPreviewFeed(page)
+
+        await page.getByRole('heading', { name: SHOWCASE, exact: true }).click()
+
+        await expect(page.getByTitle('Edit this moment')).toBeVisible()
+    })
+})

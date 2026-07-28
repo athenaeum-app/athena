@@ -82,6 +82,13 @@ export const MomentSwiper: Component<MomentSwiperProps> = (props) => {
     const onPointerDown = (e: PointerEvent) => {
         interactiveStart = isInteractive(e.target as HTMLElement)
         if (interactiveStart) return // let pin/edit/delete/links behave natively
+        // A mouse drag over the card's own text is the browser's default text
+        // selection gesture, which fires independently of anything below and
+        // does not care that this became a swipe. select-none on the stage
+        // stops the visual selection; this stops the browser from starting
+        // that gesture at all, which is what a mouse-drag desktop user hits
+        // when the layout drops to the mobile swiper at a narrow viewport.
+        e.preventDefault()
         startX = e.clientX
         startY = e.clientY
         dx = 0
@@ -160,7 +167,7 @@ export const MomentSwiper: Component<MomentSwiperProps> = (props) => {
             </div>
             <div
                 ref={stageRef}
-                class="relative min-h-0 flex-1 touch-pan-y overflow-hidden"
+                class="relative min-h-0 flex-1 touch-pan-y select-none overflow-hidden"
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={endDrag}
