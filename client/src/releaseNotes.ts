@@ -21,6 +21,7 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Clicking outside an enlarged image now closes it.',
         'Dragging a card on a narrow window no longer selects its text instead of swiping.',
     ],
+    '2.11.0': ['Past release notes can now be read any time in Settings, under About.'],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
