@@ -18,7 +18,7 @@ import {
     getArchiveTheme,
     setArchiveTheme,
 } from '../themes'
-import { prefs, setPref, resetPrefs, DEFAULT_PREFS, MENU_WIDGET_META, type MenuWidget } from '../prefs'
+import { prefs, setPref, resetPrefs, DEFAULT_PREFS, MENU_WIDGET_META, ROW_LIMITS, type MenuWidget } from '../prefs'
 import {
     PRESET_LOOKS,
     type LookVars,
@@ -78,6 +78,38 @@ const PANEL_GUTTER = 32
 // The panel's own border, inside its width. Tailwind's border is a fixed 1px,
 // so unlike the tab strip's padding this one does not move with the UI scale.
 const PANEL_BORDER = 2
+
+const ROW_COUNTS = Array.from({ length: ROW_LIMITS.max - ROW_LIMITS.min + 1 }, (_, i) => ROW_LIMITS.min + i)
+
+// The row-count strip, shared by every "how many sit side by side" pref.
+//
+// It sits on its own line and right-aligned: the description above it is inline
+// text, and an inline-flex group flows onto the end of that text rather than
+// breaking, which had it crowding the sentence it belongs to. `noun` names what
+// is being counted, because a button labelled "2" says nothing on its own.
+const RowCountPicker: Component<{ value: number; noun: string; testid: string; onPick: (n: number) => void }> = (
+    props,
+) => (
+    <div class="mt-2 flex justify-end">
+        <div class="border-element-accent inline-flex overflow-hidden rounded-md border" data-testid={props.testid}>
+            <For each={ROW_COUNTS}>
+                {(n, i) => (
+                    <button
+                        onClick={() => props.onPick(n)}
+                        aria-label={`${n} ${props.noun} per row`}
+                        class={`px-3 py-1.5 text-xs transition-colors hover:cursor-pointer ${i() > 0 ? 'border-element-accent border-l' : ''} ${
+                            props.value === n
+                                ? 'bg-highlight-strongest text-white font-semibold'
+                                : 'text-sub hover:bg-element-accent hover:text-main'
+                        }`}
+                    >
+                        {n}
+                    </button>
+                )}
+            </For>
+        </div>
+    </div>
+)
 
 const BASE_TABS: { id: SettingsTab; label: string; icon: string }[] = [
     // General stays first so Settings still opens where it always did, rather
@@ -431,33 +463,31 @@ const GeneralTab: Component = () => {
                                 <span class="text-sub text-xs">
                                     How many previews sit side by side when links are written back to back.
                                 </span>
-                                {/* The description above is inline text, and an
-                                    inline-flex button group flows on the same
-                                    line as an inline-level sibling rather than
-                                    breaking to its own. This wrapper forces a
-                                    block-level line so the group cannot end up
-                                    crowding the text it follows, and justify-end
-                                    is what actually right-aligns it. */}
-                                <div class="mt-2 flex justify-end">
-                                    <div class="border-element-accent inline-flex overflow-hidden rounded-md border">
-                                        <For each={[1, 2, 3, 4]}>
-                                            {(n, i) => (
-                                                <button
-                                                    onClick={() => setPref('inlineLinkPreviewsPerRow', n)}
-                                                    class={`px-3 py-1.5 text-xs transition-colors hover:cursor-pointer ${i() > 0 ? 'border-element-accent border-l' : ''} ${
-                                                        prefs().inlineLinkPreviewsPerRow === n
-                                                            ? 'bg-highlight-strongest text-white font-semibold'
-                                                            : 'text-sub hover:bg-element-accent hover:text-main'
-                                                    }`}
-                                                >
-                                                    {n}
-                                                </button>
-                                            )}
-                                        </For>
-                                    </div>
-                                </div>
+                                <RowCountPicker
+                                    value={prefs().inlineLinkPreviewsPerRow}
+                                    noun="cards"
+                                    testid="link-previews-per-row"
+                                    onPick={(n) => setPref('inlineLinkPreviewsPerRow', n)}
+                                />
                             </div>
                         </Show>
+                    </div>
+
+                    {/* Videos per row. No toggle above it: 1 is the full-width
+                        player this has always been, so the control is its own
+                        off switch. */}
+                    <div class="bg-element border-element-accent rounded-lg border p-4">
+                        <span class="text-main text-sm font-bold block">Videos Per Row</span>
+                        <span class="text-sub text-xs">
+                            How many uploaded videos sit side by side when they are attached back to back. One gives
+                            each its own full-width player.
+                        </span>
+                        <RowCountPicker
+                            value={prefs().videosPerRow}
+                            noun="videos"
+                            testid="videos-per-row"
+                            onPick={(n) => setPref('videosPerRow', n)}
+                        />
                     </div>
 
                     {/* Time format: pins the clock used for every rendered time. */}

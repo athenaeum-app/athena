@@ -98,6 +98,10 @@ export interface Prefs {
     // Clamped to 1 through 4 on load: past four the cards are narrower than
     // their own titles in a feed column.
     inlineLinkPreviewsPerRow: number
+    // How many video players may share one row when videos are attached back
+    // to back. 1 is the full-width player this has always been, so the default
+    // leaves every existing moment looking exactly as it did.
+    videosPerRow: number
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -122,6 +126,7 @@ export const DEFAULT_PREFS: Prefs = {
     showSubtaskAdders: false,
     inlineLinkPreviews: false,
     inlineLinkPreviewsPerRow: 2,
+    videosPerRow: 1,
     font: '',
     animationsEnabled: true,
     animationSpeed: 1,
@@ -154,12 +159,14 @@ function normalizeMenuWidgets(stored: unknown): MenuWidget[] {
     return out
 }
 
-export const INLINE_PREVIEW_ROW_LIMITS = { min: 1, max: 4 } as const
+// Shared by every "how many of these sit side by side" pref. Four is the point
+// where a feed column stops being able to give each one a useful width.
+export const ROW_LIMITS = { min: 1, max: 4 } as const
 
-function clampPerRow(value: unknown): number {
+function clampPerRow(value: unknown, fallback: number): number {
     const n = Math.round(Number(value))
-    if (!Number.isFinite(n)) return DEFAULT_PREFS.inlineLinkPreviewsPerRow
-    return Math.min(INLINE_PREVIEW_ROW_LIMITS.max, Math.max(INLINE_PREVIEW_ROW_LIMITS.min, n))
+    if (!Number.isFinite(n)) return fallback
+    return Math.min(ROW_LIMITS.max, Math.max(ROW_LIMITS.min, n))
 }
 
 function load(): Prefs {
@@ -177,7 +184,11 @@ function load(): Prefs {
             merged.menuLayout = DEFAULT_PREFS.menuLayout
         }
         merged.menuWidgets = normalizeMenuWidgets(merged.menuWidgets)
-        merged.inlineLinkPreviewsPerRow = clampPerRow(merged.inlineLinkPreviewsPerRow)
+        merged.inlineLinkPreviewsPerRow = clampPerRow(
+            merged.inlineLinkPreviewsPerRow,
+            DEFAULT_PREFS.inlineLinkPreviewsPerRow,
+        )
+        merged.videosPerRow = clampPerRow(merged.videosPerRow, DEFAULT_PREFS.videosPerRow)
         return merged
     } catch {
         return { ...DEFAULT_PREFS }

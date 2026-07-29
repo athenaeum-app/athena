@@ -15,8 +15,10 @@ async function signIn(page: Page): Promise<void> {
     if (!res.ok()) throw new Error(`POST ${path} -> ${res.status()} ${await res.text()}`)
 }
 
+// Scoped to this pref's own strip: Videos Per Row renders the same 1 to 4
+// buttons further down the same tab.
 const perRowButton = (page: Page, n: number) =>
-    page.getByRole('button', { name: String(n), exact: true })
+    page.getByTestId('link-previews-per-row').getByRole('button', { name: `${n} cards per row` })
 
 test.describe('inline link preview settings', () => {
     test.use({ viewport: { width: 1440, height: 900 } })
@@ -40,7 +42,7 @@ test.describe('inline link preview settings', () => {
         const description = page.getByText('How many previews sit side by side')
         // The bordered button strip itself, not the justify-end wrapper around
         // it: its box is what visibly ends where the buttons end.
-        const group = perRowButton(page, 1).locator('..')
+        const group = page.getByTestId('link-previews-per-row')
         // Cards Per Row's own container, unpadded, so its box is exactly the
         // width the button strip has to fill to read as right-aligned.
         const panel = page.getByText('Cards Per Row').locator('..')
