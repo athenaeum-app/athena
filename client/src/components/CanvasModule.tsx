@@ -1351,9 +1351,6 @@ const NodeView: Component<NodeViewProps> = (props) => {
                 lp.handlers.onPointerDown(e)
                 if (props.canManage) props.onDragStart(e)
             }}
-            onPointerMove={lp.handlers.onPointerMove}
-            onPointerUp={lp.handlers.onPointerUp}
-            onPointerCancel={lp.handlers.onPointerCancel}
             onDblClick={() => props.canManage && props.onRequestEdit()}
             onContextMenu={props.onContextMenu}
         >

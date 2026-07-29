@@ -24,11 +24,40 @@ export function createLongPress(handler: (e: PointerEvent) => void, opts: LongPr
     let fired = false
     let startX = 0
     let startY = 0
+    let unwatch: (() => void) | undefined
 
     const clear = () => {
         if (timer !== undefined) {
             clearTimeout(timer)
             timer = undefined
+        }
+        unwatch?.()
+        unwatch = undefined
+    }
+
+    const onMove = (e: PointerEvent) => {
+        if (Math.abs(e.clientX - startX) > tol || Math.abs(e.clientY - startY) > tol) clear()
+    }
+
+    // Everything that ends a press is watched on the window, not on the pressed
+    // element. An element only receives moves while the pointer is still over
+    // it, so a press that turns into a drag off the element leaves an
+    // element-local listener with nothing to hear and the timer runs to
+    // completion: aim for a chat panel's scrollbar, miss by a few pixels onto
+    // the message beside it, drag, and an action sheet opens over the page.
+    //
+    // Scroll counts as an end too. Content moving under a held pointer is a
+    // scroll, whatever started it, and never a press-and-hold.
+    const watch = () => {
+        window.addEventListener('pointermove', onMove, true)
+        window.addEventListener('pointerup', clear, true)
+        window.addEventListener('pointercancel', clear, true)
+        window.addEventListener('scroll', clear, true)
+        unwatch = () => {
+            window.removeEventListener('pointermove', onMove, true)
+            window.removeEventListener('pointerup', clear, true)
+            window.removeEventListener('pointercancel', clear, true)
+            window.removeEventListener('scroll', clear, true)
         }
     }
 
@@ -40,22 +69,12 @@ export function createLongPress(handler: (e: PointerEvent) => void, opts: LongPr
             startX = e.clientX
             startY = e.clientY
             clear()
+            watch()
             timer = window.setTimeout(() => {
-                timer = undefined
                 fired = true
+                clear()
                 handler(e)
             }, delayMs)
-        },
-        onPointerMove(e: PointerEvent) {
-            if (timer !== undefined && (Math.abs(e.clientX - startX) > tol || Math.abs(e.clientY - startY) > tol)) {
-                clear()
-            }
-        },
-        onPointerUp() {
-            clear()
-        },
-        onPointerCancel() {
-            clear()
         },
     }
 
