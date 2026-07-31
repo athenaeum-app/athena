@@ -105,6 +105,13 @@ export interface Prefs {
     // Draw a schematic thumbnail of the board inside a canvas reference card,
     // instead of only its title and node count.
     canvasEmbedPreview: boolean
+    // Render a moment reference the way the main column renders it, rather than
+    // as a title and a flattened excerpt. Off by default: the compact card is
+    // what ADR-0015 chose, and ADR-0017 records why this is opt-in.
+    momentEmbedPreview: boolean
+    // How tall such a preview may get, as a percentage of the window height,
+    // before it is cut off behind a fade. Clamped to 10 through 100 on load.
+    momentEmbedPreviewHeight: number
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -131,6 +138,8 @@ export const DEFAULT_PREFS: Prefs = {
     inlineLinkPreviewsPerRow: 2,
     videosPerRow: 1,
     canvasEmbedPreview: false,
+    momentEmbedPreview: false,
+    momentEmbedPreviewHeight: 40,
     font: '',
     animationsEnabled: true,
     animationSpeed: 1,
@@ -173,6 +182,17 @@ function clampPerRow(value: unknown, fallback: number): number {
     return Math.min(ROW_LIMITS.max, Math.max(ROW_LIMITS.min, n))
 }
 
+// Percent of the window height a moment preview may fill. The floor is where a
+// preview stops showing enough to be worth the space; the ceiling is the whole
+// window, at which point it is not truncated at all.
+export const PREVIEW_HEIGHT_LIMITS = { min: 10, max: 100, step: 5 } as const
+
+export function clampPreviewHeight(value: unknown): number {
+    const n = Math.round(Number(value))
+    if (!Number.isFinite(n)) return DEFAULT_PREFS.momentEmbedPreviewHeight
+    return Math.min(PREVIEW_HEIGHT_LIMITS.max, Math.max(PREVIEW_HEIGHT_LIMITS.min, n))
+}
+
 function load(): Prefs {
     try {
         const raw = localStorage.getItem(STORAGE_KEY)
@@ -193,6 +213,7 @@ function load(): Prefs {
             DEFAULT_PREFS.inlineLinkPreviewsPerRow,
         )
         merged.videosPerRow = clampPerRow(merged.videosPerRow, DEFAULT_PREFS.videosPerRow)
+        merged.momentEmbedPreviewHeight = clampPreviewHeight(merged.momentEmbedPreviewHeight)
         return merged
     } catch {
         return { ...DEFAULT_PREFS }

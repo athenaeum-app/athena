@@ -25,6 +25,7 @@ import {
     DEFAULT_PREFS,
     MENU_WIDGET_META,
     ROW_LIMITS,
+    PREVIEW_HEIGHT_LIMITS,
     type MenuWidget,
 } from '../prefs'
 import {
@@ -516,6 +517,48 @@ const GeneralTab: Component = () => {
                             class="accent-highlight-strongest h-5 w-5 cursor-pointer"
                         />
                     </label>
+
+                    <div class="bg-element border-element-accent rounded-lg border p-4">
+                        <label class="flex items-center justify-between gap-3 cursor-pointer">
+                            <div>
+                                <span class="text-main text-sm font-bold block">Moment Reference Previews</span>
+                                <span class="text-sub text-xs">
+                                    Render a referenced moment the way the main column does, instead of a short line of
+                                    plain text. A moment inside a preview stays a plain card, so references cannot
+                                    nest without end.
+                                </span>
+                            </div>
+                            <input
+                                type="checkbox"
+                                checked={prefs().momentEmbedPreview}
+                                onChange={(e) => setPref('momentEmbedPreview', e.currentTarget.checked)}
+                                class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                            />
+                        </label>
+                        <Show when={prefs().momentEmbedPreview}>
+                            <div class="border-element-accent mt-3 border-t pt-3">
+                                <div class="mb-2 flex items-center justify-between">
+                                    <span class="text-main text-sm font-bold block">Preview Height</span>
+                                    <span class="text-sub text-sm font-mono">{prefs().momentEmbedPreviewHeight}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min={PREVIEW_HEIGHT_LIMITS.min}
+                                    max={PREVIEW_HEIGHT_LIMITS.max}
+                                    step={PREVIEW_HEIGHT_LIMITS.step}
+                                    value={prefs().momentEmbedPreviewHeight}
+                                    onInput={(e) =>
+                                        setPref('momentEmbedPreviewHeight', parseInt(e.currentTarget.value, 10))
+                                    }
+                                    aria-label="Moment preview height"
+                                    class="accent-highlight-strongest w-full cursor-pointer"
+                                />
+                                <p class="text-sub text-xs mt-1">
+                                    How much of the window height a preview may fill before it is cut off.
+                                </p>
+                            </div>
+                        </Show>
+                    </div>
 
                     {/* Time format: pins the clock used for every rendered time. */}
                     <div class="bg-element border-element-accent rounded-lg border p-4">

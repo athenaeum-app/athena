@@ -235,6 +235,10 @@ export const Feed: Component<FeedProps> = (props) => {
     const MomentCard: Component<{ moment: Moment; pinned?: boolean; compact?: boolean }> = (p) => (
         <div
             data-testid="moment-card"
+            // Which moment this card is, rather than which moment's text it
+            // happens to contain: with reference previews on, a card holds the
+            // titles of the moments it references too.
+            data-moment-id={p.moment.id}
             class="group hover:bg-element-accent border-element-accent flex w-full flex-col gap-2 rounded border p-4 transition-all duration-300"
             classList={{ 'border-highlight bg-element-accent/40': !!p.pinned }}
         >

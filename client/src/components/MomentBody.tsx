@@ -6,6 +6,7 @@ import {
     createEffect,
     createSignal,
     on,
+    onCleanup,
     onMount,
     type Component,
     type JSX,
@@ -14,6 +15,8 @@ import { api, type TodoList, type TodoItem, type Canvas, type Moment } from '../
 import { MarkdownText } from './MarkdownText'
 import { LinkPreviewRow } from './LinkPreview'
 import { CanvasThumbnail } from './CanvasThumbnail'
+import { AttachmentList } from './AttachmentList'
+import { LinkPreviewList } from './LinkPreview'
 import { findBareUrls } from '../linkPreviews'
 import { prefs } from '../prefs'
 import { notifyTodoChanged, todoVersion } from '../todoBus'
@@ -137,6 +140,10 @@ export interface MomentBodyProps {
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
+    // Set on the body rendered inside a moment preview. It is the whole of the
+    // depth cap: a nested body draws its own moment references as compact
+    // cards, so a cycle terminates on the second hop (ADR-0017).
+    nested?: boolean
 }
 
 export const MomentBody: Component<MomentBodyProps> = (props) => {
@@ -158,7 +165,14 @@ export const MomentBody: Component<MomentBodyProps> = (props) => {
                         </Match>
                         <Match when={part.type === 'embed' && part.kind === 'moment' ? part : null}>
                             {(e) => (
-                                <MomentEmbed id={e().id} onOpen={props.onOpenMoment} resolveRef={props.resolveRef} />
+                                <MomentEmbed
+                                    id={e().id}
+                                    onOpen={props.onOpenMoment}
+                                    onOpenTodo={props.onOpenTodo}
+                                    onOpenCanvas={props.onOpenCanvas}
+                                    resolveRef={props.resolveRef}
+                                    nested={props.nested}
+                                />
                             )}
                         </Match>
                         <Match when={part.type === 'embed' && part.kind === 'todo' ? part : null}>
@@ -215,12 +229,74 @@ const UnavailableChip: Component<{ icon: string; label: string }> = (props) => (
     </span>
 )
 
+// The referenced moment rendered the way the main column renders it, clipped to
+// a share of the window. Only ever one level deep: the body inside is `nested`,
+// so its own references fall back to the compact card (ADR-0017).
+const MomentPreview: Component<{
+    moment: Moment
+    resolveRef?: (id: string) => string | undefined
+    onOpenMoment?: (id: string) => void
+    onOpenTodo?: (id: string) => void
+    onOpenCanvas?: (id: string) => void
+}> = (props) => {
+    const [clipped, setClipped] = createSignal(false)
+    let frame: HTMLDivElement | undefined
+    let content: HTMLDivElement | undefined
+
+    onMount(() => {
+        if (!frame || !content || typeof ResizeObserver === 'undefined') return
+        // The frame is what stops growing, so the content is what has to be
+        // watched: an image or an embed landing late is exactly when a preview
+        // crosses the line from whole to clipped.
+        const check = () => setClipped(content!.offsetHeight > frame!.clientHeight + 1)
+        const observer = new ResizeObserver(check)
+        observer.observe(content)
+        onCleanup(() => observer.disconnect())
+    })
+
+    return (
+        // Clicks stay inside: the preview holds real links, images that open the
+        // lightbox and checkable todo rows, and the card's own open-the-reader
+        // handler would fire under every one of them. The header still opens it.
+        <div
+            data-testid="moment-preview"
+            onClick={(e) => e.stopPropagation()}
+            ref={frame}
+            class="relative overflow-hidden"
+            style={{ 'max-height': `${prefs().momentEmbedPreviewHeight}vh` }}
+        >
+            <div ref={content}>
+                <MomentBody
+                    content={props.moment.content}
+                    class="text-sub text-sm"
+                    nested
+                    resolveRef={props.resolveRef}
+                    onOpenMoment={props.onOpenMoment}
+                    onOpenTodo={props.onOpenTodo}
+                    onOpenCanvas={props.onOpenCanvas}
+                />
+                <AttachmentList content={props.moment.content} />
+                <LinkPreviewList content={props.moment.content} />
+            </div>
+            <Show when={clipped()}>
+                <div class="from-element-matte pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t to-transparent" />
+            </Show>
+        </div>
+    )
+}
+
 const MomentEmbed: Component<{
     id: string
     onOpen?: (id: string) => void
+    onOpenTodo?: (id: string) => void
+    onOpenCanvas?: (id: string) => void
     resolveRef?: (id: string) => string | undefined
+    nested?: boolean
 }> = (props) => {
     const [moment, setMoment] = createSignal<Moment | null | undefined>(undefined)
+    // A preview inside a preview is the cycle, so depth decides this before the
+    // pref does.
+    const preview = () => prefs().momentEmbedPreview && !props.nested
     onMount(async () => {
         try {
             setMoment((await api.getMoment(props.id)) ?? null)
@@ -246,8 +322,21 @@ const MomentEmbed: Component<{
                     label={mo().title || props.resolveRef?.(props.id) || 'Untitled'}
                     onOpen={props.onOpen ? () => props.onOpen!(props.id) : undefined}
                 >
-                    <Show when={excerpt(mo().content)}>
-                        <p class="text-sub line-clamp-3 text-sm">{excerpt(mo().content)}</p>
+                    <Show
+                        when={preview()}
+                        fallback={
+                            <Show when={excerpt(mo().content)}>
+                                <p class="text-sub line-clamp-3 text-sm">{excerpt(mo().content)}</p>
+                            </Show>
+                        }
+                    >
+                        <MomentPreview
+                            moment={mo()}
+                            resolveRef={props.resolveRef}
+                            onOpenMoment={props.onOpen}
+                            onOpenTodo={props.onOpenTodo}
+                            onOpenCanvas={props.onOpenCanvas}
+                        />
                     </Show>
                 </CardShell>
             )}
