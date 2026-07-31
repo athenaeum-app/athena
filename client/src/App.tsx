@@ -146,6 +146,18 @@ export const App: Component = () => {
     const [showAdmin, setShowAdmin] = createSignal(false)
     const [showTodos, setShowTodos] = createSignal(false)
     const [showCanvas, setShowCanvas] = createSignal(false)
+    // Which board a canvas reference asked for, handed to the module so it
+    // opens on that one instead of its "select a canvas" placeholder. Cleared
+    // when the module closes, so the nav button still opens the plain list.
+    const [requestedCanvasId, setRequestedCanvasId] = createSignal<string | undefined>()
+    const openCanvas = (id?: string) => {
+        setRequestedCanvasId(id)
+        setShowCanvas(true)
+    }
+    const closeCanvas = () => {
+        setShowCanvas(false)
+        setRequestedCanvasId(undefined)
+    }
     // Focus-layout drawers: the side panels collapse into slide-in
     // drawers toggled by floating buttons.
     const [showArchivesDrawer, setShowArchivesDrawer] = createSignal(false)
@@ -423,7 +435,7 @@ export const App: Component = () => {
         if (showSettings()) return setShowSettings(false), true
         if (showAdmin()) return setShowAdmin(false), true
         if (showTodos()) return setShowTodos(false), true
-        if (showCanvas()) return setShowCanvas(false), true
+        if (showCanvas()) return closeCanvas(), true
         return false
     }
 
@@ -697,7 +709,7 @@ export const App: Component = () => {
         onOpenSettings: () => setShowSettings(true),
         onOpenAdmin: () => setShowAdmin(true),
         onOpenTodos: () => setShowTodos(true),
-        onOpenCanvas: () => setShowCanvas(true),
+        onOpenCanvas: () => openCanvas(),
         username: auth.user()?.username || '',
         isOwner: auth.user()?.is_owner || false,
         canManageUsers: (auth.user()?.permissions || 0) & (1 << 15) ? true : (auth.user()?.permissions || 0) & (1 << 19) ? true : false,
@@ -718,7 +730,7 @@ export const App: Component = () => {
                 }
                 onOpenMoment={(id) => setFocusMomentId(id)}
                 onOpenTodoEmbed={() => setShowTodos(true)}
-                onOpenCanvasEmbed={() => setShowCanvas(true)}
+                onOpenCanvasEmbed={openCanvas}
             />
         ) : (
             <FilterBar {...menuActionProps()} />
@@ -750,7 +762,7 @@ export const App: Component = () => {
             onLoadMore={() => loadMoments(false)}
             onOpenMoment={(id) => setFocusMomentId(id)}
             onOpenTodo={() => setShowTodos(true)}
-            onOpenCanvas={() => setShowCanvas(true)}
+            onOpenCanvas={openCanvas}
             canCreate={canCreateMoment()}
             showComposer={!mobile && canCreateMoment()}
             inlineCreator={
@@ -863,7 +875,7 @@ export const App: Component = () => {
                     }}
                     onCanvas={() => {
                         setMobileSheet(null)
-                        setShowCanvas(true)
+                        openCanvas()
                     }}
                     onSettings={() => {
                         setMobileSheet(null)
@@ -1136,7 +1148,7 @@ export const App: Component = () => {
                     onClose={() => setShowChat(false)}
                     onOpenMoment={(id) => setFocusMomentId(id)}
                     onOpenTodo={() => setShowTodos(true)}
-                    onOpenCanvas={() => setShowCanvas(true)}
+                    onOpenCanvas={openCanvas}
                 />
             </Show>
 
@@ -1189,8 +1201,9 @@ export const App: Component = () => {
 
             <Show when={showCanvas()}>
                 <CanvasModule
-                    onClose={() => setShowCanvas(false)}
+                    onClose={closeCanvas}
                     canManage={canManageCanvas()}
+                    initialCanvasId={requestedCanvasId()}
                     onOpenMoment={(id) => setFocusMomentId(id)}
                 />
             </Show>
@@ -1209,7 +1222,7 @@ export const App: Component = () => {
                     onEdit={(m) => {
                         setFocusMomentId(null)
                         setShowTodos(false)
-                        setShowCanvas(false)
+                        closeCanvas()
                         handleEditMoment(m)
                     }}
                     onTogglePin={handleTogglePin}
@@ -1220,7 +1233,7 @@ export const App: Component = () => {
                     onClose={() => setFocusMomentId(null)}
                     onOpenMoment={(id) => setFocusMomentId(id)}
                     onOpenTodo={() => setShowTodos(true)}
-                    onOpenCanvas={() => setShowCanvas(true)}
+                    onOpenCanvas={openCanvas}
                 />
             </Show>
 

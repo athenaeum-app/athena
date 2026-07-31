@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For, Show, Switch, Match, onMount, onCleanup, type Component } from 'solid-js'
+import { createSignal, createEffect, on, For, Show, Switch, Match, onMount, onCleanup, type Component } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { createStore, produce } from 'solid-js/store'
 import { api, type Canvas, type CanvasNode, type CanvasEdge, type CanvasNodeKind, type Moment, type TodoList } from '../api'
@@ -30,11 +30,18 @@ interface CanvasModuleProps {
     onClose: () => void
     canManage: boolean
     onOpenMoment?: (id: string) => void
+    // The board a `::canvas:<id>::` reference asked for. Without it the module
+    // opens on its "select a canvas" placeholder, one click short of the thing
+    // that was referenced.
+    initialCanvasId?: string
 }
 
 const MIN_SCALE = 0.25
 const MAX_SCALE = 2.5
 const GRID = 24 // snap-to-grid step, world units
+
+// Breathing room, in screen pixels, left around the nodes when framing a board.
+const FRAME_PADDING = 48
 
 // Presentation-only style blob stored in CanvasNode.style (JSON).
 interface NodeStyle {
@@ -154,19 +161,63 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
 
     onMount(loadCanvases)
 
+    // Put the whole board on screen. Opening used to reset the camera to the
+    // world origin, which shows empty grid for any board whose nodes were moved
+    // away from it: indistinguishable from an empty canvas. Zoom stays inside
+    // the same limits the wheel and pinch obey, so framing one small node fills
+    // the surface no more than zooming in by hand would.
+    const frameNodes = () => {
+        // The surface only exists once a canvas is active, and its size is only
+        // measurable after that render, so wait a frame before reading it.
+        requestAnimationFrame(() => {
+            const nodes = active()?.nodes ?? []
+            const rect = surfaceRef?.getBoundingClientRect()
+            if (!nodes.length || !rect?.width || !rect?.height) {
+                setPan({ x: 0, y: 0 })
+                setScale(1)
+                return
+            }
+            const left = Math.min(...nodes.map((n) => n.x))
+            const top = Math.min(...nodes.map((n) => n.y))
+            const right = Math.max(...nodes.map((n) => n.x + n.w))
+            const bottom = Math.max(...nodes.map((n) => n.y + n.h))
+            const fit = Math.min(
+                (rect.width - FRAME_PADDING * 2) / Math.max(1, right - left),
+                (rect.height - FRAME_PADDING * 2) / Math.max(1, bottom - top),
+            )
+            const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, fit))
+            setScale(next)
+            setPan({
+                x: rect.width / 2 - ((left + right) / 2) * next,
+                y: rect.height / 2 - ((top + bottom) / 2) * next,
+            })
+        })
+    }
+
     const openCanvas = async (id: string) => {
         try {
             const canvas = await api.getCanvas(id)
             setCanvasStore('c', { ...canvas, nodes: canvas.nodes ?? [], edges: canvas.edges ?? [] })
-            setPan({ x: 0, y: 0 })
-            setScale(1)
             setSelection([])
             setShowList(false) // mobile: dismiss the drawer once a canvas is open
+            frameNodes()
         } catch (err) {
             console.error('Failed to open canvas:', err)
             ui.toast('Could not open canvas.', 'error')
         }
     }
+
+    // Reactive rather than mount-only: the focused reader sits above this
+    // module, so a reference clicked in there can ask for a different board
+    // while one is already open.
+    createEffect(
+        on(
+            () => props.initialCanvasId,
+            (id) => {
+                if (id) void openCanvas(id)
+            },
+        ),
+    )
 
     const newCanvas = async () => {
         try {
@@ -968,6 +1019,7 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                                     {/* Pan/zoom surface */}
                                     <div
                                         ref={surfaceRef}
+                                        data-testid="canvas-surface"
                                         class="bg-element h-full w-full touch-none overflow-hidden"
                                         classList={{ 'cursor-grab': tool() === 'pan', 'cursor-crosshair': tool() === 'select' }}
                                         style={gridStyle()}
