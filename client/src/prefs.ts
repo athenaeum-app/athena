@@ -102,6 +102,9 @@ export interface Prefs {
     // to back. 1 is the full-width player this has always been, so the default
     // leaves every existing moment looking exactly as it did.
     videosPerRow: number
+    // Draw a schematic thumbnail of the board inside a canvas reference card,
+    // instead of only its title and node count.
+    canvasEmbedPreview: boolean
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -127,6 +130,7 @@ export const DEFAULT_PREFS: Prefs = {
     inlineLinkPreviews: false,
     inlineLinkPreviewsPerRow: 2,
     videosPerRow: 1,
+    canvasEmbedPreview: false,
     font: '',
     animationsEnabled: true,
     animationSpeed: 1,

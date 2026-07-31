@@ -18,7 +18,15 @@ import {
     getArchiveTheme,
     setArchiveTheme,
 } from '../themes'
-import { prefs, setPref, resetPrefs, DEFAULT_PREFS, MENU_WIDGET_META, ROW_LIMITS, type MenuWidget } from '../prefs'
+import {
+    prefs,
+    setPref,
+    resetPrefs,
+    DEFAULT_PREFS,
+    MENU_WIDGET_META,
+    ROW_LIMITS,
+    type MenuWidget,
+} from '../prefs'
 import {
     PRESET_LOOKS,
     type LookVars,
@@ -489,6 +497,25 @@ const GeneralTab: Component = () => {
                             onPick={(n) => setPref('videosPerRow', n)}
                         />
                     </div>
+
+                    {/* Reference previews. Both off by default: a reference card
+                        is deliberately compact (ADR-0015), and these trade that
+                        for showing what is on the other end. */}
+                    <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
+                        <div>
+                            <span class="text-main text-sm font-bold block">Canvas Reference Previews</span>
+                            <span class="text-sub text-xs">
+                                Draw a small map of the board inside a canvas reference, instead of only its name and
+                                node count.
+                            </span>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={prefs().canvasEmbedPreview}
+                            onChange={(e) => setPref('canvasEmbedPreview', e.currentTarget.checked)}
+                            class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                        />
+                    </label>
 
                     {/* Time format: pins the clock used for every rendered time. */}
                     <div class="bg-element border-element-accent rounded-lg border p-4">

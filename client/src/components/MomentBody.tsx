@@ -13,6 +13,7 @@ import {
 import { api, type TodoList, type TodoItem, type Canvas, type Moment } from '../api'
 import { MarkdownText } from './MarkdownText'
 import { LinkPreviewRow } from './LinkPreview'
+import { CanvasThumbnail } from './CanvasThumbnail'
 import { findBareUrls } from '../linkPreviews'
 import { prefs } from '../prefs'
 import { notifyTodoChanged, todoVersion } from '../todoBus'
@@ -395,6 +396,11 @@ const CanvasEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (p
                     <p class="text-sub text-xs">
                         {c().nodes.length} node{c().nodes.length === 1 ? '' : 's'}
                     </p>
+                    <Show when={prefs().canvasEmbedPreview}>
+                        <div class="mt-2">
+                            <CanvasThumbnail canvas={c()} />
+                        </div>
+                    </Show>
                 </CardShell>
             )}
         </Show>
