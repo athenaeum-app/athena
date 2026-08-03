@@ -39,6 +39,7 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Moment references can render in full instead of a line of plain text, up to a height you set.',
         'Chat history now loads on iPhones running iOS 16.3 or older.',
     ],
+    '2.14.1': ['Smaller markdown headings are no longer near-black; every level now takes the theme colour.'],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
