@@ -33,6 +33,12 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Uploaded videos can now sit several to a row instead of one full-width player each. Set it in Settings.',
         "An attachment's file name no longer collapses to a column of single letters in a narrow panel.",
     ],
+    '2.14.0': [
+        'A canvas reference now opens that board, framed on its contents.',
+        'Canvas references can show a small map of the board. Turn it on in Settings.',
+        'Moment references can render in full instead of a line of plain text, up to a height you set.',
+        'Chat history now loads on iPhones running iOS 16.3 or older.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
