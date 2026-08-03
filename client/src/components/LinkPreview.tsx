@@ -198,17 +198,18 @@ export const LinkPreviewList: Component<{ content: string }> = (props) => {
 // extractUrls returns the unique http(s) URLs appearing in the given markdown
 // content. It avoids matching URLs that are already wrapped in markdown image
 // syntax `![...](url)` or asset URLs (which are local `/api/v1/assets/...`).
-function extractUrls(content: string): string[] {
+export function extractUrls(content: string): string[] {
     const seen = new Set<string>()
     const out: string[] = []
     // Match http(s) URLs that are not preceded by `![` or `](` (image/link
-    // destinations are skipped because they're already rendered inline).
-    // The negative lookbehind avoids double-counting URLs that appear both
-    // as link text and as a bare URL.
-
-    const re = /(?<![\]!)])https?:\/\/[^\s<>"')]+/gi
+    // destinations are skipped because they're already rendered inline),
+    // checked by hand rather than with a lookbehind: WebKit only supports
+    // lookbehind from 16.4, and one here blanked the chat list on older iOS.
+    const re = /https?:\/\/[^\s<>"')]+/gi
     let match: RegExpExecArray | null
     while ((match = re.exec(content)) !== null) {
+        const before = content[match.index - 1]
+        if (before === ']' || before === '!' || before === ')') continue
         let url = match[0]
         // Strip trailing punctuation that's unlikely to be part of the URL.
         url = url.replace(/[.,;:!?)]+$/, '')

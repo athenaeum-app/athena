@@ -31,6 +31,17 @@ jobs:
             exit 1
           fi
 
+      # Regex lookbehind needs WebKit 16.4, and esbuild lowers an unsupported
+      # literal to a runtime new RegExp, so one anywhere in the client throws
+      # where it first runs instead of failing the build (#47).
+      - name: No regex lookbehind in the client
+        run: |
+          if hits=$(git grep -In '(?<[=!]' -- client/src ':!*.test.*'); then
+            echo "Regex lookbehind found. Check the preceding character in code instead:"
+            echo "$hits"
+            exit 1
+          fi
+
   client:
     name: Client (typecheck, test, build)
     runs-on: ubuntu-latest
