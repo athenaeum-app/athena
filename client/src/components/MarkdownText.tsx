@@ -210,7 +210,7 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
     return (
         <div
             ref={containerRef}
-            class={`prose max-w-none break-words prose-p:my-3 prose-headings:my-2 prose-pre:my-2 [&>*:first-child]:!mt-0 [&>*:last-child]:!mb-0 prose-pre:bg-element-matte prose-pre:p-3 prose-pre:border prose-pre:border-element-accent prose-pre:rounded-lg prose-img:rounded-lg prose-img:border prose-img:border-element-accent prose-a:text-highlight-strongest prose-a:underline prose-strong:text-md-strong prose-h1:text-md-heading prose-h2:text-md-heading prose-h3:text-md-heading prose-code:text-sub prose-code:bg-element-accent prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none ${props.class || ''}`}
+            class={`prose max-w-none break-words prose-p:my-3 prose-headings:my-2 prose-pre:my-2 [&>*:first-child]:!mt-0 [&>*:last-child]:!mb-0 prose-pre:bg-element-matte prose-pre:p-3 prose-pre:border prose-pre:border-element-accent prose-pre:rounded-lg prose-img:rounded-lg prose-img:border prose-img:border-element-accent prose-a:text-highlight-strongest prose-a:underline prose-strong:text-md-strong prose-code:text-sub prose-code:bg-element-accent prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none ${props.class || ''}`}
         />
     )
 }
