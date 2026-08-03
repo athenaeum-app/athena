@@ -55,4 +55,4 @@ services:
     volumes:
       # Not `:ro`. Replacing a container is a write, so read-only leaves it able to see a pending update and unable to apply it.
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --label-enable --cleanup --interval 3600
+    command: --label-enable --cleanup --interval 60
