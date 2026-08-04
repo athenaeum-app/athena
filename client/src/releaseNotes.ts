@@ -45,6 +45,7 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'The composer grows as you write, up to a limit, rather than staying at a fixed height.',
     ],
     '2.15.1': ['A moment with many tags no longer squeezes the writing area; the tag strip scrolls instead.'],
+    '2.15.2': ['Fixed the moment text drawing over the tag field when editing with the tag list open.'],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
