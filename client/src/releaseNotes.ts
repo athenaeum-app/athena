@@ -46,6 +46,7 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     ],
     '2.15.1': ['A moment with many tags no longer squeezes the writing area; the tag strip scrolls instead.'],
     '2.15.2': ['Fixed the moment text drawing over the tag field when editing with the tag list open.'],
+    '2.15.3': ["A to-do list's buttons no longer spill over the list beside it."],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
