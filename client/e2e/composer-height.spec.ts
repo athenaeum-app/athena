@@ -1,0 +1,119 @@
+import { test, expect, type Page } from '@playwright/test'
+
+// The composer's writing area takes the room its chrome has to give.
+//
+// The edit modal is a fixed 90vh box, so its textarea fills what the title,
+// toolbar and tags leave behind instead of sitting at a fixed twelve rows with
+// dead space under it. The inline card has no height of its own to divide, so
+// it tracks its text instead, and both are capped: the modal by the window, the
+// card by GROW_CAP, so a long draft can never push the feed off the screen.
+
+async function signIn(page: Page): Promise<void> {
+    const setup = (await (await page.request.get('/api/v1/setup')).json()) as { needs_setup: boolean }
+    const [path, data] = setup.needs_setup
+        ? ['/api/v1/auth/register', { username: 'owner', password: 'password123', invite_id: '', stay_logged_in: true }]
+        : ['/api/v1/auth/login', { username: 'owner', password: 'password123', stay_logged_in: true }]
+    const res = await page.request.post(path, { data })
+    if (!res.ok()) throw new Error(`POST ${path} -> ${res.status()} ${await res.text()}`)
+}
+
+const body = (page: Page) => page.getByPlaceholder('Write your thoughts', { exact: false })
+const height = async (page: Page) => (await body(page).boundingBox())!.height
+
+const LINES = Array.from({ length: 60 }, (_, i) => `Line ${i + 1} of a long draft.`).join('\n')
+
+const TITLE = 'A moment to edit'
+
+// A moment to open the edit modal on: the desktop modal is reached by editing,
+// since composing there happens in the inline card.
+async function seed(page: Page) {
+    const req = page.request
+    const existing = (await (await req.get('/api/v1/moments')).json()) as { title: string }[] | null
+    if (existing?.some((m) => m.title === TITLE)) return
+
+    const archives = (await (await req.get('/api/v1/archives')).json()) as { id: string; name: string }[]
+    const archive =
+        archives?.find((a) => a.name === 'Composing') ??
+        ((await (await req.post('/api/v1/archives', { data: { name: 'Composing' } })).json()) as { id: string })
+    const res = await req.post('/api/v1/moments', {
+        data: { archive_id: archive.id, title: TITLE, content: 'A short body.', tag_ids: [] },
+    })
+    if (!res.ok()) throw new Error(`seed -> ${res.status()} ${await res.text()}`)
+}
+
+test.describe('composer height, desktop', () => {
+    test.use({ viewport: { width: 1440, height: 900 } })
+
+    test('the inline card grows with its text, up to the cap', async ({ page }) => {
+        await signIn(page)
+        await page.goto('/')
+
+        const empty = await height(page)
+        // The floor: a comfortable box before anything is typed.
+        expect(empty).toBeGreaterThanOrEqual(170)
+
+        await body(page).fill(Array.from({ length: 12 }, (_, i) => `Line ${i + 1}`).join('\n'))
+        const grown = await height(page)
+        expect(grown).toBeGreaterThan(empty)
+
+        // The cap: 60vh of a 900px window, and it holds under a much longer
+        // draft rather than running the card off the page.
+        await body(page).fill(LINES)
+        const capped = await height(page)
+        expect(capped).toBeGreaterThan(grown)
+        expect(capped).toBeLessThanOrEqual(900 * 0.6 + 1)
+
+        // Deleting the text gives the room back.
+        await body(page).fill('one line')
+        expect(await height(page)).toBeLessThanOrEqual(empty + 1)
+    })
+
+    test('the edit modal fills the space its chrome leaves over', async ({ page }) => {
+        await signIn(page)
+        await seed(page)
+        await page.goto('/')
+
+        const inline = await height(page)
+
+        const card = page.locator('[data-moment-id]').filter({ hasText: TITLE }).first()
+        await card.hover()
+        await card.locator('i.fa-pencil').click()
+        // Scoped: the inline composer behind the modal has the same placeholder.
+        const modal = page.locator('.fixed').filter({ hasText: 'Edit Moment' }).first()
+        await expect(modal.getByRole('heading', { name: 'Edit Moment' })).toBeVisible()
+        const area = modal.getByPlaceholder('Write your thoughts', { exact: false })
+
+        const box = (await area.boundingBox())!
+        // Taller than the inline card, and past the twelve fixed rows it used
+        // to sit at, which is the complaint: the room was always there.
+        expect(box.height).toBeGreaterThan(inline)
+        expect(box.height).toBeGreaterThan(300)
+
+        // Filling rather than merely tall: what is left under the writing area
+        // is the tag field and the footer, not dead space.
+        const shell = (await modal.locator('div').first().boundingBox())!
+        const below = shell.y + shell.height - (box.y + box.height)
+        expect(below).toBeLessThan(shell.height * 0.35)
+        // And it still fits inside the window.
+        expect(box.y + box.height).toBeLessThanOrEqual(900)
+    })
+})
+
+test.describe('composer height, mobile', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+    test('the modal writing area stays inside a phone window', async ({ page }) => {
+        await signIn(page)
+        await page.goto('/')
+
+        await page.getByRole('button', { name: 'New Moment' }).first().click()
+        await expect(body(page)).toBeVisible()
+        await body(page).fill(LINES)
+
+        // No inline card at this width, so the only writing area is the modal's.
+        const box = (await body(page).boundingBox())!
+        expect(box.y).toBeGreaterThanOrEqual(0)
+        expect(box.y + box.height).toBeLessThanOrEqual(844)
+        expect(box.height).toBeGreaterThan(120)
+    })
+})

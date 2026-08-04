@@ -117,6 +117,12 @@ type SlashKind = 'moment' | 'todo' | 'canvas'
 // rendering bound, not an editorial one; the popover scrolls past it.
 const TAG_SUGGESTION_LIMIT = 40
 
+// The ceiling on the inline composer, which grows with what is typed into it.
+// The card sits at the top of the feed and pushes the moments down, so an
+// uncapped box would leave a long draft filling the column with nothing else
+// visible. Past this the textarea scrolls internally, as it always did.
+const GROW_CAP = 'max-h-[60vh]'
+
 const SLASH_ITEMS: { kind: SlashKind; icon: string; label: string; hint: string }[] = [
     { kind: 'moment', icon: 'description', label: 'Moment', hint: 'link a moment' },
     { kind: 'todo', icon: 'checklist', label: 'To-do list', hint: 'embed a list' },
@@ -126,6 +132,9 @@ const SLASH_ITEMS: { kind: SlashKind; icon: string; label: string; hint: string 
 export const Editor: Component<EditorProps> = (props) => {
     const showFields = () => props.chrome !== 'chat'
     const isModal = () => props.chrome === 'modal'
+    // The inline card has no height of its own to divide up, so it tracks its
+    // text instead of filling a gap the way the modal does.
+    const growsWithText = () => props.chrome === 'inline'
     // Drives the chat composer's Enter behaviour, which differs on touch (see
     // the keydown handler): same breakpoint the app shell switches on.
     const isDesktop = useIsDesktop()
@@ -189,6 +198,19 @@ export const Editor: Component<EditorProps> = (props) => {
 
     let contentRef: HTMLTextAreaElement | undefined
     let fileInputRef: HTMLInputElement | undefined
+
+    // Height follows the text. Cleared to auto first because scrollHeight
+    // reports the content's height only when the box is not already holding it
+    // open, which is what makes deleting lines shrink the box again. An inline
+    // height overrides the rows attribute, so the floor is the min-h class
+    // beside GROW_CAP rather than rows.
+    createEffect(() => {
+        const el = contentRef
+        content()
+        if (!el || !growsWithText()) return
+        el.style.height = 'auto'
+        el.style.height = `${el.scrollHeight}px`
+    })
 
     // ---- draft persistence ----
     // Only for composing something new: restoring a stale draft over a moment
@@ -817,9 +839,14 @@ export const Editor: Component<EditorProps> = (props) => {
     )
 
     // Textarea plus its overlays (dropzone, `[[` menu, slash menu).
-    const ContentArea = (p: { rows: number; placeholder: string; autofocus?: boolean }) => (
+    //
+    // `fill` makes the box take whatever vertical room the chrome has left over
+    // rather than sitting at a fixed row count. It needs an ancestor that is a
+    // flex column with a bounded height, which is why only the modal asks for
+    // it: the inline card has no bound to fill and grows with its text instead.
+    const ContentArea = (p: { rows: number; placeholder: string; autofocus?: boolean; fill?: boolean }) => (
         <div
-            class={`relative rounded-md border transition-colors ${dragging() ? 'border-dashed border-highlight bg-highlight/10' : 'border-element-accent'}`}
+            class={`relative rounded-md border transition-colors ${dragging() ? 'border-dashed border-highlight bg-highlight/10' : 'border-element-accent'} ${p.fill ? 'flex min-h-0 flex-1 flex-col' : ''}`}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -836,7 +863,7 @@ export const Editor: Component<EditorProps> = (props) => {
                 onPaste={handlePaste}
                 rows={p.rows}
                 placeholder={p.placeholder}
-                class="bg-transparent text-main w-full resize-none rounded-md px-3 py-2 text-sm focus:outline-none"
+                class={`bg-transparent text-main w-full resize-none rounded-md px-3 py-2 text-sm focus:outline-none ${p.fill ? 'min-h-40 flex-1' : ''} ${growsWithText() ? `min-h-44 ${GROW_CAP}` : ''}`}
             />
 
             {/* `[[` moment autocomplete */}
@@ -1092,7 +1119,11 @@ export const Editor: Component<EditorProps> = (props) => {
                 </div>
             </Show>
             {Toolbar()}
-            {ContentArea({ rows: props.chrome === 'modal' ? 12 : 8, placeholder: 'Write your thoughts… drag or paste files to attach, [[ to link a moment, / to embed' })}
+            {ContentArea({
+                rows: isModal() ? 12 : 8,
+                fill: isModal(),
+                placeholder: 'Write your thoughts… drag or paste files to attach, [[ to link a moment, / to embed',
+            })}
             {TagField()}
             <Show when={error()}>
                 <p class="text-danger text-sm">{error()}</p>
@@ -1110,7 +1141,13 @@ export const Editor: Component<EditorProps> = (props) => {
                             <span class="material-symbols-outlined">close</span>
                         </button>
                     </div>
-                    <div class="flex-1 overflow-y-auto p-6 space-y-5">{Fields()}</div>
+                    {/* A flex column so the content box can claim what the
+                        title, toolbar and tags leave behind. The children are
+                        shrink-0 because the content box sizes from a zero
+                        basis: it has no height to give back when the column
+                        overflows, so without this the title and tags are what
+                        get squashed instead of this scrolling. */}
+                    <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6 [&>*]:shrink-0">{Fields()}</div>
                     <div class="bg-element border-element-accent flex items-center justify-end gap-4 rounded-b-lg border-t p-4">
                         <button onClick={() => props.onCancel?.()} class="text-sub hover:text-main px-2 py-2 text-sm font-bold transition-colors">
                             Cancel
