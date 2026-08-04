@@ -152,6 +152,72 @@ test.describe('composer height, desktop, heavily tagged', () => {
     })
 })
 
+test.describe('composer height, crowded column', () => {
+    // A laptop, where the modal has least room to give.
+    test.use({ viewport: { width: 1280, height: 800 } })
+
+    // The 2.15.0/2.15.1 regression proper. The writing area is a flex-1 item,
+    // so it sizes from a zero basis and collapses when the column overflows,
+    // which a full tag suggestion list (~190px, in the layout flow) is enough
+    // to cause. Its min-height lived on the textarea rather than on the box, so
+    // the box shrank and the textarea painted its text over the tags beneath.
+    test('the writing area never paints outside its own box', async ({ page }) => {
+        await signIn(page)
+
+        const req = page.request
+        const archives = (await (await req.get('/api/v1/archives')).json()) as { id: string; name: string }[]
+        const archive =
+            archives?.find((a) => a.name === 'Composing') ??
+            ((await (await req.post('/api/v1/archives', { data: { name: 'Composing' } })).json()) as { id: string })
+        const tags = (await (await req.get('/api/v1/tags')).json()) as { id: string; name: string }[] | null
+        const ids: string[] = []
+        for (let i = 0; i < 40; i++) {
+            const name = `vocab-${String(i).padStart(2, '0')}`
+            const found = tags?.find((t) => t.name === name)
+            ids.push(
+                found?.id ??
+                    ((await (await req.post('/api/v1/tags', { data: { name, color: '#8899aa' } })).json()) as { id: string }).id,
+            )
+        }
+        const moments = (await (await req.get('/api/v1/moments')).json()) as { id: string; title: string }[] | null
+        let m = moments?.find((x) => x.title === 'A crowded column')
+        if (!m) {
+            m = (await (
+                await req.post('/api/v1/moments', {
+                    data: {
+                        archive_id: archive.id,
+                        title: 'A crowded column',
+                        content: Array.from({ length: 60 }, (_, i) => `Line ${i + 1} of a long body`).join('\n'),
+                        tag_ids: ids.slice(0, 4),
+                    },
+                })
+            ).json()) as { id: string }
+        }
+
+        await page.goto('/')
+        const card = page.locator(`[data-moment-id="${m.id}"]`).first()
+        await card.hover()
+        await card.locator('i.fa-pencil').click()
+        const modal = page.locator('.fixed').filter({ hasText: 'Edit Moment' }).first()
+        await expect(modal.getByRole('heading', { name: 'Edit Moment' })).toBeVisible()
+
+        // Focusing the tag input is what puts the suggestion list in the column.
+        const tagInput = modal.getByPlaceholder('Add tags', { exact: false })
+        await tagInput.click()
+        await expect(modal.getByTestId('tag-suggestions')).toBeVisible()
+
+        const area = modal.getByPlaceholder('Write your thoughts', { exact: false })
+        // Inside the box that draws its border, to the pixel.
+        const spill = await area.evaluate((el) => el.getBoundingClientRect().bottom - el.parentElement!.getBoundingClientRect().bottom)
+        expect(spill).toBeLessThanOrEqual(1)
+
+        // And clear of what sits under it.
+        const areaBox = (await area.boundingBox())!
+        expect(areaBox.y + areaBox.height).toBeLessThanOrEqual((await tagInput.boundingBox())!.y + 1)
+        expect(areaBox.y + areaBox.height).toBeLessThanOrEqual((await modal.getByTestId('selected-tags').boundingBox())!.y + 1)
+    })
+})
+
 test.describe('composer height, mobile', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
 

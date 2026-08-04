@@ -846,7 +846,13 @@ export const Editor: Component<EditorProps> = (props) => {
     // it: the inline card has no bound to fill and grows with its text instead.
     const ContentArea = (p: { rows: number; placeholder: string; autofocus?: boolean; fill?: boolean }) => (
         <div
-            class={`relative rounded-md border transition-colors ${dragging() ? 'border-dashed border-highlight bg-highlight/10' : 'border-element-accent'} ${p.fill ? 'flex min-h-0 flex-1 flex-col' : ''}`}
+            // The floor lives here, on the flex item, not on the textarea. A
+            // flex-1 item sizes from a zero basis, so when the column overflows
+            // (a full tag suggestion list is ~190px of it) this box collapses.
+            // A min-height on the textarea alone did not stop that: the box
+            // shrank anyway and the textarea painted its text straight over the
+            // tags below. overflow-hidden keeps the border honest regardless.
+            class={`relative rounded-md border transition-colors ${dragging() ? 'border-dashed border-highlight bg-highlight/10' : 'border-element-accent'} ${p.fill ? 'flex min-h-64 flex-1 flex-col overflow-hidden' : ''}`}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -863,7 +869,7 @@ export const Editor: Component<EditorProps> = (props) => {
                 onPaste={handlePaste}
                 rows={p.rows}
                 placeholder={p.placeholder}
-                class={`bg-transparent text-main w-full resize-none rounded-md px-3 py-2 text-sm focus:outline-none ${p.fill ? 'min-h-64 flex-1' : ''} ${growsWithText() ? `min-h-44 ${GROW_CAP}` : ''}`}
+                class={`bg-transparent text-main w-full resize-none rounded-md px-3 py-2 text-sm focus:outline-none ${p.fill ? 'min-h-0 flex-1' : ''} ${growsWithText() ? `min-h-44 ${GROW_CAP}` : ''}`}
             />
 
             {/* `[[` moment autocomplete */}
