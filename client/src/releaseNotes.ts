@@ -40,6 +40,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Chat history now loads on iPhones running iOS 16.3 or older.',
     ],
     '2.14.1': ['Smaller markdown headings are no longer near-black; every level now takes the theme colour.'],
+    '2.15.0': [
+        'Editing a moment now uses the whole window instead of a small box with empty space under it.',
+        'The composer grows as you write, up to a limit, rather than staying at a fixed height.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
