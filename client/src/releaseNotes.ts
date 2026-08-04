@@ -44,6 +44,7 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Editing a moment now uses the whole window instead of a small box with empty space under it.',
         'The composer grows as you write, up to a limit, rather than staying at a fixed height.',
     ],
+    '2.15.1': ['A moment with many tags no longer squeezes the writing area; the tag strip scrolls instead.'],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
