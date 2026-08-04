@@ -99,6 +99,59 @@ test.describe('composer height, desktop', () => {
     })
 })
 
+test.describe('composer height, desktop, heavily tagged', () => {
+    test.use({ viewport: { width: 1440, height: 900 } })
+
+    // The 2.15.0 regression: the writing area sizes from a zero flex basis, so
+    // thirty unshrinkable tag chip rows squeezed it down to its floor with the
+    // chips pressed against the clipped text. The floor is now the twelve rows
+    // the modal always had, and the chip strip scrolls past three rows.
+    test('tag chips cannot squash the writing area below its old height', async ({ page }) => {
+        await signIn(page)
+
+        const req = page.request
+        const archives = (await (await req.get('/api/v1/archives')).json()) as { id: string; name: string }[]
+        const archive =
+            archives?.find((a) => a.name === 'Composing') ??
+            ((await (await req.post('/api/v1/archives', { data: { name: 'Composing' } })).json()) as { id: string })
+        const tags = (await (await req.get('/api/v1/tags')).json()) as { id: string; name: string }[] | null
+        const ids: string[] = []
+        for (let i = 0; i < 30; i++) {
+            const name = `crowd-${String(i).padStart(2, '0')}`
+            const found = tags?.find((t) => t.name === name)
+            ids.push(
+                found?.id ??
+                    ((await (await req.post('/api/v1/tags', { data: { name, color: '#8899aa' } })).json()) as { id: string }).id,
+            )
+        }
+        const moments = (await (await req.get('/api/v1/moments')).json()) as { id: string; title: string }[] | null
+        let m = moments?.find((x) => x.title === 'A crowded moment')
+        if (!m) {
+            m = (await (
+                await req.post('/api/v1/moments', {
+                    data: { archive_id: archive.id, title: 'A crowded moment', content: 'A body.', tag_ids: ids },
+                })
+            ).json()) as { id: string }
+        }
+
+        await page.goto('/')
+        const card = page.locator(`[data-moment-id="${m.id}"]`).first()
+        await card.hover()
+        await card.locator('i.fa-pencil').click()
+        const modal = page.locator('.fixed').filter({ hasText: 'Edit Moment' }).first()
+        await expect(modal.getByRole('heading', { name: 'Edit Moment' })).toBeVisible()
+
+        const area = modal.getByPlaceholder('Write your thoughts', { exact: false })
+        // The old fixed twelve rows, as a floor: tags may not take it lower.
+        expect((await area.boundingBox())!.height).toBeGreaterThanOrEqual(255)
+
+        // The chip strip is the part that gives: capped and scrolling.
+        const strip = modal.getByTestId('selected-tags')
+        await expect(strip).toBeVisible()
+        expect((await strip.boundingBox())!.height).toBeLessThanOrEqual(28 * 4 + 1)
+    })
+})
+
 test.describe('composer height, mobile', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
 

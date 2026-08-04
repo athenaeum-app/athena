@@ -863,7 +863,7 @@ export const Editor: Component<EditorProps> = (props) => {
                 onPaste={handlePaste}
                 rows={p.rows}
                 placeholder={p.placeholder}
-                class={`bg-transparent text-main w-full resize-none rounded-md px-3 py-2 text-sm focus:outline-none ${p.fill ? 'min-h-40 flex-1' : ''} ${growsWithText() ? `min-h-44 ${GROW_CAP}` : ''}`}
+                class={`bg-transparent text-main w-full resize-none rounded-md px-3 py-2 text-sm focus:outline-none ${p.fill ? 'min-h-64 flex-1' : ''} ${growsWithText() ? `min-h-44 ${GROW_CAP}` : ''}`}
             />
 
             {/* `[[` moment autocomplete */}
@@ -968,7 +968,11 @@ export const Editor: Component<EditorProps> = (props) => {
     const TagField = () => (
         <div class="relative flex flex-col gap-2">
             <Show when={selectedTags().length > 0}>
-                <div class="flex flex-wrap gap-2">
+                {/* Capped with its own scroll: chips share the modal with the
+                    writing area, and thirty of them were squeezing it down to
+                    its floor. Three rows is plenty to see; past that the strip
+                    scrolls in place. */}
+                <div data-testid="selected-tags" class="flex max-h-28 flex-wrap gap-2 overflow-y-auto">
                     <For each={selectedTags()}>
                         {(tag) => (
                             <span
