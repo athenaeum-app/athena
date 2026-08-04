@@ -1451,7 +1451,7 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
                                 value={importText()}
                                 onInput={(e) => setImportText(e.currentTarget.value)}
                                 placeholder="athena-theme:..."
-                                class="bg-element text-main border-element-accent flex-1 rounded-lg border px-3 py-2 text-xs font-mono focus:outline-none focus:border-highlight"
+                                class="bg-element text-main border-element-accent min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs font-mono focus:outline-none focus:border-highlight"
                             />
                             <button onClick={doImport} class="bg-highlight-strongest text-white rounded-md px-4 py-2 text-xs font-bold transition-[filter] hover:brightness-110">
                                 Import

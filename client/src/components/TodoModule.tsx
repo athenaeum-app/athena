@@ -1009,7 +1009,13 @@ const ListColumn: Component<ListColumnProps> = (props) => {
                             type="text"
                             value={props.list.title}
                             onChange={(e) => props.onRename(e.currentTarget.value)}
-                            class="bg-element-matte text-main font-serif border-element-accent focus:border-highlight flex-1 rounded-md border px-2 py-1 text-sm font-semibold focus:outline-none"
+                            // min-w-0, or the row cannot shrink it: an input's
+                            // automatic minimum is its size attribute, about 20
+                            // characters, which is wider than the space left in
+                            // a w-72 column once the grip and buttons are in.
+                            // The row then overflows and the trailing buttons
+                            // are drawn over the next column.
+                            class="bg-element-matte text-main font-serif border-element-accent focus:border-highlight min-w-0 flex-1 rounded-md border px-2 py-1 text-sm font-semibold focus:outline-none"
                         />
                         <Show when={isDaily() && props.onReset}>
                             <button
@@ -1413,7 +1419,7 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                                 type="date"
                                 value={isoToDateInput(props.item.due_at)}
                                 onChange={(e) => props.onSetDue(e.currentTarget.value)}
-                                class="bg-element text-main border-element-accent focus:border-highlight flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
+                                class="bg-element text-main border-element-accent focus:border-highlight min-w-0 flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
                             />
                             <Show when={props.item.due_at}>
                                 <button onClick={() => props.onSetDue('')} title="Clear due date" class="text-sub hover:text-danger shrink-0">
@@ -1426,7 +1432,7 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                             <select
                                 value={props.item.recurrence}
                                 onChange={(e) => props.onSetRecurrence(e.currentTarget.value)}
-                                class="bg-element text-main border-element-accent flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
+                                class="bg-element text-main border-element-accent min-w-0 flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
                             >
                                 <For each={RECURRENCES}>{(r) => <option value={r}>{r === '' ? 'Never' : r}</option>}</For>
                             </select>
@@ -1440,7 +1446,7 @@ const ItemCard: Component<ItemCardProps> = (props) => {
                                     value={props.item.reset_mode}
                                     onChange={(e) => props.onSetResetMode(e.currentTarget.value as TodoResetMode)}
                                     title={RESET_MODES.find((m) => m.value === props.item.reset_mode)?.hint}
-                                    class="bg-element text-main border-element-accent flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
+                                    class="bg-element text-main border-element-accent min-w-0 flex-1 rounded border px-2 py-1 text-xs focus:outline-none"
                                 >
                                     <For each={RESET_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
                                 </select>
