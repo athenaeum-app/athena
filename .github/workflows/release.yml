@@ -5,6 +5,14 @@ on:
   push:
     tags: ['v*']
 
+# One run per tag. v2.18.5 was delivered twice for a single tag push and the
+# two runs raced: each made its own draft (see the create step below), so the
+# release that went live held only the mac and windows builds while the Linux
+# ones sat in an orphan draft nobody could see.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   docker:
     name: Build & push server image
@@ -100,17 +108,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          if output=$(gh release create "${{ github.ref_name }}" \
+          # Ask before creating, rather than reading the error text.
+          # `gh release create --draft` does not refuse a tag that already
+          # has a draft: GitHub allows any number of drafts under one tag
+          # name, so the old "already exists" branch only ever caught a
+          # *published* release and a second run made a second draft.
+          if [ "$(gh api "repos/athenaeum-app/athena/releases?per_page=100" \
+            --jq '[.[] | select(.tag_name == "${{ github.ref_name }}")] | length')" -gt 0 ]; then
+            echo "Release already exists, continuing"
+            exit 0
+          fi
+          gh release create "${{ github.ref_name }}" \
             --repo athenaeum-app/athena \
             --target master \
-            --draft --title "${{ github.ref_name }}" --generate-notes 2>&1); then
-            echo "$output"
-          elif echo "$output" | grep -qi "already exists"; then
-            echo "Release already exists, continuing"
-          else
-            echo "$output" >&2
-            exit 1
-          fi
+            --draft --title "${{ github.ref_name }}" --generate-notes
 
   electron:
     name: Desktop app (${{ matrix.os }})
