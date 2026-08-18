@@ -527,7 +527,7 @@ input[type='checkbox']:not(.native-checkbox):focus-visible {
     outline-offset: 1px;
 }
 
-::-webkit-scrollbar { width: 0.5rem; }
+::-webkit-scrollbar { width: 0.5rem; height: 0.5rem; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
     background-color: var(--color-sub);
