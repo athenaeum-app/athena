@@ -225,6 +225,48 @@ export const api = {
     ) => request<TodoItem>(`/api/v1/todo-items/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     deleteTodoItem: (id: string) => request(`/api/v1/todo-items/${id}`, { method: 'DELETE' }),
 
+    // Projects, server-synced and library-shared
+    listProjects: () => request<Project[]>('/api/v1/projects'),
+    getProject: (id: string) => request<Project>(`/api/v1/projects/${id}`),
+    createProject: (title: string) => request<Project>('/api/v1/projects', { method: 'POST', body: JSON.stringify({ title }) }),
+    updateProject: (id: string, body: { title?: string; overview?: string; accent?: string; icon?: string; position?: number; archived?: boolean }) =>
+        request<Project>(`/api/v1/projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteProject: (id: string) => request(`/api/v1/projects/${id}`, { method: 'DELETE' }),
+    createProjectMilestone: (projectId: string, title: string, dueAt?: string) =>
+        request<ProjectMilestone>(`/api/v1/projects/${projectId}/milestones`, {
+            method: 'POST',
+            body: JSON.stringify(dueAt ? { title, due_at: dueAt } : { title }),
+        }),
+    updateProjectMilestone: (id: string, body: { title?: string; track?: number; position?: number; due_at?: string }) =>
+        request<ProjectMilestone>(`/api/v1/project-milestones/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    // Its cards move to the nearest surviving milestone; deleting structure
+    // keeps the work (the last milestone takes its cards with it).
+    deleteProjectMilestone: (id: string) => request(`/api/v1/project-milestones/${id}`, { method: 'DELETE' }),
+    // One card per title, so a pasted list is one request.
+    createProjectCards: (projectId: string, milestoneId: string, titles: string[]) =>
+        request<ProjectCard[]>(`/api/v1/projects/${projectId}/cards`, {
+            method: 'POST',
+            body: JSON.stringify({ milestone_id: milestoneId, titles }),
+        }),
+    updateProjectCard: (
+        id: string,
+        body: {
+            title?: string
+            body?: string
+            labels?: string
+            priority?: number
+            milestone_id?: string
+            position?: number
+            done?: boolean
+            dismissed?: boolean
+            // RFC3339 to set, '' to clear, omit to leave unchanged.
+            due_at?: string
+            // id to assign, '' to unassign, omit to leave unchanged.
+            assignee_id?: string
+        },
+    ) => request<ProjectCard>(`/api/v1/project-cards/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteProjectCard: (id: string) => request(`/api/v1/project-cards/${id}`, { method: 'DELETE' }),
+
     // Canvas, server-synced and library-shared
     listCanvases: () => request<Canvas[]>('/api/v1/canvases'),
     getCanvas: (id: string) => request<Canvas>(`/api/v1/canvases/${id}`),
@@ -404,6 +446,59 @@ export interface TodoList {
     created_at: string
     updated_at: string
     items: TodoItem[]
+}
+
+export interface Project {
+    id: string
+    title: string
+    // Markdown rendered with the moment pipeline, so it can embed todo lists,
+    // canvases and moment references.
+    overview: string
+    // Per-project identity: a hex color and a material symbol name.
+    accent: string
+    icon: string
+    author_id?: string
+    position: number
+    archived: boolean
+    created_at: string
+    updated_at: string
+    milestones: ProjectMilestone[]
+    cards: ProjectCard[]
+}
+
+// One board column and one roadmap node. Milestones sharing a track stack
+// vertically and split that column; position orders the roadmap globally.
+export interface ProjectMilestone {
+    id: string
+    project_id: string
+    title: string
+    due_at?: string
+    track: number
+    position: number
+    created_at: string
+    updated_at: string
+}
+
+export interface ProjectCard {
+    id: string
+    project_id: string
+    milestone_id: string
+    title: string
+    // Markdown document with embeds, same pipeline as the project overview.
+    body: string
+    // Comma-joined free-form label names, colored client-side.
+    labels: string
+    // 0 none · 1 low · 2 med · 3 high, the Tasks module's vocabulary.
+    priority: number
+    due_at?: string
+    assignee_id?: string
+    done: boolean
+    completed_at?: string
+    dismissed: boolean
+    position: number
+    author_id?: string
+    created_at: string
+    updated_at: string
 }
 
 export type CanvasNodeKind = 'moment-ref' | 'text' | 'image' | 'sticky' | 'shape' | 'link' | 'todo-ref'

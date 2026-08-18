@@ -44,6 +44,7 @@ export const PERMISSIONS: PermissionDef[] = [
     { bit: 21, name: 'MANAGE_TODOS', label: 'Manage Todos', group: 'Modules' },
     { bit: 22, name: 'MANAGE_CANVAS', label: 'Manage Canvases', group: 'Modules' },
     { bit: 23, name: 'MANAGE_BACKUPS', label: 'Manage Backups', group: 'Administration' },
+    { bit: 24, name: 'MANAGE_PROJECTS', label: 'Manage Projects', group: 'Modules' },
 ]
 
 // Named bit constants for gating UI (mirror the server flags).

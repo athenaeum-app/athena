@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createEffect, For, Show, onMount, onCleanup, type Component, type JSX } from 'solid-js'
+import { createSignal, createMemo, createEffect, on, For, Show, onMount, onCleanup, type Component, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { api, type Archive, type Tag, type Moment, type TagGraph } from '../api'
 import { contrastingTextColor, randomTagColor } from '../tagColors'
@@ -14,21 +14,30 @@ import { useIsDesktop } from '../media'
 // Features shared across all three chromes:
 //   - selection-aware markdown toolbar (bold / italic / strike / link)
 //   - `[[` moment-reference autocomplete (lightweight, from momentIndex)
-//   - `/` slash menu -> Moment / Todo / Canvas -> searchable picker -> inserts
-//     [[id]] / ::todo:id:: / ::canvas:id:: (the same tokens MomentBody renders)
+//   - `/` slash menu -> Moment / Todo / Canvas / Project -> searchable picker ->
+//     inserts [[id]] / ::todo:id:: / ::canvas:id:: / ::project:id:: (the same
+//     tokens MomentBody renders)
 //   - paste / drag-and-drop asset uploads
 //   - configurable save keybind (Ctrl+S) plus Ctrl+Enter, handled locally so it
 //     works while the textarea is focused
 //
 // The `chrome` prop selects the surrounding shell: an inline card (create), a
-// modal (edit) or a compact chat composer.
+// modal (edit), a compact chat composer, or a bare body editor (toolbar +
+// content only, no title/tags/archive) for hosts that store the text
+// themselves, like a project document or card body.
 
-export type EditorChrome = 'inline' | 'modal' | 'chat'
+export type EditorChrome = 'inline' | 'modal' | 'chat' | 'body'
 
 export interface EditorProps {
     chrome: EditorChrome
     // Edit mode pre-fills from this moment; create/chat leave it undefined.
     moment?: Moment | null
+    // Body chrome pre-fill: the text is the host's, this is just its start.
+    initialContent?: string
+    // Fires on every content change (typing, uploads resolving, embeds
+    // landing). The body chrome's host persists through this, on its own
+    // schedule, instead of waiting for a submit.
+    onChange?: (content: string) => void
     archives?: Archive[]
     tags?: Tag[]
     // Whole-library tag pairings, for suggestion ranking (see tagRank). null
@@ -108,7 +117,7 @@ export function clearDraft(key: string): void {
     }
 }
 
-type SlashKind = 'moment' | 'todo' | 'canvas'
+type SlashKind = 'moment' | 'todo' | 'canvas' | 'project'
 
 // How many ranked tag suggestions the composer offers at once. The point of the
 // list is to replace typing, so it wants to show the whole vocabulary of a
@@ -127,20 +136,25 @@ const SLASH_ITEMS: { kind: SlashKind; icon: string; label: string; hint: string 
     { kind: 'moment', icon: 'description', label: 'Moment', hint: 'link a moment' },
     { kind: 'todo', icon: 'checklist', label: 'To-do list', hint: 'embed a list' },
     { kind: 'canvas', icon: 'dashboard', label: 'Canvas', hint: 'embed a canvas' },
+    { kind: 'project', icon: 'space_dashboard', label: 'Project', hint: 'embed a project' },
 ]
 
 export const Editor: Component<EditorProps> = (props) => {
     const showFields = () => props.chrome !== 'chat'
     const isModal = () => props.chrome === 'modal'
-    // The inline card has no height of its own to divide up, so it tracks its
-    // text instead of filling a gap the way the modal does.
-    const growsWithText = () => props.chrome === 'inline'
+    // The inline card and the bare body editor have no height of their own to
+    // divide up, so they track their text instead of filling a gap the way the
+    // modal does.
+    const growsWithText = () => props.chrome === 'inline' || props.chrome === 'body'
     // Drives the chat composer's Enter behaviour, which differs on touch (see
     // the keydown handler): same breakpoint the app shell switches on.
     const isDesktop = useIsDesktop()
 
     const [title, setTitle] = createSignal(props.moment?.title || '')
-    const [content, setContent] = createSignal(props.moment?.content || '')
+    const [content, setContent] = createSignal(props.moment?.content || props.initialContent || '')
+
+    // Deferred so the pre-fill doesn't echo straight back as a "change".
+    createEffect(on(content, (v) => props.onChange?.(v), { defer: true }))
     const [archiveId, setArchiveId] = createSignal(
         props.moment?.archive_id || props.defaultArchive || props.archives?.[0]?.id || '',
     )
@@ -323,8 +337,7 @@ export const Editor: Component<EditorProps> = (props) => {
 
     onMount(() => props.onReady?.({ insertBlock }))
 
-    const tokenFor = (kind: SlashKind, id: string) =>
-        kind === 'moment' ? `[[${id}]]` : kind === 'todo' ? `::todo:${id}::` : `::canvas:${id}::`
+    const tokenFor = (kind: SlashKind, id: string) => (kind === 'moment' ? `[[${id}]]` : `::${kind}:${id}::`)
 
     // ---- `[[` autocomplete ----
 
@@ -877,6 +890,7 @@ export const Editor: Component<EditorProps> = (props) => {
                 <Portal>
                     <div
                         style={menuStyle()}
+                        data-editor-menu
                         class="bg-element-matte border-element-accent z-[70] flex flex-col rounded-xl border p-1 shadow-2xl"
                     >
                         <span class="text-sub/60 px-2 py-1 text-xs font-bold tracking-widest uppercase">Link to Moment</span>
@@ -902,6 +916,7 @@ export const Editor: Component<EditorProps> = (props) => {
                 <Portal>
                     <div
                         style={menuStyle()}
+                        data-editor-menu
                         class="bg-element-matte border-element-accent z-[70] flex flex-col rounded-xl border p-1 shadow-2xl"
                     >
                         <span class="text-sub/60 px-2 py-1 text-xs font-bold tracking-widest uppercase">Insert embed</span>
@@ -1056,6 +1071,29 @@ export const Editor: Component<EditorProps> = (props) => {
     )
 
     // ---- chromes ----
+
+    // Bare body editor: the full writing surface (toolbar, slash menu, `[[`
+    // autocomplete, uploads) with none of the moment fields. The host owns the
+    // text (via onChange) and the chrome around it; Ctrl+S / Ctrl+Enter still
+    // fire onSubmit so the host can treat them as "done writing".
+    if (props.chrome === 'body') {
+        return (
+            <div class="flex min-w-0 flex-col gap-2">
+                {Toolbar()}
+                {ContentArea({
+                    rows: 10,
+                    autofocus: true,
+                    placeholder:
+                        props.placeholder ||
+                        'Write… drag or paste files to attach, [[ to link a moment, / to embed',
+                })}
+                <Show when={error()}>
+                    <p class="text-danger text-xs">{error()}</p>
+                </Show>
+                {embedPicker()}
+            </div>
+        )
+    }
 
     if (props.chrome === 'chat') {
         return (
@@ -1212,6 +1250,13 @@ const EmbedPicker: Component<{ kind: SlashKind; onPick: (id: string) => void; on
             } else if (props.kind === 'todo') {
                 const data = (await api.listTodos()) ?? []
                 setItems(data.map((l) => ({ id: l.id, title: l.title || 'Untitled list', sub: `${(l.items || []).length} items` })))
+            } else if (props.kind === 'project') {
+                const data = (await api.listProjects()) ?? []
+                setItems(
+                    data
+                        .filter((p) => !p.archived)
+                        .map((p) => ({ id: p.id, title: p.title || 'Untitled project', sub: `${(p.cards || []).filter((c) => !c.dismissed).length} cards` })),
+                )
             } else {
                 const data = (await api.listCanvases()) ?? []
                 setItems(data.map((c) => ({ id: c.id, title: c.title || 'Untitled canvas' })))
@@ -1229,7 +1274,14 @@ const EmbedPicker: Component<{ kind: SlashKind; onPick: (id: string) => void; on
         return items().filter((i) => i.title.toLowerCase().includes(q) || (i.sub || '').toLowerCase().includes(q))
     }
 
-    const label = props.kind === 'moment' ? 'Reference a moment' : props.kind === 'todo' ? 'Embed a to-do list' : 'Embed a canvas'
+    const label =
+        props.kind === 'moment'
+            ? 'Reference a moment'
+            : props.kind === 'todo'
+              ? 'Embed a to-do list'
+              : props.kind === 'project'
+                ? 'Embed a project'
+                : 'Embed a canvas'
 
     // Keyboard navigation: arrows move the highlight, Enter picks it, Escape
     // closes. Focus lives in the search input, so the handler sits there.
@@ -1262,7 +1314,7 @@ const EmbedPicker: Component<{ kind: SlashKind; onPick: (id: string) => void; on
     }
 
     return (
-        <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" {...backdropDismiss(props.onClose)}>
+        <div data-editor-menu class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" {...backdropDismiss(props.onClose)}>
             <div class="bg-element-matte border-element-accent w-full max-w-md rounded-lg border p-4 shadow-2xl">
                 <div class="mb-3 flex items-center justify-between">
                     <h3 class="text-main font-serif text-base">{label}</h3>

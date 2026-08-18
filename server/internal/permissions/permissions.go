@@ -49,6 +49,11 @@ const (
 	ManageCanvas  Flag = 1 << 22 // create/edit/delete canvases & nodes
 	ManageBackups Flag = 1 << 23 // list/create/download/restore backups
 
+	// Projects module. Additive like the v2.1 bits: defaults to 0 on
+	// existing roles, so only Admin/Owner (wildcard or AllFlags) have it
+	// until a role is edited.
+	ManageProjects Flag = 1 << 24 // create/edit/delete projects, stages, cards
+
 	// AllFlags is the union of every flag except Administrator.
 	// Administrator is a wildcard, see Has().
 	AllFlags Flag = ViewMoments | CreateMoment | EditOwnMoment | EditAnyMoment |
@@ -56,7 +61,7 @@ const (
 		ViewChat | SendChatMessage | EditOwnChatMessage | DeleteOwnChatMessage |
 		DeleteAnyChatMessage | UploadAsset | DeleteAsset | ManageUsers |
 		ManageRoles | ManageServer | ViewAuditLog | PinMoment | ManageTodos |
-		ManageCanvas | ManageBackups
+		ManageCanvas | ManageBackups | ManageProjects
 )
 
 // Has reports whether the given permission set grants the requested flag.

@@ -11,7 +11,7 @@ import {
     type Component,
     type JSX,
 } from 'solid-js'
-import { api, type TodoList, type TodoItem, type Canvas, type Moment } from '../api'
+import { api, type TodoList, type TodoItem, type Canvas, type Moment, type Project } from '../api'
 import { MarkdownText } from './MarkdownText'
 import { LinkPreviewRow } from './LinkPreview'
 import { CanvasThumbnail } from './CanvasThumbnail'
@@ -29,6 +29,7 @@ import { notifyTodoChanged, todoVersion } from '../todoBus'
 //     [[<uuid>]]           moment  → compact card, opens the focused reader
 //     ::todo:<uuid>::      todo    → live card, items checkable inline
 //     ::canvas:<uuid>::    canvas  → compact card, opens the canvas board
+//     ::project:<uuid>::   project → summary card: progress + overview excerpt
 //
 // Moment previews are NON-RECURSIVE (a flattened excerpt, never a nested
 // MomentBody) so an embed cycle is structurally impossible (ADR-0015).
@@ -37,16 +38,16 @@ import { notifyTodoChanged, todoVersion } from '../todoBus'
 // With the inlineLinkPreviews pref on, a bare URL is a fourth kind of split: the
 // URL text is replaced by its preview card and the content resumes below it.
 
-type EmbedKind = 'moment' | 'todo' | 'canvas'
+type EmbedKind = 'moment' | 'todo' | 'canvas' | 'project'
 
 export type Part =
     | { type: 'md'; text: string }
     | { type: 'embed'; kind: EmbedKind; id: string }
     | { type: 'links'; urls: string[] }
 
-// Matches a todo/canvas token OR a [[moment]] reference. Capture groups:
-// 1 = 'todo'|'canvas', 2 = its id; 3 = moment id (for the [[id]] form).
-const TOKEN = /::(todo|canvas):([0-9a-fA-F-]{6,})::|\[\[([0-9a-fA-F-]{6,})\]\]/g
+// Matches a todo/canvas/project token OR a [[moment]] reference. Capture groups:
+// 1 = the kind, 2 = its id; 3 = moment id (for the [[id]] form).
+const TOKEN = /::(todo|canvas|project):([0-9a-fA-F-]{6,})::|\[\[([0-9a-fA-F-]{6,})\]\]/g
 
 const THEMATIC_BREAK = /^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/m
 const TRAILING_BULLET = /(?:^|\n)[ \t]*(?:[-*+]|\d+[.)])[ \t]*$/
@@ -68,7 +69,7 @@ export function parse(content: string, inlineLinks = false): Part[] {
     while ((m = TOKEN.exec(content)) !== null) {
         const part: Part = m[3]
             ? { type: 'embed', kind: 'moment', id: m[3] }
-            : { type: 'embed', kind: m[1] as 'todo' | 'canvas', id: m[2] }
+            : { type: 'embed', kind: m[1] as 'todo' | 'canvas' | 'project', id: m[2] }
         cuts.push({ start: m.index, end: m.index + m[0].length, part })
     }
     if (inlineLinks) {
@@ -124,7 +125,7 @@ function mergeLinkRuns(parts: Part[]): Part[] {
 // preview never recurses into another render (ADR-0015).
 function excerpt(content: string, max = 180): string {
     let text = content || ''
-    text = text.replace(/::(todo|canvas):[0-9a-fA-F-]{6,}::/g, '')
+    text = text.replace(/::(todo|canvas|project):[0-9a-fA-F-]{6,}::/g, '')
     text = text.replace(/\[\[[0-9a-fA-F-]{6,}\]\]/g, '')
     text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, '') // images
     text = text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // links, reduced to their text
@@ -140,6 +141,7 @@ export interface MomentBodyProps {
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
+    onOpenProject?: (id: string) => void
     // Set on the body rendered inside a moment preview. It is the whole of the
     // depth cap: a nested body draws its own moment references as compact
     // cards, so a cycle terminates on the second hop (ADR-0017).
@@ -170,6 +172,7 @@ export const MomentBody: Component<MomentBodyProps> = (props) => {
                                     onOpen={props.onOpenMoment}
                                     onOpenTodo={props.onOpenTodo}
                                     onOpenCanvas={props.onOpenCanvas}
+                                    onOpenProject={props.onOpenProject}
                                     resolveRef={props.resolveRef}
                                     nested={props.nested}
                                 />
@@ -180,6 +183,9 @@ export const MomentBody: Component<MomentBodyProps> = (props) => {
                         </Match>
                         <Match when={part.type === 'embed' && part.kind === 'canvas' ? part : null}>
                             {(e) => <CanvasEmbed id={e().id} onOpen={props.onOpenCanvas} />}
+                        </Match>
+                        <Match when={part.type === 'embed' && part.kind === 'project' ? part : null}>
+                            {(e) => <ProjectEmbed id={e().id} onOpen={props.onOpenProject} />}
                         </Match>
                     </Switch>
                 )}
@@ -238,6 +244,7 @@ const MomentPreview: Component<{
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
+    onOpenProject?: (id: string) => void
 }> = (props) => {
     const [clipped, setClipped] = createSignal(false)
     let frame: HTMLDivElement | undefined
@@ -274,6 +281,7 @@ const MomentPreview: Component<{
                     onOpenMoment={props.onOpenMoment}
                     onOpenTodo={props.onOpenTodo}
                     onOpenCanvas={props.onOpenCanvas}
+                    onOpenProject={props.onOpenProject}
                 />
                 <AttachmentList content={props.moment.content} />
                 <LinkPreviewList content={props.moment.content} />
@@ -290,6 +298,7 @@ const MomentEmbed: Component<{
     onOpen?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
+    onOpenProject?: (id: string) => void
     resolveRef?: (id: string) => string | undefined
     nested?: boolean
 }> = (props) => {
@@ -336,6 +345,7 @@ const MomentEmbed: Component<{
                             onOpenMoment={props.onOpen}
                             onOpenTodo={props.onOpenTodo}
                             onOpenCanvas={props.onOpenCanvas}
+                            onOpenProject={props.onOpenProject}
                         />
                     </Show>
                 </CardShell>
@@ -490,6 +500,57 @@ const CanvasEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (p
                             <CanvasThumbnail canvas={c()} />
                         </div>
                     </Show>
+                </CardShell>
+            )}
+        </Show>
+    )
+}
+
+// A project summary: completion meter in the project's accent, the overview
+// flattened to an excerpt (never a nested render), and the open/done counts.
+const ProjectEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (props) => {
+    const [project, setProject] = createSignal<Project | null | undefined>(undefined)
+    onMount(async () => {
+        try {
+            setProject((await api.getProject(props.id)) ?? null)
+        } catch {
+            setProject(null)
+        }
+    })
+    const liveCards = () => (project()?.cards || []).filter((c) => !c.dismissed)
+    const done = () => liveCards().filter((c) => c.done).length
+    const pct = () => (liveCards().length === 0 ? 0 : Math.round((done() / liveCards().length) * 100))
+    return (
+        <Show
+            when={project()}
+            fallback={
+                <Show when={project() === null} fallback={<CardShell icon="space_dashboard" label="Loading project…" />}>
+                    <UnavailableChip icon="space_dashboard" label="Project unavailable" />
+                </Show>
+            }
+        >
+            {(p) => (
+                <CardShell
+                    icon={p().icon || 'space_dashboard'}
+                    label={p().title || 'Untitled project'}
+                    onOpen={props.onOpen ? () => props.onOpen!(props.id) : undefined}
+                >
+                    <div class="mb-2 flex items-center gap-2">
+                        <div class="bg-element h-1.5 min-w-0 flex-1 overflow-hidden rounded-full">
+                            <div
+                                class="h-full rounded-full transition-all"
+                                style={{ width: `${pct()}%`, 'background-color': p().accent || 'var(--color-highlight-strongest)' }}
+                            />
+                        </div>
+                        <span class="text-sub shrink-0 font-mono text-xs font-bold">{pct()}%</span>
+                    </div>
+                    <Show when={excerpt(p().overview || '', 220)}>
+                        <p class="text-sub line-clamp-3 text-sm">{excerpt(p().overview || '', 220)}</p>
+                    </Show>
+                    <p class="text-sub/70 mt-2 text-xs">
+                        {liveCards().filter((c) => !c.done).length} open · {done()} done · {(p().milestones || []).length} milestone
+                        {(p().milestones || []).length === 1 ? '' : 's'}
+                    </p>
                 </CardShell>
             )}
         </Show>

@@ -140,5 +140,6 @@ func allFlags() []Flag {
 		DeleteAnyChatMessage, UploadAsset, DeleteAsset, ManageUsers,
 		ManageRoles, ManageServer, ViewAuditLog,
 		PinMoment, ManageTodos, ManageCanvas, ManageBackups,
+		ManageProjects,
 	}
 }

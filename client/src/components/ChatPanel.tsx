@@ -23,6 +23,7 @@ interface ChatPanelProps {
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
+    onOpenProject?: (id: string) => void
     // When provided, a close button appears in the header (modal use).
     onClose?: () => void
     // Extra classes for the root (frame/rounding differs per host).
@@ -410,6 +411,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                                         onOpenMoment={props.onOpenMoment}
                                                         onOpenTodo={props.onOpenTodo}
                                                         onOpenCanvas={props.onOpenCanvas}
+                                                        onOpenProject={props.onOpenProject}
                                                     />
                                                     <AttachmentList content={msg.content} />
                                                     <LinkPreviewList content={msg.content} />

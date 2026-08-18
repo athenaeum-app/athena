@@ -122,6 +122,19 @@ func (s *Server) routes() {
 	s.mux.Handle("PATCH /api/v1/todo-items/{id}", auth.RequirePermission(permissions.ManageTodos)(http.HandlerFunc(s.handleUpdateTodoItem)))
 	s.mux.Handle("DELETE /api/v1/todo-items/{id}", auth.RequirePermission(permissions.ManageTodos)(http.HandlerFunc(s.handleDeleteTodoItem)))
 
+	// Projects
+	s.mux.Handle("GET /api/v1/projects", auth.RequireAuth(http.HandlerFunc(s.handleListProjects)))
+	s.mux.Handle("GET /api/v1/projects/{id}", auth.RequireAuth(http.HandlerFunc(s.handleGetProject)))
+	s.mux.Handle("POST /api/v1/projects", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleCreateProject)))
+	s.mux.Handle("PATCH /api/v1/projects/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleUpdateProject)))
+	s.mux.Handle("DELETE /api/v1/projects/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleDeleteProject)))
+	s.mux.Handle("POST /api/v1/projects/{id}/milestones", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleCreateProjectMilestone)))
+	s.mux.Handle("PATCH /api/v1/project-milestones/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleUpdateProjectMilestone)))
+	s.mux.Handle("DELETE /api/v1/project-milestones/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleDeleteProjectMilestone)))
+	s.mux.Handle("POST /api/v1/projects/{id}/cards", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleCreateProjectCards)))
+	s.mux.Handle("PATCH /api/v1/project-cards/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleUpdateProjectCard)))
+	s.mux.Handle("DELETE /api/v1/project-cards/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleDeleteProjectCard)))
+
 	// Canvas
 	s.mux.Handle("GET /api/v1/canvases", auth.RequireAuth(http.HandlerFunc(s.handleListCanvases)))
 	s.mux.Handle("GET /api/v1/canvases/{id}", auth.RequireAuth(http.HandlerFunc(s.handleGetCanvas)))

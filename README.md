@@ -19,6 +19,13 @@ desktop app is also available.
   items, and an optional link to a related moment. An agenda view collects
   everything due across every list onto one timeline. Daily lists roll unfinished
   items into the next day.
+- **Projects.** Long-horizon efforts on a portfolio of rich status covers, each
+  opening into a tabbed hub with its own accent and icon: an overview document
+  with progress signals, a milestone board whose columns can stack and split a
+  column's height, and a graveyard that keeps dismissed cards recoverable
+  forever with deep undo. The overview and card documents use the same editor
+  and live embeds as moments, and a project can itself be embedded anywhere as
+  a summary card that opens the project when clicked.
 - **Canvas.** An infinite pan-and-zoom board with sticky notes, text labels,
   shapes, images, web links, moment references, and live todo embeds, joined by
   connectors.

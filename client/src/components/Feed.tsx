@@ -94,6 +94,7 @@ interface FeedProps {
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
+    onOpenProject?: (id: string) => void
     // Whether this user may create moments at all. Drives the wording of the
     // empty state, so a read-only member isn't told to "create one".
     canCreate: boolean
@@ -317,6 +318,7 @@ export const Feed: Component<FeedProps> = (props) => {
                     onOpenMoment={props.onOpenMoment}
                     onOpenTodo={props.onOpenTodo}
                     onOpenCanvas={props.onOpenCanvas}
+                    onOpenProject={props.onOpenProject}
                 />
                 <AttachmentList content={p.moment.content} />
                 <LinkPreviewList content={p.moment.content} />

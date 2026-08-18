@@ -36,6 +36,7 @@ export const FocusedMomentModal: Component<{
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
+    onOpenProject?: (id: string) => void
 }> = (props) => {
     const ui = useUI()
     const [moment, setMoment] = createSignal<Moment | null>(null)
@@ -155,6 +156,7 @@ export const FocusedMomentModal: Component<{
                                                 onOpenMoment={props.onOpenMoment}
                                                 onOpenTodo={props.onOpenTodo}
                                                 onOpenCanvas={props.onOpenCanvas}
+                                                onOpenProject={props.onOpenProject}
                                             />
                                         </div>
                                         <AttachmentList content={m().content} />

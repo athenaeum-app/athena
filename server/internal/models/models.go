@@ -258,3 +258,62 @@ type CanvasEdge struct {
 	ToNode    string    `json:"to_node"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// Project is a long-horizon roadmap of milestones holding cards.
+// Library-shared, last-write-wins, like the todo and canvas modules. The
+// description is markdown rendered with the moment pipeline, so it can embed
+// todo lists, canvases and moment references.
+type Project struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Overview string `json:"overview"`
+	// Per-project identity: a hex color and a material symbol name.
+	Accent     string             `json:"accent"`
+	Icon       string             `json:"icon"`
+	AuthorID   *string            `json:"author_id,omitempty"`
+	Position   int                `json:"position"`
+	Archived   bool               `json:"archived"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
+	Milestones []ProjectMilestone `json:"milestones"`
+	Cards      []ProjectCard      `json:"cards"`
+}
+
+// ProjectMilestone is one board column and one roadmap node, optionally dated.
+// Milestones sharing a Track stack vertically and split that column's height;
+// Position orders the roadmap globally.
+type ProjectMilestone struct {
+	ID        string     `json:"id"`
+	ProjectID string     `json:"project_id"`
+	Title     string     `json:"title"`
+	DueAt     *time.Time `json:"due_at,omitempty"`
+	Track     int        `json:"track"`
+	Position  float64    `json:"position"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+}
+
+// ProjectCard is one unit of work under a milestone, from a one-liner to a
+// markdown document. Dismissed cards are the reversible graveyard; hard
+// deletion only empties that. CompletedAt is stamped on the done edge, which
+// is what per-day momentum is computed from.
+type ProjectCard struct {
+	ID          string `json:"id"`
+	ProjectID   string `json:"project_id"`
+	MilestoneID string `json:"milestone_id"`
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	// Comma-joined free-form label names, colored client-side.
+	Labels string `json:"labels"`
+	// 0 none · 1 low · 2 med · 3 high, the Tasks module's vocabulary.
+	Priority    int        `json:"priority"`
+	DueAt       *time.Time `json:"due_at,omitempty"`
+	AssigneeID  *string    `json:"assignee_id,omitempty"`
+	Done        bool       `json:"done"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	Dismissed   bool       `json:"dismissed"`
+	Position    float64    `json:"position"`
+	AuthorID    *string    `json:"author_id,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}

@@ -14,6 +14,10 @@ describe('parse, inline link previews off', () => {
     it('still splits on embed tokens', () => {
         expect(shape('a [[abc123]] b', false)).toEqual(['md:a', 'moment', 'md:b'])
     })
+
+    it('splits on a project token', () => {
+        expect(shape('before ::project:abc123:: after', false)).toEqual(['md:before', 'project', 'md:after'])
+    })
 })
 
 describe('parse, inline link previews on', () => {

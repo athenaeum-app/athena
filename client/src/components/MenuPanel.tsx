@@ -18,6 +18,7 @@ interface MenuPanelProps {
     onOpenSettings: () => void
     onOpenAdmin: () => void
     onOpenTodos: () => void
+    onOpenProjects: () => void
     onOpenCanvas: () => void
     username: string
     isOwner: boolean
@@ -32,6 +33,7 @@ interface MenuPanelProps {
     onOpenMoment: (id: string) => void
     onOpenTodoEmbed: (id: string) => void
     onOpenCanvasEmbed: (id: string) => void
+    onOpenProjectEmbed: (id: string) => void
     // Tags that still match at least one moment under the current filter; see
     // tagFacets.ts. null until the first facet response lands.
     availableTagIds?: Set<string> | null
@@ -64,6 +66,7 @@ export const MenuPanel: Component<MenuPanelProps> = (props) => {
             <div class="mt-3 flex flex-wrap items-center gap-1">
                 <HubButton icon="message" label="Chat" onClick={props.onOpenChat} />
                 <HubButton icon="checklist" label="Todos" onClick={props.onOpenTodos} />
+                <HubButton icon="space_dashboard" label="Projects" onClick={props.onOpenProjects} />
                 <HubButton icon="dashboard" label="Canvas" onClick={props.onOpenCanvas} />
                 <HubButton icon="settings" label="Settings" onClick={props.onOpenSettings} />
                 <Show when={hasAdmin()}>
@@ -134,6 +137,7 @@ export const MenuPanel: Component<MenuPanelProps> = (props) => {
                     onOpenMoment={props.onOpenMoment}
                     onOpenTodo={props.onOpenTodoEmbed}
                     onOpenCanvas={props.onOpenCanvasEmbed}
+                    onOpenProject={props.onOpenProjectEmbed}
                 />
             </div>
         </Show>

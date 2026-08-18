@@ -26,6 +26,7 @@ import { Editor } from './components/Editor'
 import { SettingsModal } from './components/SettingsModal'
 import { AdminModal } from './components/AdminModal'
 import { TodoModule } from './components/TodoModule'
+import { ProjectsModule } from './components/ProjectsModule'
 import { CanvasModule } from './components/CanvasModule'
 import { LibrariesPanel, librariesSwitcherVisible } from './components/LibrariesPanel'
 import { MenuPanel } from './components/MenuPanel'
@@ -56,6 +57,7 @@ export const App: Component = () => {
     const canPin = () => hasPermission(perms(), 20) // PIN_MOMENT
     const canManageTodos = () => hasPermission(perms(), 21) // MANAGE_TODOS
     const canManageCanvas = () => hasPermission(perms(), 22) // MANAGE_CANVAS
+    const canManageProjects = () => hasPermission(perms(), 24) // MANAGE_PROJECTS
     // Editing and deleting a moment are split into own/any variants server-side
     // (bits 2-5), so the gate depends on who wrote it rather than being a flat
     // capability. A moment with no author_id (legacy v1 rows) can't establish
@@ -145,6 +147,7 @@ export const App: Component = () => {
     const [showSettings, setShowSettings] = createSignal(false)
     const [showAdmin, setShowAdmin] = createSignal(false)
     const [showTodos, setShowTodos] = createSignal(false)
+    const [showProjects, setShowProjects] = createSignal(false)
     const [showCanvas, setShowCanvas] = createSignal(false)
     // Which board a canvas reference asked for, handed to the module so it
     // opens on that one instead of its "select a canvas" placeholder. Cleared
@@ -157,6 +160,17 @@ export const App: Component = () => {
     const closeCanvas = () => {
         setShowCanvas(false)
         setRequestedCanvasId(undefined)
+    }
+    // Which project a ::project:id:: embed asked for; same contract as
+    // requestedCanvasId above.
+    const [requestedProjectId, setRequestedProjectId] = createSignal<string | undefined>()
+    const openProject = (id?: string) => {
+        setRequestedProjectId(id)
+        setShowProjects(true)
+    }
+    const closeProjects = () => {
+        setShowProjects(false)
+        setRequestedProjectId(undefined)
     }
     // Focus-layout drawers: the side panels collapse into slide-in
     // drawers toggled by floating buttons.
@@ -435,12 +449,17 @@ export const App: Component = () => {
         if (showSettings()) return setShowSettings(false), true
         if (showAdmin()) return setShowAdmin(false), true
         if (showTodos()) return setShowTodos(false), true
+        if (showProjects()) return closeProjects(), true
         if (showCanvas()) return closeCanvas(), true
         return false
     }
 
     const handleGlobalKey = (e: KeyboardEvent) => {
         if (!auth.user()) return
+        // A component that consumed the key (the editor closing its slash
+        // menu on Escape, say) marks it; a global shortcut acting on it too
+        // would close an overlay under the user's hands.
+        if (e.defaultPrevented) return
         const target = e.target as HTMLElement | null
         const editable =
             !!target &&
@@ -709,6 +728,7 @@ export const App: Component = () => {
         onOpenSettings: () => setShowSettings(true),
         onOpenAdmin: () => setShowAdmin(true),
         onOpenTodos: () => setShowTodos(true),
+        onOpenProjects: () => setShowProjects(true),
         onOpenCanvas: () => openCanvas(),
         username: auth.user()?.username || '',
         isOwner: auth.user()?.is_owner || false,
@@ -731,6 +751,7 @@ export const App: Component = () => {
                 onOpenMoment={(id) => setFocusMomentId(id)}
                 onOpenTodoEmbed={() => setShowTodos(true)}
                 onOpenCanvasEmbed={openCanvas}
+                onOpenProjectEmbed={openProject}
             />
         ) : (
             <FilterBar {...menuActionProps()} />
@@ -763,6 +784,7 @@ export const App: Component = () => {
             onOpenMoment={(id) => setFocusMomentId(id)}
             onOpenTodo={() => setShowTodos(true)}
             onOpenCanvas={openCanvas}
+            onOpenProject={openProject}
             canCreate={canCreateMoment()}
             showComposer={!mobile && canCreateMoment()}
             inlineCreator={
@@ -1149,6 +1171,7 @@ export const App: Component = () => {
                     onOpenMoment={(id) => setFocusMomentId(id)}
                     onOpenTodo={() => setShowTodos(true)}
                     onOpenCanvas={openCanvas}
+                    onOpenProject={openProject}
                 />
             </Show>
 
@@ -1199,6 +1222,17 @@ export const App: Component = () => {
                 />
             </Show>
 
+            <Show when={showProjects()}>
+                <ProjectsModule
+                    onClose={closeProjects}
+                    canManage={canManageProjects()}
+                    initialProjectId={requestedProjectId()}
+                    onOpenMoment={(id) => setFocusMomentId(id)}
+                    onOpenTodo={() => setShowTodos(true)}
+                    onOpenCanvas={openCanvas}
+                />
+            </Show>
+
             <Show when={showCanvas()}>
                 <CanvasModule
                     onClose={closeCanvas}
@@ -1234,6 +1268,7 @@ export const App: Component = () => {
                     onOpenMoment={(id) => setFocusMomentId(id)}
                     onOpenTodo={() => setShowTodos(true)}
                     onOpenCanvas={openCanvas}
+                    onOpenProject={openProject}
                 />
             </Show>
 

@@ -5,6 +5,7 @@ interface FilterBarProps {
     onOpenSettings: () => void
     onOpenAdmin: () => void
     onOpenTodos: () => void
+    onOpenProjects: () => void
     onOpenCanvas: () => void
     username: string
     isOwner: boolean
@@ -45,6 +46,13 @@ export const FilterBar: Component<FilterBarProps> = (props) => {
                 >
                     <span class="material-symbols-outlined text-xl">checklist</span>
                     <span class="text-sub text-sm">Todos</span>
+                </button>
+                <button
+                    onClick={props.onOpenProjects}
+                    class="bg-element hover:border-highlight border-element-accent flex flex-1 items-center justify-center gap-2 rounded-xl border p-3 text-center font-bold transition-all duration-100 hover:scale-[1.02] hover:cursor-pointer"
+                >
+                    <span class="material-symbols-outlined text-xl">space_dashboard</span>
+                    <span class="text-sub text-sm">Projects</span>
                 </button>
                 <button
                     onClick={props.onOpenCanvas}

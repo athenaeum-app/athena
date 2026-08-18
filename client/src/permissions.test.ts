@@ -48,11 +48,11 @@ describe('togglePermission', () => {
 describe('permission catalogue', () => {
     it('mirrors the server flags plus the wildcard', () => {
         // 19 real flags (bits 0..18) + ADMINISTRATOR (bit 19) + 4 v2.1
-        // additions (bits 20..23) = 24 entries.
-        expect(PERMISSIONS).toHaveLength(24)
+        // additions (bits 20..23) + MANAGE_PROJECTS (bit 24) = 25 entries.
+        expect(PERMISSIONS).toHaveLength(25)
         const bits = PERMISSIONS.map((p) => p.bit)
-        expect(new Set(bits).size).toBe(24) // all distinct
-        expect(Math.max(...bits)).toBe(23)
+        expect(new Set(bits).size).toBe(25) // all distinct
+        expect(Math.max(...bits)).toBe(24)
     })
 
     it('derives groups without duplicates', () => {
