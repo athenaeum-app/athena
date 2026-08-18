@@ -421,10 +421,10 @@ const Portfolio: Component<{
     const shown = () => props.projects.filter((p) => (props.view === 'archived' ? p.archived : !p.archived))
     return (
         <div class="relative z-10 flex min-h-0 flex-1 flex-col">
-            <div class="bg-element border-element-accent flex items-center gap-3 border-b px-5 py-3">
+            <div class="bg-element border-element-accent flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3 sm:px-5">
                 <span class="material-symbols-outlined text-highlight text-xl">space_dashboard</span>
                 <h1 class="text-main font-serif text-2xl font-semibold">Projects</h1>
-                <div class="border-element-accent ml-4 flex overflow-hidden rounded-md border">
+                <div class="border-element-accent flex overflow-hidden rounded-md border sm:ml-4">
                     <For each={PORTFOLIO_TABS}>
                         {(t) => (
                             <button
@@ -861,7 +861,7 @@ const Hub: Component<{
 
     return (
         <div class="relative z-10 flex min-h-0 flex-1 flex-col" style={{ background: `radial-gradient(80rem 24rem at 15% -5%, ${accent()}14, transparent)` }}>
-            <div class="bg-element border-element-accent flex items-center gap-3 border-b px-5 py-3" style={{ 'border-top': `2px solid ${accent()}b3` }}>
+            <div class="bg-element border-element-accent flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3 sm:px-5" style={{ 'border-top': `2px solid ${accent()}b3` }}>
                 <button onClick={props.onBack} class="text-sub hover:text-main hover:cursor-pointer" title="Back to all projects">
                     <span class="material-symbols-outlined">arrow_back</span>
                 </button>
@@ -874,7 +874,7 @@ const Hub: Component<{
                         value={props.project.title}
                         onChange={(e) => props.patchProject((p) => (p.title = e.currentTarget.value), { title: e.currentTarget.value })}
                         title="Rename project"
-                        class="text-main font-serif hover:border-element-accent focus:border-highlight w-56 min-w-0 rounded-md border border-transparent bg-transparent px-1 text-xl font-semibold transition-colors focus:outline-none"
+                        class="text-main font-serif hover:border-element-accent focus:border-highlight w-36 min-w-0 rounded-md border border-transparent bg-transparent px-1 text-xl font-semibold transition-colors focus:outline-none sm:w-56"
                     />
                 </Show>
                 <div class="border-element-accent flex overflow-hidden rounded-md border">
@@ -957,7 +957,7 @@ const Hub: Component<{
 
             <Show when={tab() === 'overview'}>
                 <div class="animate-fade-in min-h-0 flex-1 overflow-y-auto">
-                    <div class="px-8 py-6">
+                    <div class="px-4 py-5 sm:px-8 sm:py-6">
                         <div class="flex items-center gap-2">
                             <span class="material-symbols-outlined text-lg" style={{ color: accent() }}>{props.project.icon}</span>
                             <span class="font-mono text-xs font-bold tracking-widest" style={{ color: accent() }}>{keyOf(props.project)}</span>
@@ -1671,7 +1671,7 @@ const CardModal: Component<{
                 onClick={(e) => e.stopPropagation()}
                 class="bg-element-matte border-element-accent flex h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border shadow-2xl"
             >
-                <div class="bg-element border-element-accent flex items-center gap-3 border-b px-6 py-4">
+                <div class="bg-element border-element-accent flex items-center gap-2 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4">
                     <span class="shrink-0 font-mono text-xs font-bold" style={{ color: props.project.accent }}>
                         {keyOf(props.project)}-{cardNum(props.project, props.card.id)}
                     </span>
@@ -1715,8 +1715,10 @@ const CardModal: Component<{
                     </button>
                 </div>
 
-                <div class="flex min-h-0 flex-1">
-                    <div class="flex min-w-0 flex-1 flex-col overflow-y-auto p-6">
+                {/* Side-by-side panes on desktop; on a phone the rail stacks
+                    under the body and the whole modal scrolls as one page. */}
+                <div class="flex min-h-0 flex-1 flex-col overflow-y-auto sm:flex-row sm:overflow-hidden">
+                    <div class="flex min-w-0 flex-col p-4 sm:flex-1 sm:overflow-y-auto sm:p-6">
                         <Show
                             when={!preview()}
                             fallback={
@@ -1752,7 +1754,7 @@ const CardModal: Component<{
                         </Show>
                     </div>
 
-                    <div class="border-element-accent bg-element/40 flex w-72 shrink-0 flex-col gap-5 overflow-y-auto border-l p-5">
+                    <div class="border-element-accent bg-element/40 flex w-full shrink-0 flex-col gap-5 border-t p-5 sm:w-72 sm:overflow-y-auto sm:border-t-0 sm:border-l">
                         <div>
                             <RailLabel text="Status" />
                             <button

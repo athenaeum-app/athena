@@ -896,6 +896,10 @@ export const App: Component = () => {
                         setMobileSheet(null)
                         setShowTodos(true)
                     }}
+                    onProjects={() => {
+                        setMobileSheet(null)
+                        openProject()
+                    }}
                     onCanvas={() => {
                         setMobileSheet(null)
                         openCanvas()

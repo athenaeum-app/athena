@@ -7,6 +7,7 @@ export const MobileMoreSheet: Component<{
     isOwner: boolean
     canAdmin: boolean
     onTodos: () => void
+    onProjects: () => void
     onCanvas: () => void
     onSettings: () => void
     onAdmin: () => void
@@ -28,6 +29,7 @@ export const MobileMoreSheet: Component<{
     return (
         <div class="flex flex-col">
             <Row icon="checklist" label="Todos" onClick={props.onTodos} />
+            <Row icon="space_dashboard" label="Projects" onClick={props.onProjects} />
             <Row icon="dashboard" label="Canvas" onClick={props.onCanvas} />
             <Row icon="settings" label="Settings" onClick={props.onSettings} />
             <Show when={props.canAdmin}>
