@@ -6,6 +6,7 @@ import { MomentBody } from './MomentBody'
 import { Editor } from './Editor'
 import { BookcaseDrift } from './BookcaseDrift'
 import { prefs } from '../prefs'
+import { desktop } from '../desktop'
 
 // Projects module: a portfolio of long-horizon efforts. Each project is a
 // tabbed hub (overview document, milestone board, graveyard) with an identity
@@ -335,6 +336,15 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
             <Show when={prefs().bookcaseProjects}>
                 <BookcaseDrift class="opacity-[0.04]" />
             </Show>
+            {/* Desktop shell only: the frameless app header underneath stays a
+                window drag region even under this overlay (Electron computes
+                drag regions document-wide, ignoring stacking), and the native
+                window controls overlay the top-right 36px. This strip keeps
+                the module's own bars below both, and doubles as the drag
+                handle while the module is open. */}
+            <Show when={desktop()}>
+                <div class="app-drag-region bg-element h-12 w-full shrink-0" />
+            </Show>
             {/* keyed: switching projects (opening one from an embedded project
                 card, say) remounts the Hub, so editor state, tab and pending
                 saves never leak across projects. */}
@@ -430,20 +440,9 @@ const Portfolio: Component<{
                         )}
                     </For>
                 </div>
-                <div class="ml-auto flex items-center gap-3">
-                    <Show when={props.canManage}>
-                        <button
-                            onClick={props.onNew}
-                            class="bg-highlight-strongest flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-bold text-white transition-[filter] hover:brightness-110 hover:cursor-pointer"
-                        >
-                            <span class="material-symbols-outlined text-sm">add</span>
-                            New project
-                        </button>
-                    </Show>
-                    <button onClick={props.onClose} class="text-sub hover:text-main transition-colors hover:cursor-pointer" title="Close">
-                        <span class="material-symbols-outlined">close</span>
-                    </button>
-                </div>
+                <button onClick={props.onClose} class="text-sub hover:text-main ml-auto transition-colors hover:cursor-pointer" title="Close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
             </div>
 
             <Show when={!props.loading} fallback={<div class="flex flex-1 items-center justify-center"><p class="text-sub text-sm">Loading…</p></div>}>
@@ -465,12 +464,12 @@ const Portfolio: Component<{
                 >
                     <div class="animate-fade-in min-h-0 flex-1 overflow-y-auto p-5">
                         <Show
-                            when={shown().length > 0}
+                            when={shown().length > 0 || (props.view === 'active' && props.canManage)}
                             fallback={
-                                <div class="border-element-accent flex flex-col items-center gap-2 rounded-lg border border-dashed py-20">
+                                <div class="bg-element border-element-accent flex flex-col items-center gap-2 rounded-lg border border-dashed py-20">
                                     <span class="material-symbols-outlined text-sub/40 text-4xl">{props.view === 'archived' ? 'inventory_2' : 'space_dashboard'}</span>
                                     <p class="text-sub/60 text-sm italic">
-                                        {props.view === 'archived' ? 'Nothing archived. Finished projects land here.' : 'No projects yet. Start one with New project.'}
+                                        {props.view === 'archived' ? 'Nothing archived. Finished projects land here.' : 'No projects yet.'}
                                     </p>
                                 </div>
                             }
@@ -565,6 +564,19 @@ const Portfolio: Component<{
                                         </button>
                                     )}
                                 </For>
+                                {/* Ghost card: New project lives in the grid it
+                                    adds to, drawn as the outline of the cover it
+                                    will become. */}
+                                <Show when={props.view === 'active' && props.canManage}>
+                                    <button
+                                        onClick={props.onNew}
+                                        class="bg-element border-element-accent hover:border-highlight text-sub hover:text-main flex min-h-56 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed transition-colors hover:cursor-pointer"
+                                    >
+                                        <span class="material-symbols-outlined text-3xl">add</span>
+                                        <span class="text-sm font-bold">New project</span>
+                                        <span class="text-sub/60 text-xs">Start a long-running effort</span>
+                                    </button>
+                                </Show>
                             </div>
                         </Show>
                     </div>
@@ -1239,7 +1251,7 @@ const Hub: Component<{
                     <Show
                         when={graveyard().length > 0}
                         fallback={
-                            <div class="border-element-accent flex flex-col items-center gap-2 rounded-lg border border-dashed py-16">
+                            <div class="bg-element border-element-accent flex flex-col items-center gap-2 rounded-lg border border-dashed py-16">
                                 <span class="material-symbols-outlined text-sub/40 text-4xl">history</span>
                                 <p class="text-sub/60 text-sm italic">Nothing dismissed. The X on a card sends it here, never into the void.</p>
                             </div>
