@@ -1187,7 +1187,18 @@ export const Editor: Component<EditorProps> = (props) => {
                         onChange={(e) => chooseArchive(e.currentTarget.value)}
                         class="bg-element text-main border-element-accent w-full max-w-[14rem] min-w-0 truncate rounded-md border px-3 py-2 text-sm focus:outline-none focus:border-highlight"
                     >
-                        <For each={props.archives || []}>{(a) => <option value={a.id}>{a.name}</option>}</For>
+                        {/* selected per option, not value on the select: a
+                            refetch replaces every option, and a rebuilt list
+                            leaves the select showing its first entry while the
+                            value binding, whose signal never changed, sits
+                            there saying nothing. */}
+                        <For each={props.archives || []}>
+                            {(a) => (
+                                <option value={a.id} selected={a.id === archiveId()}>
+                                    {a.name}
+                                </option>
+                            )}
+                        </For>
                     </select>
                     <input
                         type="text"

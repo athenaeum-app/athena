@@ -1,12 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { createSignal } from 'solid-js'
 import { render, screen, cleanup, fireEvent } from '@solidjs/testing-library'
 import { Editor } from './Editor'
 import type { Archive } from '../api'
 
-const archives: Archive[] = [
+// A refetch parses fresh objects, so identity changes even when nothing else
+// does. Built per call for the tests that turn on exactly that.
+const makeArchives = (): Archive[] => [
     { id: 'a1', name: 'Journal' } as Archive,
     { id: 'a2', name: 'Work' } as Archive,
 ]
+
+const archives = makeArchives()
 
 // jsdom ships no matchMedia, and the composer asks for the viewport.
 window.matchMedia = ((q: string) => ({
@@ -59,6 +64,24 @@ describe('composer archive', () => {
 
     it('follows the archive on screen until a choice is made', () => {
         expect(openComposer('a2').select.value).toBe('a2')
+    })
+
+    // Posting reloads the feed and refetches the archives, about half a second
+    // later. Rebuilding the option list used to leave the select showing its
+    // first entry, while the value it would have posted to stayed on the one
+    // that had been picked.
+    it('holds the picked archive when the archive list is refetched', () => {
+        const [live, setLive] = createSignal(makeArchives())
+        const onSubmit = vi.fn(async (_t: string, _c: string, _tags: string[], _archive: string) => {})
+        render(() => (
+            <Editor chrome="inline" archives={live()} tags={[]} defaultArchive="a1" onSubmit={onSubmit} />
+        ))
+        const select = () => screen.getByRole('combobox') as HTMLSelectElement
+        fireEvent.change(select(), { target: { value: 'a2' } })
+
+        setLive(makeArchives())
+
+        expect(select().value).toBe('a2')
     })
 
     it('drops a choice whose archive is gone', () => {

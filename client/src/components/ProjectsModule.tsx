@@ -1870,7 +1870,13 @@ const CardModal: Component<{
                                     }}
                                     class="bg-element text-main border-element-accent focus:border-highlight w-full rounded-md border px-3 py-2 text-sm focus:outline-none hover:cursor-pointer"
                                 >
-                                    <For each={msOrder(props.project)}>{(m) => <option value={m.id}>{m.title}</option>}</For>
+                                    <For each={msOrder(props.project)}>
+                                        {(m) => (
+                                            <option value={m.id} selected={m.id === props.card.milestone_id}>
+                                                {m.title}
+                                            </option>
+                                        )}
+                                    </For>
                                 </select>
                             </Show>
                         </div>
