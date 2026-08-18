@@ -128,6 +128,117 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
         await post(req, '/api/v1/chat', { content })
     }
 
+    // --- Projects: a portfolio of three efforts, one of them filled in far
+    //     enough to show a hub with real progress (milestones, finished and
+    //     dismissed cards, priorities and due dates) ---
+    const newProject = async (title: string, accent: string, icon: string, overview: string) => {
+        const p = await post<{ id: string }>(req, '/api/v1/projects', { title })
+        await patch(req, `/api/v1/projects/${p.id}`, { accent, icon, overview })
+        return p
+    }
+    const milestone = (projectId: string, title: string, dueDays: number) =>
+        post<{ id: string }>(req, `/api/v1/projects/${projectId}/milestones`, {
+            title,
+            due_at: dueIn(dueDays),
+        })
+    const cards = (projectId: string, milestoneId: string, titles: string[]) =>
+        post<{ id: string }[]>(req, `/api/v1/projects/${projectId}/cards`, {
+            milestone_id: milestoneId,
+            titles,
+        })
+
+    const bindery = await newProject(
+        'The Bindery',
+        '#c9a35c',
+        'menu_book',
+        [
+            'Rebinding the shelf of hardbacks that came out of the attic, a case at a time.',
+            '',
+            'The rule for this one: **nothing leaves the bench half-finished**. A case is done when the',
+            'boards are on, the spine is lettered, and it stands up on its own.',
+            '',
+            'Sourcing notes and the cloth order:',
+            '',
+            `[[${m1.id}]]`,
+        ].join('\n'),
+    )
+
+    const sourcing = await milestone(bindery.id, 'Sourcing', -14)
+    const bench = await milestone(bindery.id, 'On the bench', 9)
+    const lettering = await milestone(bindery.id, 'Lettering', 31)
+
+    const sourced = await cards(bindery.id, sourcing.id, [
+        'Order book cloth in three weights',
+        'Cut boards for the first six',
+        'Replace the bone folder',
+        'Price a nipping press',
+    ])
+    for (const c of sourced.slice(0, 3)) await patch(req, `/api/v1/project-cards/${c.id}`, { done: true })
+    // The fourth is dismissed rather than finished, which is what the graveyard
+    // keeps: decided against, not lost.
+    await patch(req, `/api/v1/project-cards/${sourced[3].id}`, { dismissed: true })
+
+    const onBench = await cards(bindery.id, bench.id, [
+        'Sew the octavo set',
+        'Round and back the first three',
+        'Case in the green cloth pair',
+        'Repair the torn endpapers',
+        'Trim the deckle edges',
+    ])
+    await patch(req, `/api/v1/project-cards/${onBench[0].id}`, { done: true })
+    await patch(req, `/api/v1/project-cards/${onBench[1].id}`, {
+        priority: 3,
+        due_at: dueIn(2),
+        body: 'The 1908 set has a cracked hinge, so this one gets a hollow back.',
+    })
+    await patch(req, `/api/v1/project-cards/${onBench[2].id}`, { priority: 2, due_at: dueIn(6) })
+
+    const lettered = await cards(bindery.id, lettering.id, [
+        'Test foils on offcuts',
+        'Letter the spines',
+        'Mark up the title pages',
+        'Photograph the finished shelf',
+    ])
+    await patch(req, `/api/v1/project-cards/${lettered[0].id}`, { priority: 1 })
+
+    const garden = await newProject(
+        'Kitchen garden',
+        '#8fbf8f',
+        'science',
+        'Four raised beds, and a running argument with the slugs.',
+    )
+    const beds = await milestone(garden.id, 'Beds', -3)
+    const planting = await milestone(garden.id, 'Planting', 21)
+    const built = await cards(garden.id, beds.id, ['Build the fourth bed', 'Top up the compost'])
+    for (const c of built) await patch(req, `/api/v1/project-cards/${c.id}`, { done: true })
+    await cards(garden.id, planting.id, ['Sow the brassicas', 'Net everything', 'Label the rows'])
+
+    const darkroom = await newProject(
+        'Darkroom',
+        '#9d8fd6',
+        'videocam',
+        'Getting the spare room printing again: enlarger serviced, chemistry fresh, everything light-tight.',
+    )
+    const kit = await milestone(darkroom.id, 'Kit', 5)
+    const firstPrints = await milestone(darkroom.id, 'First prints', 24)
+    const kitCards = await cards(darkroom.id, kit.id, ['Service the enlarger', 'Blackout blind for the window', 'Mix fresh stop bath'])
+    await patch(req, `/api/v1/project-cards/${kitCards[0].id}`, { done: true })
+    await patch(req, `/api/v1/project-cards/${kitCards[1].id}`, { priority: 3, due_at: dueIn(4) })
+    await cards(darkroom.id, firstPrints.id, ['Contact sheet the summer rolls', 'Print the coast path frames'])
+
+    const atlas = await newProject(
+        'Atlas rebuild',
+        '#67b8c7',
+        'flight',
+        'Redrawing the wall map: one sheet per continent, hand-lettered.',
+    )
+    const draft = await milestone(atlas.id, 'Draft sheets', 12)
+    const ink = await milestone(atlas.id, 'Inking', 40)
+    const drafts = await cards(atlas.id, draft.id, ['Trace the coastlines', 'Set the projection', 'Mark the trade routes'])
+    await patch(req, `/api/v1/project-cards/${drafts[0].id}`, { done: true })
+    await patch(req, `/api/v1/project-cards/${drafts[1].id}`, { priority: 2, due_at: dueIn(8) })
+    await cards(atlas.id, ink.id, ['Letter the continents', 'Ink the compass rose'])
+
     // ---------- Capture ----------
     //
     // Every surface is shot under a different theme + look pairing, so the
@@ -228,6 +339,32 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     await page.getByRole('button', { name: 'Appearance' }).click()
     await page.waitForTimeout(700)
     await page.screenshot({ path: resolve(SHOT_DIR, 'settings.png') })
+
+    // Projects: the portfolio of covers, then a hub. The module opens as a
+    // window over the library by default, which is what these shoot.
+    await appearance('rose', 'slate-soft')
+    await openModule('Projects')
+    await expect(page.getByText('The Bindery')).toBeVisible()
+    await page.waitForTimeout(800)
+    await page.screenshot({ path: resolve(SHOT_DIR, 'projects.png') })
+
+    // Overview: the project's own document, with the progress signals beside it.
+    await appearance('ocean', 'editorial')
+    await openModule('Projects')
+    await page.getByText('The Bindery').click()
+    await expect(page.getByTitle('Board view')).toBeVisible()
+    await page.waitForTimeout(800)
+    await page.screenshot({ path: resolve(SHOT_DIR, 'project-overview.png') })
+
+    // Board: milestones as columns, with what is finished, due and dismissed.
+    await appearance('dark', 'aurora')
+    await openModule('Projects')
+    await page.getByText('The Bindery').click()
+    await page.getByTitle('Board view').click()
+    // Milestone titles are editable inputs on the board, so wait on a card.
+    await expect(page.getByText('Sew the octavo set').first()).toBeVisible()
+    await page.waitForTimeout(800)
+    await page.screenshot({ path: resolve(SHOT_DIR, 'project-board.png') })
 
     // --- Mobile app-shell: reuses the same seeded library, just at a phone
     //     viewport, to show the swiper feed + bottom nav + sheets. Themed

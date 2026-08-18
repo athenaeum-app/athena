@@ -1,9 +1,9 @@
 # Athena
 
-Athena is a self-hosted application for journaling and archiving. It keeps your
-notes, tasks, and ideas in a single library that you run and control. One Go
-server hosts the library and serves a web client on the same origin. An optional
-desktop app is also available.
+Athena is a self-hosted application for journaling and archiving. Notes, tasks,
+and ideas live in one library that you run and control: a Go server that hosts
+it and serves the web client on the same origin, plus a desktop app that can
+manage several servers at once. No external account, no third-party service.
 
 ![The Athena feed](docs/screenshots/feed.png)
 
@@ -12,99 +12,64 @@ desktop app is also available.
 ## Features
 
 - **Moments.** Notes with a title, a Markdown body, colored tags, and file
-  attachments (images, PDFs, audio, and video preview inline). Moments are
-  grouped into archives, with full-text search, filtering by date and media,
-  pinning, and links between moments.
-- **Tasks.** A board of lists with due dates, priorities, subtasks, recurring
-  items, and an optional link to a related moment. An agenda view collects
-  everything due across every list onto one timeline. Daily lists roll unfinished
-  items into the next day.
-- **Projects.** Long-horizon efforts on a portfolio of rich status covers, each
-  opening into a tabbed hub with its own accent and icon: an overview document
-  with progress signals, a milestone board whose columns can stack and split a
-  column's height, and a graveyard that keeps dismissed cards recoverable
-  forever with deep undo. The overview and card documents use the same editor
-  and live embeds as moments, and a project can itself be embedded anywhere as
-  a summary card that opens the project when clicked.
-- **Canvas.** An infinite pan-and-zoom board with sticky notes, text labels,
-  shapes, images, web links, moment references, and live todo embeds, joined by
-  connectors.
-- **Chat.** A library-wide message log that renders the same formatting and
-  embeds as moments, with inline edit and delete.
-- **Appearance.** Eleven color themes plus a custom theme editor, six "Look"
-  presets that change surfaces and typography, and layout options.
-- **Administration.** Invite links and codes with optional expiry, roles with
-  per-permission control, an audit log, and scheduled or on-demand backups.
-- **Clients.** A browser PWA that installs to mobile, and a desktop app that can
-  manage several servers at once.
-
-Data stays on your server. There is no external account and no third-party
-service.
-
-## Demos
-
-Recorded from the running app, not mocked up.
-
-| Themes and looks |
-| --- |
-| ![Cycling through themes and looks](docs/demos/themes.gif) |
-| The same feed under seven theme and look pairings. A theme sets the palette, a look sets surfaces, typography and shape, and the two compose freely. |
-
-| To-do board |
-| --- |
-| ![Checking off tasks and switching to the agenda](docs/demos/todos.gif) |
-| Checking items off a task list, then switching to the agenda, which collects what is still due across every list. Ocean theme, Slate-soft look. |
+  attachments (images, PDFs, audio, and video preview inline). Grouped into
+  archives, with full-text search, filtering by date and media, pinning, and
+  links between moments.
+- **Tasks.** Lists with due dates, priorities, subtasks, and recurring items.
+  An agenda view collects everything due across every list onto one timeline,
+  and daily lists roll unfinished items into the next day.
+- **Projects.** Long-horizon efforts, each a cover on a portfolio that opens
+  into its own hub: an overview document with progress signals, a milestone
+  board, and a graveyard that keeps dismissed cards recoverable. Overviews and
+  cards use the same editor as moments, and a project embeds anywhere as a
+  live summary card.
+- **Canvas.** An infinite pan-and-zoom board with sticky notes, text, shapes,
+  images, links, moment references, and live todo embeds, joined by connectors.
+- **Chat.** A library-wide message log with the same formatting and embeds as
+  moments.
+- **Appearance.** Eleven color themes and six "Look" presets that compose
+  freely, both with editors for making your own.
+- **Administration.** Invite links with optional expiry, roles with
+  per-permission control, an audit log, and scheduled backups.
+- **Clients.** A browser PWA that installs to mobile, and a desktop app for
+  Windows, macOS, and Linux.
 
 ## Screenshots
 
-No two shots below use the same appearance. Each one names the theme and look
-it was captured under, so the gallery doubles as a tour of what the appearance
-system does. Nothing else differs between them: it is the same library, the
-same content, and the same build throughout.
+Same library, same build, a different theme and look in each, named below it.
 
-| To-do board | Agenda |
+| Themes and looks | Tasks and agenda |
 | --- | --- |
-| ![To-do board](docs/screenshots/todos.png)<br><sub>Ocean theme, Slate-soft look</sub> | ![Agenda view](docs/screenshots/agenda.png)<br><sub>Royal Blue theme, Ink look</sub> |
+| ![Cycling through themes and looks](docs/demos/themes.gif) | ![Checking off tasks and switching to the agenda](docs/demos/todos.gif) |
+
+| Projects portfolio | Project overview |
+| --- | --- |
+| ![Projects portfolio](docs/screenshots/projects.png)<br><sub>Rose theme, Slate-soft look</sub> | ![Project overview](docs/screenshots/project-overview.png)<br><sub>Ocean theme, Editorial look</sub> |
+
+| Milestone board | To-do board |
+| --- | --- |
+| ![Project milestone board](docs/screenshots/project-board.png)<br><sub>Dark theme, Aurora look</sub> | ![To-do board](docs/screenshots/todos.png)<br><sub>Ocean theme, Slate-soft look</sub> |
 
 | Canvas | Chat |
 | --- | --- |
 | ![Canvas](docs/screenshots/canvas.png)<br><sub>Sunset theme, Aurora look</sub> | ![Chat](docs/screenshots/chat.png)<br><sub>Arctic theme, Slate-soft look</sub> |
 
-| Focused reader | Appearance settings |
+| Focused reader | Agenda |
 | --- | --- |
-| ![Focused moment reader](docs/screenshots/focused-moment.png)<br><sub>Neutral theme, Editorial look</sub> | ![Appearance settings](docs/screenshots/settings.png)<br><sub>Rosewood theme, Legacy look</sub> |
+| ![Focused moment reader](docs/screenshots/focused-moment.png)<br><sub>Neutral theme, Editorial look</sub> | ![Agenda view](docs/screenshots/agenda.png)<br><sub>Royal Blue theme, Ink look</sub> |
 
-The web client is a PWA and installs to a phone. On mobile, moments read one
-at a time as swipeable cards, draggable anywhere on the card and not just the
-edges, with neighbouring cards peeking in. A bottom nav (Archives, Filter,
-New, Chat, More) replaces the desktop tag bar and side menu with sheets that
-slide up over the feed, and long-pressing a card, message, or canvas node
-opens its actions (edit, delete, pin) as a touch-friendly action sheet. Themes
-and looks are not a desktop-only feature, so these are themed separately again:
+On mobile, moments read one at a time as swipeable cards, and a bottom nav
+replaces the tag bar and side menu with sheets that slide up over the feed.
 
 | Mobile feed | Mobile filter | Mobile chat |
 | --- | --- | --- |
-| ![Mobile layout: the feed and bottom nav](docs/screenshots/mobile-feed.png)<br><sub>Valentine theme, Editorial look</sub> | ![Mobile layout: the filter sheet](docs/screenshots/mobile-filter.png)<br><sub>Dark theme, Glass look</sub> | ![Mobile layout: chat](docs/screenshots/mobile-chat.png)<br><sub>Light theme, Ink look</sub> |
+| ![Mobile feed](docs/screenshots/mobile-feed.png)<br><sub>Valentine theme, Editorial look</sub> | ![Mobile filter sheet](docs/screenshots/mobile-filter.png)<br><sub>Dark theme, Glass look</sub> | ![Mobile chat](docs/screenshots/mobile-chat.png)<br><sub>Light theme, Ink look</sub> |
 
-### Looks and themes
-
-A **theme** sets the colour palette. A **look** sets surfaces, typography, and
-shape. The two are independent, so any look composes with any theme, and both
-ship with an editor for making your own.
-
-| Look | Treatment | Seen above in |
-| --- | --- | --- |
-| Legacy | Inter sans, chunky radii, neon shadows | Feed, appearance settings |
-| Editorial | Warm parchment, full serif, hairline rules | Focused reader, mobile feed |
-| Glass | Translucent frosted surfaces | Mobile filter |
-| Ink | Near-black, sharp corners, mono metadata | Agenda, mobile chat |
-| Aurora | Layered gradient backdrop, glowing accents | Canvas |
-| Slate-soft | Borderless, soft shadows, large radii | To-do board, chat |
-
-Eleven themes ship: Legacy, Dark, Light, Neutral, Rose, Valentine, Ocean, Royal
-Blue, Sunset, Arctic, and Rosewood. Nine of them appear in the screenshots
-above. A custom theme exports as a single shareable string, and a theme can be
-pinned per archive so a given archive always opens in its own colours.
+A theme sets the palette; a look sets surfaces, typography, and shape. Themes
+ship as Legacy, Dark, Light, Neutral, Rose, Valentine, Ocean, Royal Blue,
+Sunset, Arctic, and Rosewood; looks as Legacy, Editorial, Glass, Ink, Aurora,
+and Slate-soft. A custom theme exports as one shareable string, and a theme can
+be pinned per archive.
 
 ## Getting started
 
@@ -117,44 +82,26 @@ npm run dev
 ```
 
 `npm run dev` starts the Go server, the client with hot reload, and the desktop
-launcher together. The first account you create becomes the owner and names the
-library; everyone else joins by invitation from the admin panel.
-
-To run in a browser instead of the desktop app, use `npm run dev:web` and open
-the address it prints.
+launcher together; `npm run dev:web` runs the client alone in a browser. The
+first account you create becomes the owner and names the library.
 
 ### Demo library
 
-To see Athena populated instead of starting from an empty library, run:
+`npm run demo` wipes the database and seeds a full library through the real
+domain layer, so the sync events and audit entries are the genuine article. It
+covers every attachment type, pinned and legacy content, and active, expired,
+and used invites, under five personas spanning the roles:
 
-```bash
-npm run demo
-```
+| Username | Password | Role |
+| --- | --- | --- |
+| `athena` | `demo-owner-2026` | Owner |
+| `ada_admin` | `demo-admin-2026` | Admin |
+| `eli_editor` | `demo-editor-2026` | Editor |
+| `mia_member` | `demo-member-2026` | Member |
+| `vic_viewer` | `demo-viewer-2026` | Viewer |
 
-This wipes any existing data and seeds a rich, deterministic demo library through
-the real domain layer (moments, tasks, a canvas board, and chat), driven through
-the same code paths the app itself uses, so every mutation produces authentic
-sync events and audit entries. It covers every attachment type (images, PDF,
-audio, animated GIF, and a generic file), pinned and legacy-badged content, and
-active/expired/used invites. The command prints a login for five personas
-spanning every role:
-
-| Username | Password | Role | Email |
-| --- | --- | --- | --- |
-| `athena` | `demo-owner-2026` | Owner | owner@demo.athena |
-| `ada_admin` | `demo-admin-2026` | Admin | admin@demo.athena |
-| `eli_editor` | `demo-editor-2026` | Editor | editor@demo.athena |
-| `mia_member` | `demo-member-2026` | Member | member@demo.athena |
-| `vic_viewer` | `demo-viewer-2026` | Viewer | viewer@demo.athena |
-
-These credentials are published here on purpose and are meant for local
-evaluation only. `npm run demo` destroys the existing database, so never point it
-at a server holding real data, and never expose a demo-seeded server to a
-network.
-
-| Login | Demo feed |
-| --- | --- |
-| ![Login screen](docs/screenshots/demo-login.png) | ![Demo feed](docs/screenshots/demo-feed.png) |
+Local evaluation only. It destroys the existing database, so never point it at
+real data or expose a demo-seeded server to a network.
 
 ## Keyboard shortcuts
 
@@ -167,40 +114,35 @@ network.
 | `Ctrl+S` | Save the moment being edited |
 | `Escape` | Close the top dialog |
 
-Shortcuts can be rebound in Settings, under Keybinds.
+Rebindable in Settings, under Keybinds.
 
 ## Self-hosting
 
-Athena ships as a single container. The image contains the Go server with the
-web client compiled into it, so there is nothing else to run and no separate
-frontend to deploy.
-
-Grab [`docker-compose.yml`](docker-compose.yml) from a checkout of the repo and start it:
+Athena ships as one container: the Go server with the web client compiled into
+it. Take [`docker-compose.yml`](docker-compose.yml) and start it:
 
 ```bash
 docker compose up -d
 ```
 
-Open `http://<host>:8080`. The first account you register becomes the owner.
-Everyone else joins by invitation from the admin panel.
-
-Updates apply themselves. The compose file includes a Watchtower service that
-checks hourly for a newer image and restarts the server into it, leaving your
-data untouched. Delete that service if you would rather do it by hand:
-
-```bash
-docker compose pull && docker compose up -d
-```
-
-To run an unreleased change, build from a checkout instead:
+Open `http://<host>:8080`. The compose file includes a Watchtower service that
+checks hourly for a newer image and restarts into it, data untouched; delete it
+to update by hand with `docker compose pull && docker compose up -d`. To run an
+unreleased change, build from a checkout:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
+Athena serves plain HTTP and expects a proxy in front of it to terminate TLS.
+Session cookies are `Secure` only when the Go server itself sees TLS, so behind
+a terminating proxy they will not carry that flag; they stay `HttpOnly` with
+`SameSite=Lax`. Forward the `Host` header so generated URLs stay correct.
+
 ### Data
 
-Everything lives in `./data`, bind-mounted into the container:
+Everything lives in `./data`, bind-mounted into the container. Back up that one
+directory and you have backed up the library.
 
 | Path | What it is |
 | --- | --- |
@@ -209,13 +151,10 @@ Everything lives in `./data`, bind-mounted into the container:
 | `data/backups/` | Automated database snapshots |
 | `data/athena.config.json` | Runtime settings written by the Settings UI |
 
-Back up that one directory and you have backed up the library. Athena also
-takes its own scheduled snapshots into `data/backups/`, which you can download
-or restore from Settings.
-
 ### Configuration
 
-All optional. The defaults are what the compose file ships with.
+All optional, and all shown at their defaults. Environment variables win over
+what the Settings UI writes to `data/athena.config.json`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -229,22 +168,11 @@ All optional. The defaults are what the compose file ships with.
 | `DB_PATH` | `/app/data/athenaeum.db` | Database location |
 | `UPLOADS_PATH` | `/app/data/uploads` | Upload directory |
 
-Backup settings can also be changed in Settings, which writes them to
-`data/athena.config.json`. Environment variables win over that file.
-
-### Behind a reverse proxy
-
-Athena serves plain HTTP and expects something in front of it to terminate TLS.
-Session cookies are marked `Secure` only when the Go server itself sees a TLS
-connection, so behind a terminating proxy they will not carry that flag. They
-remain `HttpOnly` with `SameSite=Lax`. Forward the `Host` header so generated
-URLs stay correct.
-
 ## Development
 
-Athena is a SolidJS PWA (TypeScript, Tailwind) served by a Go server with SQLite,
-plus an Electron launcher. Authentication uses same-origin session cookies, and
-live updates come from delta-sync polling.
+A SolidJS PWA (TypeScript, Tailwind) served by a Go server with SQLite, plus an
+Electron launcher. Auth is same-origin session cookies; live updates are
+delta-sync polling.
 
 ```
 athena/
@@ -262,53 +190,33 @@ Commands run from the repository root, which delegates into each sub-project.
 | `npm run dev` | Full stack: Go API, client hot reload, and Electron |
 | `npm run dev:web` | Client dev server only (open in a browser) |
 | `npm run dev:server` | Go API only, on port 8080 |
-| `npm run demo` | Wipe existing data and seed a rich demo library |
+| `npm run demo` | Wipe existing data and seed a full demo library |
 | `npm run build` | Build the desktop installer with electron-builder |
-| `npm run build:dir` | Unpacked desktop app, no installer |
 | `npm run build:client` | Build the PWA into `server/client/web` |
 | `npm run build:server` | `go build ./...` |
 | `npm test` | Client unit tests and `go test ./...` |
 | `npm run typecheck` | `tsc --noEmit` over the client |
 | `npm run e2e` | Playwright end-to-end tests |
 | `cd client && npm run screenshots` | Regenerate the README screenshots |
-| `cd client && npm run demos` | Regenerate the README demo GIFs (needs ffmpeg) |
+| `cd client && npm run demos` | Regenerate the README GIFs (needs ffmpeg) |
 
-The screenshots are produced from the running app. A Playwright script
-([`client/e2e/screenshots.spec.ts`](client/e2e/screenshots.spec.ts)) starts a
-fresh server, seeds sample content over the REST API, and captures each surface
-into `docs/screenshots/`. It also sets a different theme and look before each
-capture; those pairings are named in the captions above, so changing one in the
-script means changing the matching caption here.
-
-The demo GIFs come from a sibling script
-([`client/e2e/demos.spec.ts`](client/e2e/demos.spec.ts)), which captures PNG
-frames the same way and hands them to ffmpeg for a two-pass palette encode into
-`docs/demos/`. ffmpeg has to be on `PATH`; without it the script skips rather
-than failing the suite. GIF caps out at 256 colours and stores whole frames, so
-the clips are deliberately short and mostly static: continuous motion such as
-panning the canvas repaints every pixel of every frame and multiplies the file
-size for it.
-
-A few things to know before making changes:
+Two things to know before making changes:
 
 - `vite build` writes the client into `server/client/web/`, which the Go binary
-  embeds at compile time. Rebuild the server after building the client for
-  changes to take effect.
-- The client build is what the server serves; there is no separately hosted
-  frontend.
-- See [`docs/GLOSSARY.md`](docs/GLOSSARY.md) for the domain glossary and
-  [`docs/adr/`](docs/adr) for the architectural decisions, including one server
-  per library, the web and desktop capability split, and the embeddable modules.
+  embeds at compile time, so rebuild the server after building the client.
+- Every image above comes from the running app.
+  [`client/e2e/screenshots.spec.ts`](client/e2e/screenshots.spec.ts) starts a
+  fresh server, seeds content over the API, and shoots each surface under a
+  different theme and look, so changing a pairing there means changing its
+  caption here.
+
+[`docs/GLOSSARY.md`](docs/GLOSSARY.md) has the domain glossary and
+[`docs/adr/`](docs/adr) the architectural decisions.
 
 ## Status
 
-Version 2 rewrite, under active development.
-
-## Contributing
-
-Bug reports and pull requests are welcome. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test, and submit changes,
-and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
+Version 2 rewrite, under active development. To report a vulnerability, see
+[SECURITY.md](SECURITY.md).
 
 ## License
 

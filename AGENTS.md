@@ -1,8 +1,7 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in this repository. Humans should read
-[CONTRIBUTING.md](CONTRIBUTING.md) first; this file covers the same ground more
-directly, plus the things that are easy to get wrong here.
+Guidance for AI coding agents working in this repository: how to build and
+test it, and the things that are easy to get wrong here.
 
 ## Commands
 
