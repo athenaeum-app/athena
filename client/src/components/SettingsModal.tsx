@@ -1038,8 +1038,8 @@ const ProjectsSection: Component = () => (
             <div>
                 <span class="text-main text-sm font-bold block">Open Projects in a window</span>
                 <span class="text-sub text-xs">
-                    Projects fills the screen by default. Turn this on to open it as a large panel over the library
-                    instead, with the library still visible around it.
+                    Projects opens as a large panel with your library still visible around it. Turn this off to have
+                    it fill the screen instead.
                 </span>
             </div>
             <input

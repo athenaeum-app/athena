@@ -119,7 +119,7 @@ export interface Prefs {
     bookcaseMain: boolean
     bookcaseProjects: boolean
     // Open Projects as a large panel over the library instead of filling the
-    // screen. Off by default: a board wants the whole window.
+    // screen. On by default; turn it off to have the module fill the window.
     projectsWindowed: boolean
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
@@ -151,7 +151,7 @@ export const DEFAULT_PREFS: Prefs = {
     momentEmbedPreviewHeight: 40,
     bookcaseMain: true,
     bookcaseProjects: true,
-    projectsWindowed: false,
+    projectsWindowed: true,
     font: '',
     animationsEnabled: true,
     animationSpeed: 1,
