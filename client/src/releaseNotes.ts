@@ -64,6 +64,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Escape now closes Projects in the desktop app.',
         'Leaving Projects is now a back arrow on the left, matching the way a project returns to the list.',
     ],
+    '2.17.1': [
+        'Projects now opens as a window over your library by default. Turn it off in Settings to have it fill the screen.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
