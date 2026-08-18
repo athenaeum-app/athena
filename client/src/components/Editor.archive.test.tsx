@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@solidjs/testing-library'
 import { Editor } from './Editor'
 import type { Archive } from '../api'
@@ -17,16 +17,17 @@ window.matchMedia = ((q: string) => ({
 })) as unknown as typeof window.matchMedia
 
 function openComposer(defaultArchive: string | null = null) {
+    const onSubmit = vi.fn(async (_t: string, _c: string, _tags: string[], _archive: string) => {})
     render(() => (
         <Editor
             chrome="modal"
             archives={archives}
             tags={[]}
             defaultArchive={defaultArchive}
-            onSubmit={async () => {}}
+            onSubmit={onSubmit}
         />
     ))
-    return screen.getByRole('combobox') as HTMLSelectElement
+    return { select: screen.getByRole('combobox') as HTMLSelectElement, onSubmit }
 }
 
 describe('composer archive', () => {
@@ -35,27 +36,33 @@ describe('composer archive', () => {
         cleanup()
     })
 
-    it('reopens on the archive that was chosen by hand', () => {
-        const select = openComposer()
-        expect(select.value).toBe('a1')
-        fireEvent.change(select, { target: { value: 'a2' } })
+    it('still points at the chosen archive after a moment is posted', async () => {
+        const first = openComposer()
+        expect(first.select.value).toBe('a1')
+        fireEvent.change(first.select, { target: { value: 'a2' } })
+
+        fireEvent.click(screen.getByText('Save'))
+        await vi.waitFor(() => expect(first.onSubmit).toHaveBeenCalled())
+        expect(first.onSubmit.mock.calls[0][3]).toBe('a2')
+        // Posting closes the composer; the next one is built from scratch.
         cleanup()
 
-        expect(openComposer().value).toBe('a2')
+        expect(openComposer().select.value).toBe('a2')
     })
 
-    it('leaves the choice behind when a different archive is on screen', () => {
-        fireEvent.change(openComposer(), { target: { value: 'a2' } })
+    it('keeps the choice while a different archive is being read', () => {
+        fireEvent.change(openComposer().select, { target: { value: 'a2' } })
         cleanup()
 
-        expect(openComposer('a1').value).toBe('a1')
+        expect(openComposer('a1').select.value).toBe('a2')
+    })
+
+    it('follows the archive on screen until a choice is made', () => {
+        expect(openComposer('a2').select.value).toBe('a2')
     })
 
     it('drops a choice whose archive is gone', () => {
-        localStorage.setItem(
-            'athena-composer-archive',
-            JSON.stringify({ archiveId: 'deleted', context: '' }),
-        )
-        expect(openComposer().value).toBe('a1')
+        localStorage.setItem('athena-composer-archive', 'deleted')
+        expect(openComposer().select.value).toBe('a1')
     })
 })

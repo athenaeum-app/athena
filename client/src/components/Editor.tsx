@@ -117,33 +117,23 @@ export function clearDraft(key: string): void {
     }
 }
 
-// The archive last chosen by hand in a composer, and the archive that was being
-// viewed when it was chosen. A composer is built fresh every time it opens, so
-// without this the choice lasts exactly one moment. Storing the context too is
-// what lets the choice stick where it was made while still standing aside when
-// you go and look at a different archive.
-interface StoredArchiveChoice {
-    archiveId: string
-    context: string
-}
-
+// The archive last chosen by hand in a composer. Posting closes the composer
+// and the next one is built from scratch, so without this the choice lasts
+// exactly one moment: you pick Work, post, and the next moment is aimed at
+// whatever the composer would have guessed.
 const ARCHIVE_CHOICE_KEY = 'athena-composer-archive'
 
-function readArchiveChoice(): StoredArchiveChoice | null {
+function readArchiveChoice(): string {
     try {
-        const raw = localStorage.getItem(ARCHIVE_CHOICE_KEY)
-        if (!raw) return null
-        const parsed = JSON.parse(raw) as StoredArchiveChoice
-        if (typeof parsed?.archiveId !== 'string' || typeof parsed?.context !== 'string') return null
-        return parsed
+        return localStorage.getItem(ARCHIVE_CHOICE_KEY) || ''
     } catch {
-        return null
+        return ''
     }
 }
 
-function writeArchiveChoice(choice: StoredArchiveChoice): void {
+function writeArchiveChoice(archiveId: string): void {
     try {
-        localStorage.setItem(ARCHIVE_CHOICE_KEY, JSON.stringify(choice))
+        localStorage.setItem(ARCHIVE_CHOICE_KEY, archiveId)
     } catch {
         // Storage being unavailable costs the memory, not the composer.
     }
@@ -187,13 +177,11 @@ export const Editor: Component<EditorProps> = (props) => {
 
     // Deferred so the pre-fill doesn't echo straight back as a "change".
     createEffect(on(content, (v) => props.onChange?.(v), { defer: true }))
-    // The remembered choice, but only where it was made: the archive on screen
-    // now has to be the one that was on screen then. An archive deleted since
-    // is dropped rather than posted into.
+    // An archive deleted since it was chosen is dropped rather than posted into,
+    // which also covers a choice made in another library.
     const rememberedArchive = () => {
-        const choice = readArchiveChoice()
-        if (!choice || choice.context !== (props.defaultArchive || '')) return ''
-        return (props.archives || []).some((a) => a.id === choice.archiveId) ? choice.archiveId : ''
+        const chosen = readArchiveChoice()
+        return chosen && (props.archives || []).some((a) => a.id === chosen) ? chosen : ''
     }
     const preferredArchive = () =>
         props.moment?.archive_id || rememberedArchive() || props.defaultArchive || props.archives?.[0]?.id || ''
@@ -210,7 +198,7 @@ export const Editor: Component<EditorProps> = (props) => {
 
     // Whether the archive came from the user rather than from context. Until it
     // does, the composer follows whatever archive you are looking at; once you
-    // pick one, it stays picked.
+    // pick one, it stays picked, here and in every composer after it.
     //
     // This used to happen by accident: the composer was rebuilt whenever the
     // surrounding props changed, so it re-read the default every time. Now that
@@ -224,7 +212,7 @@ export const Editor: Component<EditorProps> = (props) => {
         setArchiveId(id)
         // Only for writing something new: moving an existing moment says
         // nothing about where the next one belongs.
-        if (!props.moment) writeArchiveChoice({ archiveId: id, context: props.defaultArchive || '' })
+        if (!props.moment) writeArchiveChoice(id)
     }
 
     createEffect(() => {
