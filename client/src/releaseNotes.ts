@@ -71,6 +71,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Clicking a tag on a moment now filters by it, the same as clicking it in the tag bar. Turn it off in Settings.',
         'The desktop layout no longer wastes a strip of height, so it fits a browser window without scrolling.',
     ],
+    '2.18.1': [
+        'The composer now reopens on the archive you last chose, instead of resetting after every moment.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
