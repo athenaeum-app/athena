@@ -74,6 +74,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.18.1': [
         'The composer now reopens on the archive you last chose, instead of resetting after every moment.',
     ],
+    '2.18.2': [
+        'The archive you pick in the composer now sticks after you post, whichever archive you happen to be reading.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
