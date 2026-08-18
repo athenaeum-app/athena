@@ -54,6 +54,11 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Horizontal scrollbars now match the theme instead of the browser default.',
         'Royal Blue buttons no longer wash out their labels.',
     ],
+    '2.16.1': [
+        'Projects is now reachable on phones, under More, and its screens fit a narrow window.',
+        'Starting a project is now a card in the grid rather than a button in the bar.',
+        'The Projects bar no longer ignores clicks in the desktop app.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
