@@ -34,42 +34,32 @@ manage several servers at once. No external account, no third-party service.
 - **Clients.** A browser PWA that installs to mobile, and a desktop app for
   Windows, macOS, and Linux.
 
-## Screenshots
+## What it looks like
 
-Same library, same build, a different theme and look in each, named below it.
+Every clip below is the running app, one theme and look each, named underneath.
 
-| Themes and looks | Tasks and agenda |
+| Projects | Tasks and agenda |
 | --- | --- |
-| ![Cycling through themes and looks](docs/demos/themes.gif) | ![Checking off tasks and switching to the agenda](docs/demos/todos.gif) |
+| ![Opening a project and checking off a card](docs/demos/projects.gif)<br><sub>Rose theme, Slate-soft look</sub> | ![Checking off tasks and switching to the agenda](docs/demos/todos.gif)<br><sub>Ocean theme, Slate-soft look</sub> |
 
-| Projects portfolio | Project overview |
+| Writing a moment | Canvas |
 | --- | --- |
-| ![Projects portfolio](docs/screenshots/projects.png)<br><sub>Rose theme, Slate-soft look</sub> | ![Project overview](docs/screenshots/project-overview.png)<br><sub>Ocean theme, Editorial look</sub> |
+| ![Writing, tagging and posting a moment](docs/demos/moments.gif)<br><sub>Rosewood theme, Legacy look</sub> | ![Dragging a node around the board](docs/demos/canvas.gif)<br><sub>Sunset theme, Aurora look</sub> |
 
-| Milestone board | To-do board |
+| Chat | On a phone |
 | --- | --- |
-| ![Project milestone board](docs/screenshots/project-board.png)<br><sub>Dark theme, Aurora look</sub> | ![To-do board](docs/screenshots/todos.png)<br><sub>Ocean theme, Slate-soft look</sub> |
+| ![Sending a message](docs/demos/chat.gif)<br><sub>Arctic theme, Slate-soft look</sub> | ![Swiping a card, then the filter sheet](docs/demos/mobile.gif)<br><sub>Valentine theme, Editorial look</sub> |
 
-| Canvas | Chat |
-| --- | --- |
-| ![Canvas](docs/screenshots/canvas.png)<br><sub>Sunset theme, Aurora look</sub> | ![Chat](docs/screenshots/chat.png)<br><sub>Arctic theme, Slate-soft look</sub> |
+| Themes and looks |
+| --- |
+| ![Cycling through themes and looks](docs/demos/themes.gif) |
+| The same feed under seven pairings. A theme sets the palette, a look sets surfaces, typography, and shape, and the two compose freely. |
 
-| Focused reader | Agenda |
-| --- | --- |
-| ![Focused moment reader](docs/screenshots/focused-moment.png)<br><sub>Neutral theme, Editorial look</sub> | ![Agenda view](docs/screenshots/agenda.png)<br><sub>Royal Blue theme, Ink look</sub> |
-
-On mobile, moments read one at a time as swipeable cards, and a bottom nav
-replaces the tag bar and side menu with sheets that slide up over the feed.
-
-| Mobile feed | Mobile filter | Mobile chat |
-| --- | --- | --- |
-| ![Mobile feed](docs/screenshots/mobile-feed.png)<br><sub>Valentine theme, Editorial look</sub> | ![Mobile filter sheet](docs/screenshots/mobile-filter.png)<br><sub>Dark theme, Glass look</sub> | ![Mobile chat](docs/screenshots/mobile-chat.png)<br><sub>Light theme, Ink look</sub> |
-
-A theme sets the palette; a look sets surfaces, typography, and shape. Themes
-ship as Legacy, Dark, Light, Neutral, Rose, Valentine, Ocean, Royal Blue,
-Sunset, Arctic, and Rosewood; looks as Legacy, Editorial, Glass, Ink, Aurora,
-and Slate-soft. A custom theme exports as one shareable string, and a theme can
-be pinned per archive.
+Themes ship as Legacy, Dark, Light, Neutral, Rose, Valentine, Ocean, Royal
+Blue, Sunset, Arctic, and Rosewood; looks as Legacy, Editorial, Glass, Ink,
+Aurora, and Slate-soft. A custom theme exports as one shareable string, and a
+theme can be pinned per archive. On a phone, moments read one at a time as
+swipeable cards and a bottom nav replaces the tag bar and side menu with sheets.
 
 ## Getting started
 
@@ -205,10 +195,11 @@ Two things to know before making changes:
 - `vite build` writes the client into `server/client/web/`, which the Go binary
   embeds at compile time, so rebuild the server after building the client.
 - Every image above comes from the running app.
-  [`client/e2e/screenshots.spec.ts`](client/e2e/screenshots.spec.ts) starts a
-  fresh server, seeds content over the API, and shoots each surface under a
-  different theme and look, so changing a pairing there means changing its
-  caption here.
+  [`client/e2e/demos.spec.ts`](client/e2e/demos.spec.ts) starts a fresh server,
+  seeds content over the API, films each surface under a different theme and
+  look, and hands the frames to ffmpeg; its sibling
+  [`screenshots.spec.ts`](client/e2e/screenshots.spec.ts) captures the stills.
+  Change a pairing there and the caption here changes with it.
 
 [`docs/GLOSSARY.md`](docs/GLOSSARY.md) has the domain glossary and
 [`docs/adr/`](docs/adr) the architectural decisions.

@@ -58,11 +58,15 @@ function hasFfmpeg(): boolean {
 // palette from the clip itself is what keeps the colours true. stats_mode=diff
 // weights the palette toward the pixels that actually change between frames,
 // which is most of the point when the backdrop is a flat colour.
-function encodeGif(name: string, fps: number): string {
+// `stride` thins the clip: 2 keeps every second frame and plays it back at half
+// the rate, so the demo runs at the same speed for half the bytes. Worth it on
+// the clips that repaint the whole window (a module opening over the feed);
+// pointless on the ones where a checkbox ticks in the corner of a still frame.
+function encodeGif(name: string, fps: number, width: number = GIF_WIDTH, stride: number = 1): string {
     const frames = resolve(FRAME_DIR, name, 'frame-%04d.png')
     const palette = resolve(FRAME_DIR, name, 'palette.png')
     const out = resolve(DEMO_DIR, `${name}.gif`)
-    const scale = `scale=${GIF_WIDTH}:-1:flags=lanczos`
+    const scale = `fps=${(fps / stride).toFixed(2)},scale=${width}:-1:flags=lanczos`
 
     const run = (args: string[]) => {
         const res = spawnSync('ffmpeg', args, { stdio: 'ignore' })
@@ -161,6 +165,53 @@ test('capture README demo GIFs', async ({ page }) => {
     const plants = await post<{ id: string }>(req, `/api/v1/todos/${project.id}/items`, { text: 'Water the office plants' })
     await patch(req, `/api/v1/todo-items/${plants.id}`, { priority: 1, recurrence: 'weekly', due_at: dueIn(5) })
 
+    const canvas = await post<{ id: string }>(req, '/api/v1/canvases', { title: 'Roadmap sketch' })
+    const node = (kind: string, x: number, y: number, w: number, h: number, content: string, style: object) =>
+        post<{ id: string }>(req, `/api/v1/canvases/${canvas.id}/nodes`, { kind, x, y, w, h, content, style: JSON.stringify(style) })
+    await node('sticky', 90, 90, 190, 130, 'Foundation:\nsolid-query cache', { color: '#f6e58d', fontSize: 14 })
+    await node('sticky', 360, 120, 190, 130, 'Tasks:\ndue - priority - agenda', { color: '#7bed9f', fontSize: 14 })
+    await node('shape', 150, 300, 210, 120, 'Looks system', { color: '#dfe6e9', shape: 'rounded' })
+
+    for (const content of [
+        'Attic shelf catalogued. Twenty-two to rebind, four beyond saving.',
+        'Cloth samples came back. The green is the one.',
+        'Bone folder snapped. Ordered two this time.',
+    ]) {
+        await post(req, '/api/v1/chat', { content })
+    }
+
+    const bindery = await post<{ id: string }>(req, '/api/v1/projects', { title: 'The Bindery' })
+    await patch(req, `/api/v1/projects/${bindery.id}`, {
+        accent: '#c9a35c',
+        icon: 'menu_book',
+        overview: 'Rebinding the shelf of hardbacks that came out of the attic, a case at a time.',
+    })
+    const sourcing = await post<{ id: string }>(req, `/api/v1/projects/${bindery.id}/milestones`, { title: 'Sourcing', due_at: dueIn(-10) })
+    const bench = await post<{ id: string }>(req, `/api/v1/projects/${bindery.id}/milestones`, { title: 'On the bench', due_at: dueIn(9) })
+    const sourced = await post<{ id: string }[]>(req, `/api/v1/projects/${bindery.id}/cards`, {
+        milestone_id: sourcing.id,
+        titles: ['Order book cloth', 'Cut boards for the first six', 'Replace the bone folder'],
+    })
+    for (const c of sourced.slice(0, 2)) await patch(req, `/api/v1/project-cards/${c.id}`, { done: true })
+    const benched = await post<{ id: string }[]>(req, `/api/v1/projects/${bindery.id}/cards`, {
+        milestone_id: bench.id,
+        titles: ['Sew the octavo set', 'Round and back the first three', 'Case in the green cloth pair'],
+    })
+    await patch(req, `/api/v1/project-cards/${benched[1].id}`, { priority: 3, due_at: dueIn(2) })
+
+    const garden = await post<{ id: string }>(req, '/api/v1/projects', { title: 'Kitchen garden' })
+    await patch(req, `/api/v1/projects/${garden.id}`, {
+        accent: '#8fbf8f',
+        icon: 'science',
+        overview: 'Four raised beds, and a running argument with the slugs.',
+    })
+    const beds = await post<{ id: string }>(req, `/api/v1/projects/${garden.id}/milestones`, { title: 'Beds', due_at: dueIn(-2) })
+    const built = await post<{ id: string }[]>(req, `/api/v1/projects/${garden.id}/cards`, {
+        milestone_id: beds.id,
+        titles: ['Build the fourth bed', 'Top up the compost'],
+    })
+    await patch(req, `/api/v1/project-cards/${built[0].id}`, { done: true })
+
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/')
 
@@ -224,10 +275,138 @@ test('capture README demo GIFs', async ({ page }) => {
     })
     const todosGif = encodeGif('todos', Number(todosFps.toFixed(2)))
 
+    // ---------- Demo 3: Projects ----------
+    //
+    // The whole module in one pass: the portfolio, a project's own document,
+    // then its milestone board with a card checked off so the meters move.
+    const projects = frames('projects')
+    await appearance('rose', 'slate-soft')
+    await page.getByRole('button', { name: 'Projects', exact: true }).first().click()
+    await expect(page.getByText('The Bindery')).toBeVisible()
+    await page.waitForTimeout(700)
+
+    const projectsFps = await projects.during(page, async () => {
+        await page.waitForTimeout(700)
+        await page.getByText('The Bindery').click()
+        await page.waitForTimeout(1300)
+        await page.getByTitle('Board view').click()
+        await page.waitForTimeout(1100)
+        await page
+            .getByText('Sew the octavo set', { exact: true })
+            .locator('xpath=preceding-sibling::input[@type="checkbox"]')
+            .check()
+        await page.waitForTimeout(1400)
+    })
+    const projectsGif = encodeGif('projects', Number(projectsFps.toFixed(2)), 780, 2)
+    await page.keyboard.press('Escape')
+
+    // ---------- Demo 4: writing a moment ----------
+    //
+    // Type, tag, post. The card landing at the top of the feed is the payoff,
+    // so the clip holds on it rather than cutting at the click.
+    const moments = frames('moments')
+    await appearance('rosewood', 'legacy')
+    await page.waitForTimeout(500)
+
+    const momentsFps = await moments.during(page, async () => {
+        await page.waitForTimeout(500)
+        await page.getByPlaceholder('Untitled').fill('Rebinding the attic hardbacks')
+        await page.waitForTimeout(400)
+        await page
+            .getByPlaceholder(/Write your thoughts/)
+            .fill('Cloth ordered, boards cut. The 1908 set needs a hollow back.')
+        await page.waitForTimeout(500)
+        await page.getByPlaceholder(/Add tags/).fill('life')
+        await page.keyboard.press('Enter')
+        await page.waitForTimeout(600)
+        await page.getByRole('button', { name: 'Post' }).click()
+        await page.waitForTimeout(900)
+        // The composer is tall enough that the new card lands half out of
+        // frame; the clip should end on the thing it just made.
+        await page.locator('[data-testid="feed-column"]').evaluate((el) => el.scrollTo({ top: 260, behavior: 'smooth' }))
+        await page.waitForTimeout(1500)
+    })
+    const momentsGif = encodeGif('moments', Number(momentsFps.toFixed(2)), GIF_WIDTH, 2)
+
+    // ---------- Demo 5: the canvas ----------
+    //
+    // Dragging one node, not panning the board: a moving viewport repaints
+    // every pixel of every frame, which is exactly what GIF is worst at.
+    const canvasFrames = frames('canvas')
+    await appearance('sunset', 'aurora')
+    await page.getByRole('button', { name: 'Canvas', exact: true }).first().click()
+    await page.getByText('Roadmap sketch', { exact: true }).click()
+    await expect(page.getByText('Foundation:')).toBeVisible()
+    await page.waitForTimeout(800)
+
+    // The shape at the bottom of the board: it has clear space to its right,
+    // so the drag ends somewhere legible instead of on top of a sticky note.
+    const sticky = page.getByText('Looks system').first()
+    const box = await sticky.boundingBox()
+    const canvasFps = await canvasFrames.during(page, async () => {
+        await page.waitForTimeout(700)
+        if (box) {
+            // Absolute target, into the clear right-hand side of the board.
+            const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+            const to = { x: 760, y: 430 }
+            await page.mouse.move(from.x, from.y)
+            await page.mouse.down()
+            for (const step of [0.25, 0.5, 0.75, 1]) {
+                await page.mouse.move(from.x + (to.x - from.x) * step, from.y + (to.y - from.y) * step)
+                await page.waitForTimeout(90)
+            }
+            await page.mouse.up()
+        }
+        await page.waitForTimeout(1300)
+    })
+    const canvasGif = encodeGif('canvas', Number(canvasFps.toFixed(2)))
+    await page.keyboard.press('Escape')
+
+    // ---------- Demo 6: chat ----------
+    const chat = frames('chat')
+    await appearance('arctic', 'slate-soft')
+    await page.getByRole('button', { name: 'Chat', exact: true }).first().click()
+    await page.waitForTimeout(800)
+
+    const chatFps = await chat.during(page, async () => {
+        await page.waitForTimeout(600)
+        const box2 = page.getByPlaceholder(/message/i).first()
+        await box2.click()
+        await box2.type('Cloth arrived. Starting the octavo set tonight.', { delay: 45 })
+        await page.waitForTimeout(400)
+        await page.keyboard.press('Enter')
+        await page.waitForTimeout(1500)
+    })
+    const chatGif = encodeGif('chat', Number(chatFps.toFixed(2)), GIF_WIDTH, 2)
+    await page.keyboard.press('Escape')
+
+    // ---------- Demo 7: the phone shell ----------
+    //
+    // Swipe a card away, then raise the filter sheet from the bottom nav.
+    // Encoded narrower than the desktop clips: it is a 390px viewport, and
+    // upscaling it to the desktop width only makes a soft, heavy GIF.
+    const mobile = frames('mobile')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await appearance('valentine', 'editorial')
+    await page.waitForTimeout(800)
+
+    const mobileFps = await mobile.during(page, async () => {
+        await page.waitForTimeout(700)
+        await page.mouse.move(300, 430)
+        await page.mouse.down()
+        for (const x of [250, 190, 130, 80, 40]) {
+            await page.mouse.move(x, 430)
+            await page.waitForTimeout(70)
+        }
+        await page.mouse.up()
+        await page.waitForTimeout(1300)
+        await page.getByRole('button', { name: 'Filter' }).click()
+        await page.waitForTimeout(1600)
+    })
+    const mobileGif = encodeGif('mobile', Number(mobileFps.toFixed(2)), 320)
+
     rmSync(FRAME_DIR, { recursive: true, force: true })
     console.log(
-        `demo GIFs written:\n` +
-            `  ${themesGif} (${themes.count()} frames @ 1.15fps)\n` +
-            `  ${todosGif} (${todos.count()} frames @ ${todosFps.toFixed(1)}fps)`,
+        ['demo GIFs written:', themesGif, todosGif, projectsGif, momentsGif, canvasGif, chatGif, mobileGif].join('\n  '),
     )
 })
