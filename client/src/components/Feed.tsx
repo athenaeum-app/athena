@@ -638,6 +638,28 @@ export const Feed: Component<FeedProps> = (props) => {
                     </Show>
                 </div>
 
+                {/* Inline creator (SmartEditor, 4.5) or the classic button.
+                    Outside the loading gate on purpose: posting reloads the
+                    feed, and a composer inside the gate is torn down and
+                    rebuilt by its own submit, taking the picked archive and
+                    the keyboard focus with it. */}
+                <Show when={props.showComposer}>
+                    <Show
+                        when={inlineCreator()}
+                        fallback={
+                            <button
+                                onClick={props.onCreateMoment}
+                                class="bg-element-accent hover:border-highlight border-element-accent flex w-full items-center justify-center gap-2 rounded-xl border p-4 text-center font-bold transition-all duration-100 hover:scale-[1.02] hover:cursor-pointer"
+                            >
+                                <span class="material-symbols-outlined text-xl">add</span>
+                                <span class="text-sub">New Moment</span>
+                            </button>
+                        }
+                    >
+                        <div class="w-full">{inlineCreator() as any}</div>
+                    </Show>
+                </Show>
+
                 <Show
                     when={!props.loading}
                     fallback={
@@ -647,24 +669,6 @@ export const Feed: Component<FeedProps> = (props) => {
                         </div>
                     }
                 >
-                    {/* Inline creator (SmartEditor, 4.5) or the classic button */}
-                    <Show when={props.showComposer}>
-                        <Show
-                            when={inlineCreator()}
-                            fallback={
-                                <button
-                                    onClick={props.onCreateMoment}
-                                    class="bg-element-accent hover:border-highlight border-element-accent flex w-full items-center justify-center gap-2 rounded-xl border p-4 text-center font-bold transition-all duration-100 hover:scale-[1.02] hover:cursor-pointer"
-                                >
-                                    <span class="material-symbols-outlined text-xl">add</span>
-                                    <span class="text-sub">New Moment</span>
-                                </button>
-                            }
-                        >
-                            <div class="w-full">{inlineCreator() as any}</div>
-                        </Show>
-                    </Show>
-
                     <Show when={props.moments.length === 0 && props.pinnedMoments.length === 0}>
                         <div class="text-sub text-center py-12">
                             <span class="material-symbols-outlined text-4xl">inbox</span>
