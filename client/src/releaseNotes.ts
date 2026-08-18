@@ -67,6 +67,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.17.1': [
         'Projects now opens as a window over your library by default. Turn it off in Settings to have it fill the screen.',
     ],
+    '2.18.0': [
+        'Clicking a tag on a moment now filters by it, the same as clicking it in the tag bar. Turn it off in Settings.',
+        'The desktop layout no longer wastes a strip of height, so it fits a browser window without scrolling.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
