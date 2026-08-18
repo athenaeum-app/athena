@@ -83,6 +83,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.18.4': [
         'The archive dropdown no longer jumps back to the first archive a moment after you post, or when the app refreshes its archive list.',
     ],
+    '2.18.5': [
+        'Dragging inside a dialog and letting go outside it no longer closes the dialog. Projects was the worst offender.',
+        'Escape now closes one layer at a time, so dismissing a card no longer shuts the module behind it.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
