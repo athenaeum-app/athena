@@ -80,6 +80,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.18.3': [
         'Posting a moment no longer rebuilds the composer, so the archive you picked stays picked for the next one.',
     ],
+    '2.18.4': [
+        'The archive dropdown no longer jumps back to the first archive a moment after you post, or when the app refreshes its archive list.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
