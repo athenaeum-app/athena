@@ -95,6 +95,9 @@ interface FeedProps {
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    // Add/remove a tag from the feed filter, for tags drawn on a card. Same
+    // handler the tag bar uses; gated by the clickableMomentTags pref.
+    onToggleTag?: (id: string) => void
     // Whether this user may create moments at all. Drives the wording of the
     // empty state, so a read-only member isn't told to "create one".
     canCreate: boolean
@@ -170,6 +173,29 @@ export const Feed: Component<FeedProps> = (props) => {
     const patchFilter = (patch: Partial<FeedFilters>) =>
         props.onChangeFilters({ ...props.filters, ...patch })
     const clearFilters = () => props.onChangeFilters({ ...EMPTY_FEED_FILTERS })
+
+    const tagFilterable = () => prefs().clickableMomentTags && !!props.onToggleTag
+
+    // Attributes that turn a tag chip into a filter control. Kept off the class
+    // attribute so each card can keep its own sizing; the cursor hint is added
+    // at the call site instead.
+    const tagFilterAttrs = (tagId: string) => {
+        if (!tagFilterable()) return {}
+        const toggle = (e: Event) => {
+            e.stopPropagation()
+            e.preventDefault()
+            props.onToggleTag?.(tagId)
+        }
+        return {
+            role: 'button' as const,
+            tabindex: 0,
+            title: 'Filter by this tag',
+            onClick: toggle,
+            onKeyDown: (e: KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') toggle(e)
+            },
+        }
+    }
 
     // Respond to the global "focus search" shortcut (see keybinds in App).
     onMount(() => {
@@ -336,9 +362,11 @@ export const Feed: Component<FeedProps> = (props) => {
                                 props.selectedTagIds.includes(tag.id)
                             return (
                                 <span
+                                    {...tagFilterAttrs(tag.id)}
                                     class="rounded-xl p-2 text-xs font-black tracking-wide uppercase transition-all"
                                     classList={{
                                         'ring-plain scale-110 shadow-sm ring-2': highlighted(),
+                                        'hover:cursor-pointer hover:opacity-80': tagFilterable(),
                                     }}
                                     style={{
                                         'background-color': tag.color,
@@ -386,7 +414,12 @@ export const Feed: Component<FeedProps> = (props) => {
                             const tag = props.tags.find((t) => t.id === tagId)
                             if (!tag) return null
                             return (
-                                <span class="rounded-lg px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide" style={{ 'background-color': tag.color, color: contrastingTextColor(tag.color) }}>
+                                <span
+                                    {...tagFilterAttrs(tag.id)}
+                                    class="rounded-lg px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide"
+                                    classList={{ 'hover:cursor-pointer hover:opacity-80': tagFilterable() }}
+                                    style={{ 'background-color': tag.color, color: contrastingTextColor(tag.color) }}
+                                >
                                     #{tag.name}
                                 </span>
                             )

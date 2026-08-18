@@ -6,6 +6,7 @@ import { LinkPreviewList } from './LinkPreview'
 import { backdropDismiss } from '../dismiss'
 import { contrastingTextColor } from '../tagColors'
 import { useUI } from '../ui'
+import { prefs } from '../prefs'
 
 // FocusedMomentModal is a read-only "reader" view of a single moment: a blurred
 // backdrop with the moment rendered large and centred, plus edit/close actions
@@ -37,10 +38,35 @@ export const FocusedMomentModal: Component<{
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    // Add/remove a tag from the feed filter, gated by clickableMomentTags.
+    onToggleTag?: (id: string) => void
 }> = (props) => {
     const ui = useUI()
     const [moment, setMoment] = createSignal<Moment | null>(null)
     const [failed, setFailed] = createSignal(false)
+
+    const tagFilterable = () => prefs().clickableMomentTags && !!props.onToggleTag
+
+    // Filtering happens in the feed this modal is covering, so a tag click
+    // closes the reader to show the result it just asked for.
+    const tagFilterAttrs = (tagId: string) => {
+        if (!tagFilterable()) return {}
+        const toggle = (e: Event) => {
+            e.stopPropagation()
+            e.preventDefault()
+            props.onToggleTag?.(tagId)
+            props.onClose()
+        }
+        return {
+            role: 'button' as const,
+            tabindex: 0,
+            title: 'Filter by this tag',
+            onClick: toggle,
+            onKeyDown: (e: KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') toggle(e)
+            },
+        }
+    }
 
     const confirmDelete = async () => {
         const current = moment()
@@ -171,7 +197,9 @@ export const FocusedMomentModal: Component<{
                                                     if (!tag) return null
                                                     return (
                                                         <span
+                                                            {...tagFilterAttrs(tag.id)}
                                                             class="rounded-lg px-2 py-1 text-xs font-black uppercase tracking-wide"
+                                                            classList={{ 'hover:cursor-pointer hover:opacity-80': tagFilterable() }}
                                                             style={{ 'background-color': tag.color, color: contrastingTextColor(tag.color) }}
                                                         >
                                                             #{tag.name}

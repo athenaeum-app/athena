@@ -447,6 +447,20 @@ const GeneralTab: Component = () => {
                         />
                     </label>
 
+                    {/* Clickable tags on moments */}
+                    <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
+                        <div>
+                            <span class="text-main text-sm font-bold block">Filter by Clicking a Tag on a Moment</span>
+                            <span class="text-sub text-xs">Clicking a tag where it appears on a moment adds or removes it from the filter, the same as clicking it in the tag bar.</span>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={prefs().clickableMomentTags}
+                            onChange={(e) => setPref('clickableMomentTags', e.currentTarget.checked)}
+                            class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                        />
+                    </label>
+
                     {/* Inline link previews. The row-width control only means
                         anything once the toggle is on, so it stays hidden until
                         then rather than sitting there inert. */}

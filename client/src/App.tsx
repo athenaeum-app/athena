@@ -80,6 +80,8 @@ export const App: Component = () => {
 
     const [selectedArchive, setSelectedArchive] = createSignal<string | null>(null)
     const [selectedTagIds, setSelectedTagIds] = createSignal<string[]>([])
+    const toggleTag = (id: string) =>
+        setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
     const [searchQuery, setSearchQuery] = createSignal('')
     // Server-side feed filters (v2.2): date range + media/source heuristics.
     const [feedFilters, setFeedFilters] = createSignal<FeedFilters>({ ...EMPTY_FEED_FILTERS })
@@ -746,9 +748,7 @@ export const App: Component = () => {
                 tags={tags() || []}
                 availableTagIds={availableTagIds()}
                 selectedTagIds={selectedTagIds()}
-                onToggleTag={(id) =>
-                    setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
-                }
+                onToggleTag={toggleTag}
                 onOpenMoment={(id) => setFocusMomentId(id)}
                 onOpenTodoEmbed={() => setShowTodos(true)}
                 onOpenCanvasEmbed={openCanvas}
@@ -786,6 +786,7 @@ export const App: Component = () => {
             onOpenTodo={() => setShowTodos(true)}
             onOpenCanvas={openCanvas}
             onOpenProject={openProject}
+            onToggleTag={toggleTag}
             canCreate={canCreateMoment()}
             showComposer={!mobile && canCreateMoment()}
             inlineCreator={
@@ -876,9 +877,7 @@ export const App: Component = () => {
                     tags={tags() || []}
                     availableTagIds={availableTagIds()}
                     selectedTagIds={selectedTagIds()}
-                    onToggleTag={(id) =>
-                        setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]))
-                    }
+                    onToggleTag={toggleTag}
                     onClearTags={() => setSelectedTagIds([])}
                     onDeleteTag={handleDeleteTag}
                     canManageTags={canManageTags()}
@@ -1009,11 +1008,7 @@ export const App: Component = () => {
                     tags={tags() || []}
                     availableTagIds={availableTagIds()}
                     selectedTagIds={selectedTagIds()}
-                    onToggleTag={(id) => {
-                        setSelectedTagIds((prev) =>
-                            prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
-                        )
-                    }}
+                    onToggleTag={toggleTag}
                     onClear={() => setSelectedTagIds([])}
                     onDeleteTag={handleDeleteTag}
                     canManage={canManageTags()}
@@ -1283,6 +1278,7 @@ export const App: Component = () => {
                     onOpenTodo={() => setShowTodos(true)}
                     onOpenCanvas={openCanvas}
                     onOpenProject={openProject}
+                    onToggleTag={toggleTag}
                 />
             </Show>
 

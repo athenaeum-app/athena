@@ -44,6 +44,9 @@ export interface Prefs {
     // When filtering by tags, also visually highlight those tags inside
     // moment cards in the feed.
     highlightSelectedTags: boolean
+    // Let a tag drawn on a moment be clicked to add or remove it from the
+    // filter, the same as clicking it in the tag bar. On by default.
+    clickableMomentTags: boolean
     // Named HSL band used when suggesting a colour for a new tag.
     tagColorPreset: TagColorPreset
     // Clock format for all rendered times (chat, audit log, moment timestamps).
@@ -131,6 +134,7 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
     uiScale: 1,
     highlightSelectedTags: false,
+    clickableMomentTags: true,
     tagColorPreset: 'vibrant',
     timeFormat: '12h',
     feedView: 'list',
