@@ -117,6 +117,38 @@ export function clearDraft(key: string): void {
     }
 }
 
+// The archive last chosen by hand in a composer, and the archive that was being
+// viewed when it was chosen. A composer is built fresh every time it opens, so
+// without this the choice lasts exactly one moment. Storing the context too is
+// what lets the choice stick where it was made while still standing aside when
+// you go and look at a different archive.
+interface StoredArchiveChoice {
+    archiveId: string
+    context: string
+}
+
+const ARCHIVE_CHOICE_KEY = 'athena-composer-archive'
+
+function readArchiveChoice(): StoredArchiveChoice | null {
+    try {
+        const raw = localStorage.getItem(ARCHIVE_CHOICE_KEY)
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as StoredArchiveChoice
+        if (typeof parsed?.archiveId !== 'string' || typeof parsed?.context !== 'string') return null
+        return parsed
+    } catch {
+        return null
+    }
+}
+
+function writeArchiveChoice(choice: StoredArchiveChoice): void {
+    try {
+        localStorage.setItem(ARCHIVE_CHOICE_KEY, JSON.stringify(choice))
+    } catch {
+        // Storage being unavailable costs the memory, not the composer.
+    }
+}
+
 type SlashKind = 'moment' | 'todo' | 'canvas' | 'project'
 
 // How many ranked tag suggestions the composer offers at once. The point of the
@@ -155,9 +187,18 @@ export const Editor: Component<EditorProps> = (props) => {
 
     // Deferred so the pre-fill doesn't echo straight back as a "change".
     createEffect(on(content, (v) => props.onChange?.(v), { defer: true }))
-    const [archiveId, setArchiveId] = createSignal(
-        props.moment?.archive_id || props.defaultArchive || props.archives?.[0]?.id || '',
-    )
+    // The remembered choice, but only where it was made: the archive on screen
+    // now has to be the one that was on screen then. An archive deleted since
+    // is dropped rather than posted into.
+    const rememberedArchive = () => {
+        const choice = readArchiveChoice()
+        if (!choice || choice.context !== (props.defaultArchive || '')) return ''
+        return (props.archives || []).some((a) => a.id === choice.archiveId) ? choice.archiveId : ''
+    }
+    const preferredArchive = () =>
+        props.moment?.archive_id || rememberedArchive() || props.defaultArchive || props.archives?.[0]?.id || ''
+
+    const [archiveId, setArchiveId] = createSignal(preferredArchive())
     // Tags are unified to the autocomplete + inline-create model (previously the
     // edit modal only had toggle buttons). Pre-fill from the moment's tag ids.
     const initialTags = (): Tag[] => {
@@ -181,11 +222,14 @@ export const Editor: Component<EditorProps> = (props) => {
     const chooseArchive = (id: string) => {
         setArchivePinned(true)
         setArchiveId(id)
+        // Only for writing something new: moving an existing moment says
+        // nothing about where the next one belongs.
+        if (!props.moment) writeArchiveChoice({ archiveId: id, context: props.defaultArchive || '' })
     }
 
     createEffect(() => {
         if (archivePinned()) return
-        const next = props.moment?.archive_id || props.defaultArchive || props.archives?.[0]?.id || ''
+        const next = preferredArchive()
         if (next && next !== archiveId()) setArchiveId(next)
     })
     const [tagInput, setTagInput] = createSignal('')
