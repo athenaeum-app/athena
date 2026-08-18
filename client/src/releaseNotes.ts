@@ -77,6 +77,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.18.2': [
         'The archive you pick in the composer now sticks after you post, whichever archive you happen to be reading.',
     ],
+    '2.18.3': [
+        'Posting a moment no longer rebuilds the composer, so the archive you picked stays picked for the next one.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
