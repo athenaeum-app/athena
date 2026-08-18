@@ -47,6 +47,13 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.15.1': ['A moment with many tags no longer squeezes the writing area; the tag strip scrolls instead.'],
     '2.15.2': ['Fixed the moment text drawing over the tag field when editing with the tag list open.'],
     '2.15.3': ["A to-do list's buttons no longer spill over the list beside it."],
+    '2.16.0': [
+        'New Projects module: long-running efforts with an overview document, a milestone board, and a graveyard that keeps every dismissed card.',
+        'Projects can be embedded anywhere as live summary cards, and their documents use the same editor as moments.',
+        "The login page's bookshelf now drifts behind the main app and Projects. Each can be turned off in Settings.",
+        'Horizontal scrollbars now match the theme instead of the browser default.',
+        'Royal Blue buttons no longer wash out their labels.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
