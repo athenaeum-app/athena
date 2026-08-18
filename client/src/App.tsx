@@ -1024,13 +1024,16 @@ export const App: Component = () => {
 
             {/* Desktop: the classic 3-column / focus layouts. */}
             <Show when={isDesktop()}>
-            <div class="flex flex-1 justify-center lg:overflow-hidden pt-6">
+            {/* min-h-0 lets this column shrink inside the 100dvh shell rather
+                than pushing past it; the gutter is small enough that a browser
+                window with its own chrome still fits the whole layout. */}
+            <div class="flex min-h-0 flex-1 justify-center py-3 lg:overflow-hidden">
                 <div class="h-full w-[95%]">
                     <Switch>
                         <Match when={auth.user()}>
                             {/* Standard: 3-column layout. */}
                             <Show when={prefs().layout !== 'focus'}>
-                                <div class="relative flex h-[95%] w-full flex-col items-center gap-2 transition-all duration-100 lg:flex-row lg:items-stretch lg:overflow-hidden">
+                                <div class="relative flex h-full w-full flex-col items-center gap-2 transition-all duration-100 lg:flex-row lg:items-stretch lg:overflow-hidden">
                                     {/* Far-left: narrow libraries rail ('left-rail' placement).
                                         Renders nothing outside the desktop shell (no bridge), so
                                         it's inert in a browser. The column itself is gated too,
@@ -1115,7 +1118,7 @@ export const App: Component = () => {
                             {/* Focus: single centred writing column; the side panels
                                 live in floating drawers toggled by edge buttons. */}
                             <Show when={prefs().layout === 'focus'}>
-                                <div class="relative h-[95%] w-full overflow-hidden">
+                                <div class="relative h-full w-full overflow-hidden">
                                     <div class="mx-auto h-full max-w-3xl overflow-y-auto" style={archiveScopedStyle()}>
                                         {feedInner()}
                                     </div>
