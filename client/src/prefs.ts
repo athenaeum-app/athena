@@ -118,6 +118,9 @@ export interface Prefs {
     // foreground. On everywhere by default, matching the login page.
     bookcaseMain: boolean
     bookcaseProjects: boolean
+    // Open Projects as a large panel over the library instead of filling the
+    // screen. Off by default: a board wants the whole window.
+    projectsWindowed: boolean
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -148,6 +151,7 @@ export const DEFAULT_PREFS: Prefs = {
     momentEmbedPreviewHeight: 40,
     bookcaseMain: true,
     bookcaseProjects: true,
+    projectsWindowed: false,
     font: '',
     animationsEnabled: true,
     animationSpeed: 1,

@@ -277,6 +277,8 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
     }
     onMount(load)
 
+    const windowed = () => prefs().projectsWindowed
+
     // Escape closes the module. Handled here rather than left to the app's
     // global shortcut chain, which the desktop shell can intercept before the
     // page ever sees the key. Capture phase, so the layers that own Escape
@@ -342,24 +344,38 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
 
     return (
         <div
-            class="animate-fade-in text-main isolate fixed inset-0 z-50 flex flex-col overflow-hidden"
-            style={{ 'background-color': 'var(--theme-bg)' }}
-            // Solid surfaces while the texture is on; see index.css.
-            data-solid-surfaces={prefs().bookcaseProjects ? '' : undefined}
+            class="fixed inset-0 z-50"
+            classList={{
+                'flex items-center justify-center bg-black/60 p-6': windowed(),
+                // Clears the frameless header and the native window controls,
+                // which the panel would otherwise float into.
+                'pt-14': windowed() && !!desktop(),
+            }}
+            onClick={(e) => {
+                if (windowed() && e.target === e.currentTarget) props.onClose()
+            }}
         >
+            <div
+                class="animate-fade-in text-main isolate flex h-full w-full flex-col overflow-hidden"
+                classList={{ 'border-element-accent max-h-[90vh] max-w-[90vw] rounded-xl border shadow-2xl': windowed() }}
+                style={{ 'background-color': 'var(--theme-bg)' }}
+                // Solid surfaces while the texture is on; see index.css.
+                data-solid-surfaces={prefs().bookcaseProjects ? '' : undefined}
+            >
             {/* The login page's drifting bookcase, quieter: a working surface
                 wants texture, not a statement. Toggleable per surface in
-                Settings (Appearance, Background texture). */}
+                Settings (Appearance, Backgrounds). */}
             <Show when={prefs().bookcaseProjects}>
                 <BookcaseDrift class="opacity-[0.04]" />
             </Show>
-            {/* Desktop shell only: the frameless app header underneath stays a
-                window drag region even under this overlay (Electron computes
-                drag regions document-wide, ignoring stacking), and the native
-                window controls overlay the top-right 36px. This strip keeps
-                the module's own bars below both, and doubles as the drag
-                handle while the module is open. */}
-            <Show when={desktop()}>
+            {/* Desktop shell, filling the screen: the frameless app header
+                underneath stays a window drag region even under this overlay
+                (Electron computes drag regions document-wide, ignoring
+                stacking), and the native window controls overlay the top-right
+                36px. This strip keeps the module's own bars below both, and
+                doubles as the drag handle while the module is open. Windowed
+                mode is inset past both already. */}
+            <Show when={desktop() && !windowed()}>
                 <div class="app-drag-region bg-element h-12 w-full shrink-0" />
             </Show>
             {/* keyed: switching projects (opening one from an embedded project
@@ -410,6 +426,7 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
                     />
                 )}
             </Show>
+            </div>
         </div>
     )
 }

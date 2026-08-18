@@ -1029,6 +1029,29 @@ const TopbarSection: Component = () => (
     </section>
 )
 
+// --- Appearance tab: projects ---
+
+const ProjectsSection: Component = () => (
+    <section>
+        <h3 class="text-main font-serif text-base font-semibold mb-2">Projects</h3>
+        <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
+            <div>
+                <span class="text-main text-sm font-bold block">Open Projects in a window</span>
+                <span class="text-sub text-xs">
+                    Projects fills the screen by default. Turn this on to open it as a large panel over the library
+                    instead, with the library still visible around it.
+                </span>
+            </div>
+            <input
+                type="checkbox"
+                checked={prefs().projectsWindowed}
+                onChange={(e) => setPref('projectsWindowed', e.currentTarget.checked)}
+                class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+            />
+        </label>
+    </section>
+)
+
 // --- Appearance tab: backgrounds ---
 
 const BackgroundsSection: Component = () => (
@@ -1538,6 +1561,7 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
                     <GroupLabel title="Layout" blurb="How the screen is arranged and which panels are on it." />
                     <LayoutSection />
                     <TopbarSection />
+                    <ProjectsSection />
                     <BackgroundsSection />
                     <Show when={isDesktop}>
                         <MenuSection />
