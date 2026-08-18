@@ -359,6 +359,15 @@ body {
     backdrop-filter: blur(var(--look-blur));
 }
 
+/* Royal Blue's highlight is a light gold, so the app-wide "highlight fill +
+   white text" button pattern washes out there. Flip the ink dark on filled
+   highlights for that theme only; unlayered, so it beats the layered
+   text-white utility on the same element. */
+[data-theme='royal blue'] .bg-highlight-strongest,
+[data-theme='royal blue'] .bg-highlight-strong {
+    color: #13203f;
+}
+
 /* Editorial (default): warm parchment wash, full serif body, roomy hairlines. */
 [data-look='editorial'] {
     --look-radius: 0.25rem;
