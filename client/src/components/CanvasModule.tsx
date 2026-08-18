@@ -3,7 +3,7 @@ import { Portal } from 'solid-js/web'
 import { createStore, produce } from 'solid-js/store'
 import { api, type Canvas, type CanvasNode, type CanvasEdge, type CanvasNodeKind, type Moment, type TodoList } from '../api'
 import { useUI } from '../ui'
-import { backdropDismiss } from '../dismiss'
+import { Modal, PickerDialog } from './Modal'
 import { createListboxNav } from '../listboxNav'
 import { useIsDesktop } from '../media'
 import { createLongPress } from '../longPress'
@@ -811,11 +811,16 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
 
     const onKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
+            // The pickers and the guide are dialogs and answer Escape for
+            // themselves. What is left is board state with no layer of its
+            // own, and it has to mark the key when it takes it: unmarked, the
+            // board's own dialog reads itself as the top layer and the whole
+            // module closes along with whatever was dismissed.
+            const claimed =
+                !!contextMenu() || !!stylePopover() || !!editingId() || !!pendingConnect() || connectAfterCreate !== null
+            if (!claimed) return
+            e.preventDefault()
             closeMenus()
-            setMomentPicker(null)
-            setTodoPicker(null)
-            setLinkPrompt(null)
-            setGuideOpen(false)
             setEditingId(null)
             connectAfterCreate = null
             cancelPendingConnect()
@@ -831,10 +836,7 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
     }
 
     return (
-        <div
-            class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in"
-            {...backdropDismiss(props.onClose)}
-        >
+        <Modal onClose={props.onClose} class="animate-fade-in">
             <div class="bg-element-matte border-element-accent flex h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none border-0 shadow-2xl lg:h-[90vh] lg:max-w-6xl lg:rounded-2xl lg:border-4">
                 {/* Header */}
                 <div class="bg-element border-element-accent flex items-center justify-between rounded-t-2xl border-b p-4">
@@ -1281,7 +1283,7 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                     </div>
                 </div>
             </div>
-        </div>
+        </Modal>
     )
 }
 
@@ -1997,36 +1999,22 @@ const TodoPicker: Component<{ onPick: (l: TodoList) => void; onClose: () => void
 }
 
 const PickerShell: Component<{ title: string; onClose: () => void; children: any }> = (props) => (
-    <div
-        class="absolute inset-0 z-30 flex items-center justify-center bg-black/40"
-        {...backdropDismiss(props.onClose)}
-    >
-        <div class="bg-element-matte border-element-accent w-full max-w-md rounded-lg border p-4 shadow-2xl">
-            <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-main font-serif text-base">{props.title}</h3>
-                <button onClick={props.onClose} class="text-sub hover:text-main hover:cursor-pointer">
-                    <span class="material-symbols-outlined text-base">close</span>
-                </button>
-            </div>
-            {props.children}
-        </div>
-    </div>
+    <PickerDialog title={props.title} onClose={props.onClose} layer="surface" position="absolute">
+        {props.children}
+    </PickerDialog>
 )
 
 // --- guide overlay ---
 
 const GuideOverlay: Component<{ onClose: () => void }> = (props) => (
-    <div
-        class="absolute inset-0 z-30 flex items-center justify-center bg-black/50"
-        {...backdropDismiss(props.onClose)}
+    <PickerDialog
+        title="Canvas controls"
+        onClose={props.onClose}
+        size="lg"
+        layer="surface"
+        scrim="default"
+        position="absolute"
     >
-        <div class="bg-element-matte border-element-accent w-full max-w-lg rounded-lg border p-5 shadow-2xl">
-            <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-main font-serif text-lg">Canvas controls</h3>
-                <button onClick={props.onClose} class="text-sub hover:text-main hover:cursor-pointer">
-                    <span class="material-symbols-outlined">close</span>
-                </button>
-            </div>
             <ul class="text-sub space-y-2 text-sm">
                 <GuideRow icon="pan_tool" title="Pan">Drag empty space (Pan tool), or use the Pan/Select toggle in the toolbar.</GuideRow>
                 <GuideRow icon="zoom_in" title="Zoom">Scroll the mouse wheel; the point under the cursor stays put.</GuideRow>
@@ -2039,8 +2027,7 @@ const GuideOverlay: Component<{ onClose: () => void }> = (props) => (
                 <GuideRow icon="grid_4x4" title="Snapping">Toggle snap-to-grid; positions and sizes snap to the grid on drop.</GuideRow>
                 <GuideRow icon="right_click" title="Right-click">Opens a context menu on empty space (add) or on a node (edit, style, duplicate, connect, delete).</GuideRow>
             </ul>
-        </div>
-    </div>
+    </PickerDialog>
 )
 
 const GuideRow: Component<{ icon: string; title: string; children: any }> = (props) => (

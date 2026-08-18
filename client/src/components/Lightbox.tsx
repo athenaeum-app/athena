@@ -9,6 +9,8 @@ import {
     lightboxGo,
     downloadHref,
 } from '../lightbox'
+import { backdropDismiss } from '../dismiss'
+import { Modal } from './Modal'
 
 // Full media viewer: fit-to-screen with click/scroll zoom + drag pan, filename
 // caption, download, and arrow/swipe navigation across every item in the block
@@ -87,10 +89,7 @@ export const Lightbox: Component = () => {
     onMount(() => {
         const onKey = (e: KeyboardEvent) => {
             if (!lightboxOpen()) return
-            if (e.key === 'Escape') {
-                e.preventDefault()
-                closeLightbox()
-            } else if (e.key === 'ArrowRight') {
+            if (e.key === 'ArrowRight') {
                 e.preventDefault()
                 lightboxNext()
             } else if (e.key === 'ArrowLeft') {
@@ -104,12 +103,13 @@ export const Lightbox: Component = () => {
 
     return (
         <Show when={lightboxOpen()}>
-            <div
+            <Modal
                 data-testid="lightbox"
-                class="fixed inset-0 z-[80] flex flex-col bg-black/90 animate-fade-in"
-                onClick={(e) => {
-                    if (e.target === e.currentTarget) closeLightbox()
-                }}
+                onClose={closeLightbox}
+                layer="top"
+                scrim="opaque"
+                align="stretch"
+                class="animate-fade-in"
             >
                 {/* Top bar: caption + counter + download + close */}
                 <div class="flex items-center gap-3 p-3 text-white/90" onClick={(e) => e.stopPropagation()}>
@@ -140,16 +140,14 @@ export const Lightbox: Component = () => {
                     </button>
                 </div>
 
-                {/* Stage. Its own click-outside check, not just the outer
-                    wrapper's: the padding around the image/video is this div,
-                    not the wrapper, so a click there has this as e.target and
-                    would otherwise fall through the wrapper's check silently. */}
+                {/* Stage. Its own dismiss zone, not just the wrapper's: the
+                    padding around the image/video is this div, not the
+                    wrapper, so a click there has this as e.target and would
+                    otherwise fall through the wrapper's check silently. */}
                 <div
                     data-testid="lightbox-stage"
                     class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
-                    onClick={(e) => {
-                        if (e.target === e.currentTarget) closeLightbox()
-                    }}
+                    {...backdropDismiss(closeLightbox)}
                 >
                     <Show when={count() > 1}>
                         <button
@@ -227,7 +225,7 @@ export const Lightbox: Component = () => {
                         ))}
                     </div>
                 </Show>
-            </div>
+            </Modal>
         </Show>
     )
 }

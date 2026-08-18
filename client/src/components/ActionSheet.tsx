@@ -1,5 +1,5 @@
 import { For, Show, type Component } from 'solid-js'
-import { backdropDismiss } from '../dismiss'
+import { Modal } from './Modal'
 
 // A single action in a long-press action sheet.
 export interface ActionSheetAction {
@@ -24,11 +24,12 @@ export const ActionSheet: Component<ActionSheetOptions & { onClose: () => void }
         a.onSelect()
     }
     return (
-        <div
+        <Modal
             data-testid="action-sheet"
-            class="animate-fade-in fixed inset-0 z-[80] flex flex-col justify-end p-2.5"
-            style={{ background: 'rgb(0 0 0 / 0.5)' }}
-            {...backdropDismiss(props.onClose)}
+            onClose={props.onClose}
+            layer="top"
+            align="bottom"
+            class="animate-fade-in p-2.5"
         >
             <div class="animate-slide-up mx-auto w-full max-w-md">
                 <div class="bg-element-matte border-element-accent overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md">
@@ -61,6 +62,6 @@ export const ActionSheet: Component<ActionSheetOptions & { onClose: () => void }
                     Cancel
                 </button>
             </div>
-        </div>
+        </Modal>
     )
 }

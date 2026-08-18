@@ -7,6 +7,7 @@ import { Editor } from './Editor'
 import { BookcaseDrift } from './BookcaseDrift'
 import { prefs } from '../prefs'
 import { desktop } from '../desktop'
+import { Modal } from './Modal'
 
 // Projects module: a portfolio of long-horizon efforts. Each project is a
 // tabbed hub (overview document, milestone board, graveyard) with an identity
@@ -279,23 +280,6 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
 
     const windowed = () => prefs().projectsWindowed
 
-    // Escape closes the module. Handled here rather than left to the app's
-    // global shortcut chain, which the desktop shell can intercept before the
-    // page ever sees the key. Capture phase, so the layers that own Escape
-    // while they are open (an editor menu, the card modal, a confirm dialog)
-    // get to answer for themselves first.
-    onMount(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key !== 'Escape') return
-            if (document.querySelector('[data-editor-menu], [data-card-modal], [data-confirm-modal]')) return
-            e.preventDefault()
-            e.stopPropagation()
-            props.onClose()
-        }
-        window.addEventListener('keydown', onKey, true)
-        onCleanup(() => window.removeEventListener('keydown', onKey, true))
-    })
-
     const openProject = () => projects.find((p) => p.id === openId()) || null
     const mutate = (id: string, fn: (p: Project) => void) => setProjects((p) => p.id === id, produce(fn))
 
@@ -343,16 +327,17 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
     }
 
     return (
-        <div
-            class="fixed inset-0 z-50"
+        <Modal
+            onClose={props.onClose}
+            layer="panel"
+            scrim={windowed() ? 'strong' : 'none'}
+            align={windowed() ? 'center' : 'free'}
+            dismissable={windowed()}
             classList={{
-                'flex items-center justify-center bg-black/60 p-6': windowed(),
+                'p-6': windowed(),
                 // Clears the frameless header and the native window controls,
                 // which the panel would otherwise float into.
                 'pt-14': windowed() && !!desktop(),
-            }}
-            onClick={(e) => {
-                if (windowed() && e.target === e.currentTarget) props.onClose()
             }}
         >
             <div
@@ -427,7 +412,7 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
                 )}
             </Show>
             </div>
-        </div>
+        </Modal>
     )
 }
 
@@ -1649,22 +1634,6 @@ const CardModal: Component<{
     const [preview, setPreview] = createSignal(props.card.body.trim().length > 0 || !props.canManage)
     const [labelDraft, setLabelDraft] = createSignal('')
 
-    onMount(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                // The editor's own layers (slash menu, [[ menu, embed picker)
-                // claim Escape first; this listener runs in the capture phase,
-                // before theirs, so it has to check the DOM rather than
-                // defaultPrevented.
-                if (document.querySelector('[data-editor-menu]')) return
-                e.stopPropagation()
-                props.onClose()
-            }
-        }
-        window.addEventListener('keydown', onKey, true)
-        onCleanup(() => window.removeEventListener('keydown', onKey, true))
-    })
-
     // The editor owns the text while writing; it lands in the store and the
     // API together after a pause in the typing, and always before a preview
     // switch or close.
@@ -1703,10 +1672,9 @@ const CardModal: Component<{
     const RailLabel: Component<{ text: string }> = (l) => <p class="text-sub mb-1.5 text-xs font-medium">{l.text}</p>
 
     return (
-        <div class="animate-fade-in fixed inset-0 z-[65] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={props.onClose}>
+        <Modal onClose={props.onClose} layer="editor" scrim="heavy" class="animate-fade-in p-4 backdrop-blur-sm">
             <div
-                onClick={(e) => e.stopPropagation()}
-                data-card-modal
+                data-testid="project-card-modal"
                 class="bg-element-matte border-element-accent flex h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border shadow-2xl"
             >
                 <div class="bg-element border-element-accent flex items-center gap-2 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4">
@@ -1930,6 +1898,6 @@ const CardModal: Component<{
                     </div>
                 </div>
             </div>
-        </div>
+        </Modal>
     )
 }

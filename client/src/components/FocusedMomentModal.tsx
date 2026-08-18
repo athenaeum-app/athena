@@ -3,7 +3,7 @@ import { api, type Moment, type Archive, type Tag } from '../api'
 import { MomentBody } from './MomentBody'
 import { AttachmentList } from './AttachmentList'
 import { LinkPreviewList } from './LinkPreview'
-import { backdropDismiss } from '../dismiss'
+import { Modal } from './Modal'
 import { contrastingTextColor } from '../tagColors'
 import { useUI } from '../ui'
 import { prefs } from '../prefs'
@@ -104,10 +104,7 @@ export const FocusedMomentModal: Component<{
         }).format(new Date(ts))
 
     return (
-        <div
-            class="animate-fade-in fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"
-            {...backdropDismiss(props.onClose)}
-        >
+        <Modal onClose={props.onClose} layer="reader" scrim="heavy" class="animate-fade-in p-4 backdrop-blur-md">
             <div class="bg-element-matte border-element-accent relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border shadow-2xl">
                 {/* Actions, pinned top-right over the content. */}
                 <div class="absolute right-3 top-3 z-10 flex items-center gap-1">
@@ -215,6 +212,6 @@ export const FocusedMomentModal: Component<{
                     </Show>
                 </div>
             </div>
-        </div>
+        </Modal>
     )
 }

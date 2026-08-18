@@ -38,6 +38,8 @@ import { UpdateNotice } from './components/UpdateNotice'
 import { pendingNotes, markVersionSeen } from './releaseNotes'
 import { isTransportError, serverUnreachable } from './reachability'
 import { desktop } from './desktop'
+import { Modal } from './components/Modal'
+import { openModalCount } from './modalStack'
 
 // Moments are cheap rows, so we pull a large page at a time and rely on
 // infinite scroll to fetch the next one automatically (no manual "load more").
@@ -445,7 +447,13 @@ export const App: Component = () => {
 
     // Close whichever overlay is open, topmost-first. Returns true if it
     // consumed the keypress (so Escape doesn't also do something else).
+    //
+    // Only reached when nothing modal is open. A modal closes itself, because
+    // this listener is registered at boot and so runs before any modal's: a
+    // fixed order here would shut the whole module while the dialog on top of
+    // it was the thing the key was meant for.
     const closeTopOverlay = (): boolean => {
+        if (openModalCount() > 0) return false
         if (focusMomentId()) return setFocusMomentId(null), true
         if (showEditor()) return setShowEditor(false), true
         if (showChat()) return setShowChat(false), true
@@ -1141,19 +1149,31 @@ export const App: Component = () => {
 
                                     {/* Archives drawer */}
                                     <Show when={showArchivesDrawer()}>
-                                        <div class="fixed inset-0 z-30 animate-fade-in" onClick={() => setShowArchivesDrawer(false)}>
-                                            <div class="bg-element-matte border-element-accent absolute left-0 top-0 h-full w-72 overflow-y-auto border-r p-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                                        <Modal
+                                            onClose={() => setShowArchivesDrawer(false)}
+                                            layer="surface"
+                                            scrim="none"
+                                            align="free"
+                                            class="animate-fade-in"
+                                        >
+                                            <div class="bg-element-matte border-element-accent absolute left-0 top-0 h-full w-72 overflow-y-auto border-r p-3 shadow-2xl">
                                                 {archivesInner()}
                                             </div>
-                                        </div>
+                                        </Modal>
                                     </Show>
                                     {/* Menu drawer */}
                                     <Show when={showMenuDrawer()}>
-                                        <div class="fixed inset-0 z-30 animate-fade-in" onClick={() => setShowMenuDrawer(false)}>
-                                            <div class="bg-element-matte border-element-accent absolute right-0 top-0 h-full w-72 overflow-y-auto border-l p-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                                        <Modal
+                                            onClose={() => setShowMenuDrawer(false)}
+                                            layer="surface"
+                                            scrim="none"
+                                            align="free"
+                                            class="animate-fade-in"
+                                        >
+                                            <div class="bg-element-matte border-element-accent absolute right-0 top-0 h-full w-72 overflow-y-auto border-l p-3 shadow-2xl">
                                                 {menuInner()}
                                             </div>
-                                        </div>
+                                        </Modal>
                                     </Show>
                                 </div>
                             </Show>

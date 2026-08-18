@@ -1,5 +1,5 @@
 import { Show, type Component, type JSX } from 'solid-js'
-import { backdropDismiss } from '../dismiss'
+import { Modal } from './Modal'
 
 // A bottom sheet: slides up from the bottom nav over a scrim, rounded top, with
 // a grab handle, a titled header, and a scrollable body. The mobile shell's
@@ -12,11 +12,7 @@ export const Sheet: Component<{
 }> = (props) => {
     return (
         <Show when={props.open}>
-            <div
-                class="animate-fade-in fixed inset-0 z-50 flex flex-col justify-end"
-                style={{ background: 'rgb(0 0 0 / 0.5)' }}
-                {...backdropDismiss(props.onClose)}
-            >
+            <Modal onClose={props.onClose} align="bottom" class="animate-fade-in">
                 <div class="bg-element-matte border-element-accent animate-slide-up flex max-h-[82vh] flex-col rounded-t-2xl border-t shadow-2xl">
                     <div class="mx-auto mt-2.5 h-1 w-9 shrink-0 rounded-full bg-white/20" />
                     <div class="flex shrink-0 items-center justify-between px-4 pb-1 pt-2">
@@ -27,7 +23,7 @@ export const Sheet: Component<{
                     </div>
                     <div class="overflow-y-auto px-4 pb-6">{props.children}</div>
                 </div>
-            </div>
+            </Modal>
         </Show>
     )
 }

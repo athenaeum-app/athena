@@ -4,7 +4,7 @@ import { api, type Archive, type Tag, type Moment, type TagGraph } from '../api'
 import { contrastingTextColor, randomTagColor } from '../tagColors'
 import { rankTags } from '../tagRank'
 import { keybinds, matchEvent } from '../keybinds'
-import { backdropDismiss } from '../dismiss'
+import { Modal, PickerDialog } from './Modal'
 import { useIsDesktop } from '../media'
 
 // Unified editor. One component drives moment create, moment edit and
@@ -1224,7 +1224,7 @@ export const Editor: Component<EditorProps> = (props) => {
 
     if (props.chrome === 'modal') {
         return (
-            <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[65] animate-fade-in p-4" {...backdropDismiss(() => props.onCancel?.())}>
+            <Modal onClose={() => props.onCancel?.()} layer="editor" class="animate-fade-in p-4">
                 <div class="bg-element-matte border-element-accent flex h-[90vh] max-h-full w-full max-w-2xl flex-col rounded-lg border shadow-2xl overflow-hidden">
                     <div class="bg-element border-element-accent flex items-center justify-between rounded-t-lg border-b p-4">
                         <h2 class="text-main font-serif text-xl">{props.moment ? 'Edit Moment' : 'New Moment'}</h2>
@@ -1253,7 +1253,7 @@ export const Editor: Component<EditorProps> = (props) => {
                     </div>
                     {embedPicker()}
                 </div>
-            </div>
+            </Modal>
         )
     }
 
@@ -1357,14 +1357,7 @@ const EmbedPicker: Component<{ kind: SlashKind; onPick: (id: string) => void; on
     }
 
     return (
-        <div data-editor-menu class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" {...backdropDismiss(props.onClose)}>
-            <div class="bg-element-matte border-element-accent w-full max-w-md rounded-lg border p-4 shadow-2xl">
-                <div class="mb-3 flex items-center justify-between">
-                    <h3 class="text-main font-serif text-base">{label}</h3>
-                    <button onClick={props.onClose} class="text-sub hover:text-main hover:cursor-pointer">
-                        <span class="material-symbols-outlined text-base">close</span>
-                    </button>
-                </div>
+        <PickerDialog title={label} onClose={props.onClose}>
                 <input
                     // Focused explicitly, not via the autofocus attribute:
                     // autofocus only applies to elements present at page load,
@@ -1406,7 +1399,6 @@ const EmbedPicker: Component<{ kind: SlashKind; onPick: (id: string) => void; on
                         </Show>
                     </Show>
                 </div>
-            </div>
-        </div>
+        </PickerDialog>
     )
 }

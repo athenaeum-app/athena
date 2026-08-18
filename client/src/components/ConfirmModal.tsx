@@ -1,5 +1,5 @@
 import { Show, createSignal, type Component } from 'solid-js'
-import { backdropDismiss } from '../dismiss'
+import { Modal } from './Modal'
 
 export interface ConfirmOptions {
     title: string
@@ -29,14 +29,12 @@ export const ConfirmModal: Component<ConfirmModalProps> = (props) => {
     const canConfirm = () => !needsType() || typed() === props.confirmText
 
     return (
-        <div
-            // Marks this as the layer that owns Escape while it is open, for
-            // hosts that close on the key themselves (ProjectsModule).
-            data-confirm-modal
-            class="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] animate-fade-in"
-            {...backdropDismiss(props.onCancel)}
+        <Modal
+            onClose={props.onCancel}
+            layer="dialog"
+            scrim="strong"
+            class="animate-fade-in"
             onKeyDown={(e) => {
-                if (e.key === 'Escape') props.onCancel()
                 if (e.key === 'Enter' && canConfirm()) props.onConfirm()
             }}
         >
@@ -94,6 +92,6 @@ export const ConfirmModal: Component<ConfirmModalProps> = (props) => {
                     </button>
                 </div>
             </div>
-        </div>
+        </Modal>
     )
 }

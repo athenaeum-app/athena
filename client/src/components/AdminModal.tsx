@@ -1,5 +1,5 @@
 import { createSignal, For, Show, createResource, onMount, type Component } from 'solid-js'
-import { backdropDismiss } from '../dismiss'
+import { Modal } from './Modal'
 import { api, type User, type Role, type Invite, type AuditEntry } from '../api'
 import { PERMISSIONS, PERMISSION_GROUPS, hasPermission, togglePermission } from '../permissions'
 import { useUI } from '../ui'
@@ -37,10 +37,7 @@ export const AdminModal: Component<AdminModalProps> = (props) => {
     })
 
     return (
-        <div
-            class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in"
-            {...backdropDismiss(props.onClose)}
-        >
+        <Modal onClose={props.onClose} class="animate-fade-in">
             <div class="bg-element-matte border-element-accent flex h-[85vh] w-full max-w-5xl flex-col rounded-2xl border-4 shadow-2xl overflow-hidden">
                 {/* Header */}
                 <div class="bg-element border-element-accent flex items-center justify-between rounded-t-2xl border-b p-4">
@@ -88,7 +85,7 @@ export const AdminModal: Component<AdminModalProps> = (props) => {
                     </Show>
                 </div>
             </div>
-        </div>
+        </Modal>
     )
 }
 

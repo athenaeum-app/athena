@@ -2,7 +2,7 @@ import { createSignal, createMemo, For, Show, onMount, type Component } from 'so
 import { createStore, produce, reconcile } from 'solid-js/store'
 import { api, type TodoList, type TodoItem, type TodoResetMode } from '../api'
 import { useUI } from '../ui'
-import { backdropDismiss } from '../dismiss'
+import { Modal, PickerDialog } from './Modal'
 import { createListboxNav } from '../listboxNav'
 import { prefs, setPref } from '../prefs'
 import { notifyTodoChanged } from '../todoBus'
@@ -457,7 +457,7 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
     }
 
     return (
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in" {...backdropDismiss(props.onClose)}>
+        <Modal onClose={props.onClose} class="animate-fade-in">
             <div class="bg-element-matte border-element-accent flex h-[85vh] w-[92vw] max-w-6xl flex-col rounded-lg border shadow-2xl overflow-hidden">
                 {/* Header */}
                 <div class="bg-element border-element-accent flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
@@ -686,9 +686,11 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
             </Show>
 
             <Show when={showTransfer()}>
-                <div
-                    class="animate-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-                    {...backdropDismiss(() => setShowTransfer(false))}
+                <Modal
+                    onClose={() => setShowTransfer(false)}
+                    layer="top"
+                    scrim="heavy"
+                    class="animate-fade-in p-4 backdrop-blur-sm"
                 >
                     <div class="bg-element-matte border-element-accent flex max-h-[85vh] w-full max-w-2xl flex-col gap-3 rounded-2xl border p-5">
                         <div class="flex items-center justify-between">
@@ -732,9 +734,9 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                             </Show>
                         </div>
                     </div>
-                </div>
+                </Modal>
             </Show>
-        </div>
+        </Modal>
     )
 }
 
@@ -1584,14 +1586,7 @@ const MomentPickerLite: Component<{ onPick: (id: string) => void; onCreate?: () 
     const nav = createListboxNav(filtered, (m) => props.onPick(m.id), props.onClose)
 
     return (
-        <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" {...backdropDismiss(props.onClose)}>
-            <div class="bg-element-matte border-element-accent w-full max-w-md rounded-lg border p-4 shadow-2xl">
-                <div class="mb-3 flex items-center justify-between">
-                    <h3 class="text-main font-serif text-base">Link a moment</h3>
-                    <button onClick={props.onClose} class="text-sub hover:text-main hover:cursor-pointer">
-                        <span class="material-symbols-outlined text-base">close</span>
-                    </button>
-                </div>
+        <PickerDialog title="Link a moment" onClose={props.onClose}>
                 <input
                     autofocus
                     value={query()}
@@ -1634,7 +1629,6 @@ const MomentPickerLite: Component<{ onPick: (id: string) => void; onCreate?: () 
                         </Show>
                     </Show>
                 </div>
-            </div>
-        </div>
+        </PickerDialog>
     )
 }

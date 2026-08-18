@@ -1,5 +1,5 @@
 import { createSignal, For, Show, onMount, onCleanup, type Component } from 'solid-js'
-import { backdropDismiss } from '../dismiss'
+import { Modal } from './Modal'
 import {
     PRESET_THEMES,
     type ThemeColors,
@@ -170,10 +170,7 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
         Math.max(PANEL_MIN_WIDTH, Math.min(neededWidth(), viewportWidth() - PANEL_GUTTER))
 
     return (
-        <div
-            class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in"
-            {...backdropDismiss(props.onClose)}
-        >
+        <Modal onClose={props.onClose} class="animate-fade-in">
             <div
                 class="bg-element-matte border-element-accent flex h-[85vh] w-full flex-col rounded-lg border shadow-2xl overflow-hidden"
                 style={{ 'max-width': `${panelWidth()}px` }}
@@ -238,7 +235,7 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
                     </Show>
                 </div>
             </div>
-        </div>
+        </Modal>
     )
 }
 
