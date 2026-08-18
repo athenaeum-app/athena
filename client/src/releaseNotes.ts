@@ -59,6 +59,11 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Starting a project is now a card in the grid rather than a button in the bar.',
         'The Projects bar no longer ignores clicks in the desktop app.',
     ],
+    '2.17.0': [
+        'Projects can open as a large window over your library instead of filling the screen. Turn it on in Settings.',
+        'Escape now closes Projects in the desktop app.',
+        'Leaving Projects is now a back arrow on the left, matching the way a project returns to the list.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
