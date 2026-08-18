@@ -74,6 +74,8 @@ const thumbnail = (page: Page) => card(page).getByTestId('canvas-thumbnail')
 
 async function setPreview(page: Page, on: boolean) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    // These live under Appearance: General is behaviour and system settings.
+    await page.getByRole('button', { name: 'Appearance' }).first().click()
     const box = page.locator('label').filter({ hasText: 'Canvas Reference Previews' }).first().locator('input')
     if ((await box.isChecked()) !== on) await box.click()
     // Escape rather than a Close button: several panels render one.

@@ -5,6 +5,7 @@ import { api, type Canvas, type CanvasNode, type CanvasEdge, type CanvasNodeKind
 import { useUI } from '../ui'
 import { Modal, PickerDialog } from './Modal'
 import { createListboxNav } from '../listboxNav'
+import { prefs, MODAL_WIDTH_CLASS_LG } from '../prefs'
 import { useIsDesktop } from '../media'
 import { createLongPress } from '../longPress'
 
@@ -837,7 +838,7 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
 
     return (
         <Modal onClose={props.onClose} class="animate-fade-in">
-            <div class="bg-element-matte border-element-accent flex h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none border-0 shadow-2xl lg:h-[90vh] lg:max-w-6xl lg:rounded-2xl lg:border-4">
+            <div class={`bg-element-matte border-element-accent flex h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none border-0 shadow-2xl lg:h-[90vh] lg:rounded-2xl lg:border-4 ${MODAL_WIDTH_CLASS_LG[prefs().canvasWidth]}`}>
                 {/* Header */}
                 <div class="bg-element border-element-accent flex items-center justify-between rounded-t-2xl border-b p-4">
                     <div class="flex items-center gap-2">

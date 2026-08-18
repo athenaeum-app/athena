@@ -87,6 +87,12 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Dragging inside a dialog and letting go outside it no longer closes the dialog. Projects was the worst offender.',
         'Escape now closes one layer at a time, so dismissing a card no longer shuts the module behind it.',
     ],
+    '2.19.0': [
+        'The to-do board, project cards and the canvas now open wider, and the canvas much wider.',
+        'New Modals settings tab: set how wide each module window is allowed to grow.',
+        'General and Appearance no longer overlap. Anything visual is now under Appearance; General keeps behaviour, time format and reset.',
+        'Settings tabs with a lot of scrolling now have a contents list down the side that follows where you are.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:

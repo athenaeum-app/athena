@@ -58,9 +58,9 @@ test.describe('settings tab row, desktop', () => {
 
     test('a raised UI scale widens the panel with the tabs', async ({ page }) => {
         await signIn(page)
-        // Every tab is rem-sized, so this makes the row about half again as
-        // wide: the case a fixed cap of 1024px could not serve.
-        await page.addInitScript(() => localStorage.setItem('athena-prefs', JSON.stringify({ uiScale: 1.5 })))
+        // Every tab is rem-sized, so this makes the row a quarter wider: the
+        // case a fixed cap of 1024px could not serve.
+        await page.addInitScript(() => localStorage.setItem('athena-prefs', JSON.stringify({ uiScale: 1.25 })))
         await openSettings(page)
 
         expect(await overflowOf(page)).toBeLessThanOrEqual(0)
@@ -68,6 +68,19 @@ test.describe('settings tab row, desktop', () => {
         const panelBox = (await tabRow(page).locator('..').boundingBox())!
         expect(panelBox.width).toBeGreaterThan(1024)
         expect(panelBox.width).toBeLessThanOrEqual(1440 - GUTTER)
+    })
+
+    // Nine tabs at 150% on a 1440px window is past what the window holds, and
+    // the window is the only real limit. The panel takes everything it can and
+    // the row falls back to scrolling, the same as it does on a phone.
+    test('past what the window holds, the panel maxes out rather than escaping it', async ({ page }) => {
+        await signIn(page)
+        await page.addInitScript(() => localStorage.setItem('athena-prefs', JSON.stringify({ uiScale: 1.5 })))
+        await openSettings(page)
+
+        const panelBox = (await tabRow(page).locator('..').boundingBox())!
+        expect(panelBox.width).toBe(1440 - GUTTER)
+        expect(panelBox.x).toBeGreaterThanOrEqual(GUTTER / 2)
     })
 })
 

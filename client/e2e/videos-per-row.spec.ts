@@ -57,6 +57,8 @@ const card = (page: Page) => page.getByTestId('moment-card').filter({ hasText: T
 
 async function setVideosPerRow(page: Page, n: number) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    // These live under Appearance: General is behaviour and system settings.
+    await page.getByRole('button', { name: 'Appearance' }).first().click()
     await page.getByTestId('videos-per-row').getByRole('button', { name: `${n} videos per row` }).click()
     // Escape, not the Close button: chat and every sheet render one too, so
     // which one is "first" depends on what else is on the page.

@@ -5,7 +5,7 @@ import { useUI } from '../ui'
 import { MomentBody } from './MomentBody'
 import { Editor } from './Editor'
 import { BookcaseDrift } from './BookcaseDrift'
-import { prefs } from '../prefs'
+import { prefs, MODAL_WIDTH_CLASS } from '../prefs'
 import { desktop } from '../desktop'
 import { Modal } from './Modal'
 
@@ -1675,7 +1675,7 @@ const CardModal: Component<{
         <Modal onClose={props.onClose} layer="editor" scrim="heavy" class="animate-fade-in p-4 backdrop-blur-sm">
             <div
                 data-testid="project-card-modal"
-                class="bg-element-matte border-element-accent flex h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border shadow-2xl"
+                class={`bg-element-matte border-element-accent flex h-[88vh] w-full flex-col overflow-hidden rounded-xl border shadow-2xl ${MODAL_WIDTH_CLASS[prefs().projectCardWidth]}`}
             >
                 <div class="bg-element border-element-accent flex items-center gap-2 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4">
                     <span class="shrink-0 font-mono text-xs font-bold" style={{ color: props.project.accent }}>

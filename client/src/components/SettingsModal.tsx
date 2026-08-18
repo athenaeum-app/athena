@@ -1,5 +1,7 @@
 import { createSignal, For, Show, onMount, onCleanup, type Component } from 'solid-js'
 import { Modal } from './Modal'
+import { createSettingsSections, SettingsSection, SettingsSectionNav } from './SettingsSection'
+import { useIsDesktop } from '../media'
 import {
     PRESET_THEMES,
     type ThemeColors,
@@ -26,7 +28,9 @@ import {
     MENU_WIDGET_META,
     ROW_LIMITS,
     PREVIEW_HEIGHT_LIMITS,
+    MODAL_WIDTH_META,
     type MenuWidget,
+    type ModalWidth,
 } from '../prefs'
 import {
     PRESET_LOOKS,
@@ -68,7 +72,16 @@ interface SettingsModalProps {
     archives: { id: string; name: string }[]
 }
 
-type SettingsTab = 'account' | 'general' | 'appearance' | 'tags' | 'keybinds' | 'server' | 'backups' | 'about'
+type SettingsTab =
+    | 'account'
+    | 'general'
+    | 'appearance'
+    | 'modals'
+    | 'tags'
+    | 'keybinds'
+    | 'server'
+    | 'backups'
+    | 'about'
 
 // The panel used to be a flat max-w-3xl, and a user with both admin tabs ends
 // up with eight tabs, which is wider than 768px. That turned the tab row into a
@@ -87,6 +100,11 @@ const PANEL_GUTTER = 32
 // The panel's own border, inside its width. Tailwind's border is a fixed 1px,
 // so unlike the tab strip's padding this one does not move with the UI scale.
 const PANEL_BORDER = 2
+
+// The section nav's column (w-52), added to the floor rather than taken out of
+// it: the reading width of a settings tab was already the minimum, and the
+// table of contents should not be paid for by the settings it indexes.
+const NAV_WIDTH = 208
 
 const ROW_COUNTS = Array.from({ length: ROW_LIMITS.max - ROW_LIMITS.min + 1 }, (_, i) => ROW_LIMITS.min + i)
 
@@ -126,6 +144,7 @@ const BASE_TABS: { id: SettingsTab; label: string; icon: string }[] = [
     { id: 'general', label: 'General', icon: 'tune' },
     { id: 'account', label: 'Account', icon: 'person' },
     { id: 'appearance', label: 'Appearance', icon: 'palette' },
+    { id: 'modals', label: 'Modals', icon: 'web_asset' },
     { id: 'tags', label: 'Tags', icon: 'sell' },
     { id: 'keybinds', label: 'Keybinds', icon: 'keyboard' },
 ]
@@ -143,6 +162,15 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
         tabs.push({ id: 'about', label: 'About', icon: 'info' })
         return tabs
     }
+
+    const { sections, Provider: SectionsProvider } = createSettingsSections()
+    const [scroller, setScroller] = createSignal<HTMLDivElement>()
+    // Deliberately not the `isDesktop` imported above, which asks whether this
+    // is the Electron shell. This one asks whether the window is wide enough
+    // to spend a column on a table of contents.
+    const wideWindow = useIsDesktop()
+    // Below two, a table of contents is a list of one thing.
+    const showNav = () => wideWindow() && sections().length > 1
 
     let tabRow: HTMLDivElement | undefined
     const [neededWidth, setNeededWidth] = createSignal(PANEL_MIN_WIDTH)
@@ -166,8 +194,10 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
         onCleanup(() => observer.disconnect())
     })
 
-    const panelWidth = () =>
-        Math.max(PANEL_MIN_WIDTH, Math.min(neededWidth(), viewportWidth() - PANEL_GUTTER))
+    const panelWidth = () => {
+        const floor = PANEL_MIN_WIDTH + (showNav() ? NAV_WIDTH : 0)
+        return Math.max(floor, Math.min(Math.max(neededWidth(), floor), viewportWidth() - PANEL_GUTTER))
+    }
 
     return (
         <Modal onClose={props.onClose} class="animate-fade-in">
@@ -208,7 +238,12 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
                 </div>
 
                 {/* Body */}
-                <div class="flex-1 overflow-y-auto p-6">
+                <div class="flex min-h-0 flex-1">
+                    <Show when={showNav()}>
+                        <SettingsSectionNav sections={sections} scroller={scroller} />
+                    </Show>
+                    <div ref={setScroller} data-testid="settings-body" class="flex-1 overflow-y-auto p-6">
+                    <SectionsProvider>
                     <Show when={tab() === 'account'}>
                         <AccountTab />
                     </Show>
@@ -217,6 +252,9 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
                     </Show>
                     <Show when={tab() === 'appearance'}>
                         <AppearanceTab archives={props.archives} />
+                    </Show>
+                    <Show when={tab() === 'modals'}>
+                        <ModalsTab />
                     </Show>
                     <Show when={tab() === 'tags'}>
                         <TagsTab canManageTags={hasPermission(props.myPermissions, PERM.MANAGE_TAGS)} />
@@ -233,6 +271,8 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
                     <Show when={tab() === 'about'}>
                         <AboutTab />
                     </Show>
+                    </SectionsProvider>
+                    </div>
                 </div>
             </div>
         </Modal>
@@ -315,8 +355,7 @@ const AccountTab: Component = () => {
 
     return (
         <form onSubmit={save} class="space-y-6">
-            <section>
-                <h3 class="text-main font-serif text-base font-semibold mb-2">Your account</h3>
+            <SettingsSection title="Your account">
                 <p class="text-sub text-xs mb-3">
                     Your username is what you sign in with and what other members see on your moments and messages.
                 </p>
@@ -383,7 +422,7 @@ const AccountTab: Component = () => {
                         </Show>
                     </div>
                 </div>
-            </section>
+            </SettingsSection>
         </form>
     )
 }
@@ -409,41 +448,8 @@ const GeneralTab: Component = () => {
 
     return (
         <div class="space-y-6">
-            <section>
-                <h3 class="text-main font-serif text-base font-semibold mb-3">Interface</h3>
+            <SettingsSection title="Behaviour">
                 <div class="space-y-4">
-                    {/* UI scale */}
-                    <div class="bg-element border-element-accent rounded-lg border p-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-main text-sm font-bold">UI Scale</span>
-                            <span class="text-sub text-sm font-mono">{Math.round(prefs().uiScale * 100)}%</span>
-                        </div>
-                        <input
-                            type="range"
-                            min="0.8"
-                            max="1.4"
-                            step="0.05"
-                            value={prefs().uiScale}
-                            onInput={(e) => setPref('uiScale', parseFloat(e.currentTarget.value))}
-                            class="accent-highlight-strongest w-full cursor-pointer"
-                        />
-                        <p class="text-sub text-xs mt-1">Scales the whole interface. Applied instantly.</p>
-                    </div>
-
-                    {/* Highlight selected tags */}
-                    <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
-                        <div>
-                            <span class="text-main text-sm font-bold block">Highlight Selected Tags in Moments</span>
-                            <span class="text-sub text-xs">Emphasise filtered tags where they appear on moment cards.</span>
-                        </div>
-                        <input
-                            type="checkbox"
-                            checked={prefs().highlightSelectedTags}
-                            onChange={(e) => setPref('highlightSelectedTags', e.currentTarget.checked)}
-                            class="accent-highlight-strongest h-5 w-5 cursor-pointer"
-                        />
-                    </label>
-
                     {/* Clickable tags on moments */}
                     <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
                         <div>
@@ -458,119 +464,11 @@ const GeneralTab: Component = () => {
                         />
                     </label>
 
-                    {/* Inline link previews. The row-width control only means
-                        anything once the toggle is on, so it stays hidden until
-                        then rather than sitting there inert. */}
-                    <div class="bg-element border-element-accent rounded-lg border p-4">
-                        <label class="flex items-center justify-between gap-3 cursor-pointer">
-                            <div>
-                                <span class="text-main text-sm font-bold block">Inline Link Previews</span>
-                                <span class="text-sub text-xs">
-                                    Show a link's preview card where the link is, instead of stacking every card at
-                                    the end of the moment.
-                                </span>
-                            </div>
-                            <input
-                                type="checkbox"
-                                checked={prefs().inlineLinkPreviews}
-                                onChange={(e) => setPref('inlineLinkPreviews', e.currentTarget.checked)}
-                                class="accent-highlight-strongest h-5 w-5 cursor-pointer"
-                            />
-                        </label>
-                        <Show when={prefs().inlineLinkPreviews}>
-                            <div class="border-element-accent mt-3 border-t pt-3">
-                                <span class="text-main text-sm font-bold block">Cards Per Row</span>
-                                <span class="text-sub text-xs">
-                                    How many previews sit side by side when links are written back to back.
-                                </span>
-                                <RowCountPicker
-                                    value={prefs().inlineLinkPreviewsPerRow}
-                                    noun="cards"
-                                    testid="link-previews-per-row"
-                                    onPick={(n) => setPref('inlineLinkPreviewsPerRow', n)}
-                                />
-                            </div>
-                        </Show>
-                    </div>
+                </div>
+            </SettingsSection>
 
-                    {/* Videos per row. No toggle above it: 1 is the full-width
-                        player this has always been, so the control is its own
-                        off switch. */}
-                    <div class="bg-element border-element-accent rounded-lg border p-4">
-                        <span class="text-main text-sm font-bold block">Videos Per Row</span>
-                        <span class="text-sub text-xs">
-                            How many uploaded videos sit side by side when they are attached back to back. One gives
-                            each its own full-width player.
-                        </span>
-                        <RowCountPicker
-                            value={prefs().videosPerRow}
-                            noun="videos"
-                            testid="videos-per-row"
-                            onPick={(n) => setPref('videosPerRow', n)}
-                        />
-                    </div>
-
-                    {/* Reference previews. Both off by default: a reference card
-                        is deliberately compact (ADR-0015), and these trade that
-                        for showing what is on the other end. */}
-                    <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
-                        <div>
-                            <span class="text-main text-sm font-bold block">Canvas Reference Previews</span>
-                            <span class="text-sub text-xs">
-                                Draw a small map of the board inside a canvas reference, instead of only its name and
-                                node count.
-                            </span>
-                        </div>
-                        <input
-                            type="checkbox"
-                            checked={prefs().canvasEmbedPreview}
-                            onChange={(e) => setPref('canvasEmbedPreview', e.currentTarget.checked)}
-                            class="accent-highlight-strongest h-5 w-5 cursor-pointer"
-                        />
-                    </label>
-
-                    <div class="bg-element border-element-accent rounded-lg border p-4">
-                        <label class="flex items-center justify-between gap-3 cursor-pointer">
-                            <div>
-                                <span class="text-main text-sm font-bold block">Moment Reference Previews</span>
-                                <span class="text-sub text-xs">
-                                    Render a referenced moment the way the main column does, instead of a short line of
-                                    plain text. A moment inside a preview stays a plain card, so references cannot
-                                    nest without end.
-                                </span>
-                            </div>
-                            <input
-                                type="checkbox"
-                                checked={prefs().momentEmbedPreview}
-                                onChange={(e) => setPref('momentEmbedPreview', e.currentTarget.checked)}
-                                class="accent-highlight-strongest h-5 w-5 cursor-pointer"
-                            />
-                        </label>
-                        <Show when={prefs().momentEmbedPreview}>
-                            <div class="border-element-accent mt-3 border-t pt-3">
-                                <div class="mb-2 flex items-center justify-between">
-                                    <span class="text-main text-sm font-bold block">Preview Height</span>
-                                    <span class="text-sub text-sm font-mono">{prefs().momentEmbedPreviewHeight}%</span>
-                                </div>
-                                <input
-                                    type="range"
-                                    min={PREVIEW_HEIGHT_LIMITS.min}
-                                    max={PREVIEW_HEIGHT_LIMITS.max}
-                                    step={PREVIEW_HEIGHT_LIMITS.step}
-                                    value={prefs().momentEmbedPreviewHeight}
-                                    onInput={(e) =>
-                                        setPref('momentEmbedPreviewHeight', parseInt(e.currentTarget.value, 10))
-                                    }
-                                    aria-label="Moment preview height"
-                                    class="accent-highlight-strongest w-full cursor-pointer"
-                                />
-                                <p class="text-sub text-xs mt-1">
-                                    How much of the window height a preview may fill before it is cut off.
-                                </p>
-                            </div>
-                        </Show>
-                    </div>
-
+            <SettingsSection title="Formatting">
+                <div class="space-y-4">
                     {/* Time format: pins the clock used for every rendered time. */}
                     <div class="bg-element border-element-accent rounded-lg border p-4">
                         <div class="mb-2">
@@ -601,7 +499,7 @@ const GeneralTab: Component = () => {
                         </div>
                     </div>
                 </div>
-            </section>
+            </SettingsSection>
 
             {/* Desktop-only settings. In the Electron shell these render the real
                 controls (over the reserved prefs plumbing); in a browser they
@@ -610,21 +508,19 @@ const GeneralTab: Component = () => {
                 when={isDesktop}
                 fallback={
                     <Show when={!isElectron}>
-                        <section>
-                            <h3 class="text-main font-serif text-base font-semibold mb-2">Desktop Client</h3>
+                        <SettingsSection title="Desktop Client">
                             <p class="text-sub text-xs leading-relaxed">
                                 Font selection, animation controls, multi-server and update checks live in the Athena
                                 desktop app. The web client keeps the essentials.
                             </p>
-                        </section>
+                        </SettingsSection>
                     </Show>
                 }
             >
                 <DesktopSettings />
             </Show>
 
-            <section>
-                <h3 class="text-main font-serif text-base font-semibold mb-2">Reset</h3>
+            <SettingsSection title="Reset">
                 <button
                     onClick={resetAll}
                     class="border-danger text-danger hover:bg-danger flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition-colors hover:text-white hover:cursor-pointer"
@@ -633,7 +529,7 @@ const GeneralTab: Component = () => {
                     Reset All Settings
                 </button>
                 <p class="text-sub text-xs mt-1">Custom themes are preserved.</p>
-            </section>
+            </SettingsSection>
         </div>
     )
 }
@@ -696,8 +592,7 @@ const DesktopSettings: Component = () => {
     }
 
     return (
-        <section>
-            <h3 class="text-main font-serif text-base font-semibold mb-3">Desktop Client</h3>
+        <SettingsSection title="Desktop Client">
             <div class="space-y-4">
                 {/* Animations on/off */}
                 <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
@@ -774,7 +669,7 @@ const DesktopSettings: Component = () => {
                     </button>
                 </div>
             </div>
-        </section>
+        </SettingsSection>
     )
 }
 
@@ -783,6 +678,169 @@ const DesktopSettings: Component = () => {
 // A "look" is a visual language (surface/typography/border treatment) layered
 // on top of the colour theme. Five presets ship; users can build their own,
 // stored in localStorage like custom themes.
+
+// Scale sits beside Font because it is the same decision at a different
+// grain: how big is the interface. It lived under General, which had drifted
+// into a second appearance tab.
+const ScaleSection: Component = () => (
+    <SettingsSection title="Scale">
+        <div class="space-y-4">
+                {/* UI scale */}
+                <div class="bg-element border-element-accent rounded-lg border p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-main text-sm font-bold">UI Scale</span>
+                        <span class="text-sub text-sm font-mono">{Math.round(prefs().uiScale * 100)}%</span>
+                    </div>
+                    <input
+                        type="range"
+                        min="0.8"
+                        max="1.4"
+                        step="0.05"
+                        value={prefs().uiScale}
+                        onInput={(e) => setPref('uiScale', parseFloat(e.currentTarget.value))}
+                        class="accent-highlight-strongest w-full cursor-pointer"
+                    />
+                    <p class="text-sub text-xs mt-1">Scales the whole interface. Applied instantly.</p>
+                </div>
+        </div>
+    </SettingsSection>
+)
+
+// How a moment's contents are drawn: what a link, a video, a reference and a
+// filtered tag look like once they are on the page.
+const ReadingSection: Component = () => (
+    <SettingsSection title="Reading">
+        <div class="space-y-4">
+                {/* Highlight selected tags */}
+                <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
+                    <div>
+                        <span class="text-main text-sm font-bold block">Highlight Selected Tags in Moments</span>
+                        <span class="text-sub text-xs">Emphasise filtered tags where they appear on moment cards.</span>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={prefs().highlightSelectedTags}
+                        onChange={(e) => setPref('highlightSelectedTags', e.currentTarget.checked)}
+                        class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                    />
+                </label>
+
+
+                {/* Inline link previews. The row-width control only means
+                    anything once the toggle is on, so it stays hidden until
+                    then rather than sitting there inert. */}
+                <div class="bg-element border-element-accent rounded-lg border p-4">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <div>
+                            <span class="text-main text-sm font-bold block">Inline Link Previews</span>
+                            <span class="text-sub text-xs">
+                                Show a link's preview card where the link is, instead of stacking every card at
+                                the end of the moment.
+                            </span>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={prefs().inlineLinkPreviews}
+                            onChange={(e) => setPref('inlineLinkPreviews', e.currentTarget.checked)}
+                            class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                        />
+                    </label>
+                    <Show when={prefs().inlineLinkPreviews}>
+                        <div class="border-element-accent mt-3 border-t pt-3">
+                            <span class="text-main text-sm font-bold block">Cards Per Row</span>
+                            <span class="text-sub text-xs">
+                                How many previews sit side by side when links are written back to back.
+                            </span>
+                            <RowCountPicker
+                                value={prefs().inlineLinkPreviewsPerRow}
+                                noun="cards"
+                                testid="link-previews-per-row"
+                                onPick={(n) => setPref('inlineLinkPreviewsPerRow', n)}
+                            />
+                        </div>
+                    </Show>
+                </div>
+
+                {/* Videos per row. No toggle above it: 1 is the full-width
+                    player this has always been, so the control is its own
+                    off switch. */}
+                <div class="bg-element border-element-accent rounded-lg border p-4">
+                    <span class="text-main text-sm font-bold block">Videos Per Row</span>
+                    <span class="text-sub text-xs">
+                        How many uploaded videos sit side by side when they are attached back to back. One gives
+                        each its own full-width player.
+                    </span>
+                    <RowCountPicker
+                        value={prefs().videosPerRow}
+                        noun="videos"
+                        testid="videos-per-row"
+                        onPick={(n) => setPref('videosPerRow', n)}
+                    />
+                </div>
+
+                {/* Reference previews. Both off by default: a reference card
+                    is deliberately compact (ADR-0015), and these trade that
+                    for showing what is on the other end. */}
+                <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
+                    <div>
+                        <span class="text-main text-sm font-bold block">Canvas Reference Previews</span>
+                        <span class="text-sub text-xs">
+                            Draw a small map of the board inside a canvas reference, instead of only its name and
+                            node count.
+                        </span>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={prefs().canvasEmbedPreview}
+                        onChange={(e) => setPref('canvasEmbedPreview', e.currentTarget.checked)}
+                        class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                    />
+                </label>
+
+                <div class="bg-element border-element-accent rounded-lg border p-4">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <div>
+                            <span class="text-main text-sm font-bold block">Moment Reference Previews</span>
+                            <span class="text-sub text-xs">
+                                Render a referenced moment the way the main column does, instead of a short line of
+                                plain text. A moment inside a preview stays a plain card, so references cannot
+                                nest without end.
+                            </span>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={prefs().momentEmbedPreview}
+                            onChange={(e) => setPref('momentEmbedPreview', e.currentTarget.checked)}
+                            class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                        />
+                    </label>
+                    <Show when={prefs().momentEmbedPreview}>
+                        <div class="border-element-accent mt-3 border-t pt-3">
+                            <div class="mb-2 flex items-center justify-between">
+                                <span class="text-main text-sm font-bold block">Preview Height</span>
+                                <span class="text-sub text-sm font-mono">{prefs().momentEmbedPreviewHeight}%</span>
+                            </div>
+                            <input
+                                type="range"
+                                min={PREVIEW_HEIGHT_LIMITS.min}
+                                max={PREVIEW_HEIGHT_LIMITS.max}
+                                step={PREVIEW_HEIGHT_LIMITS.step}
+                                value={prefs().momentEmbedPreviewHeight}
+                                onInput={(e) =>
+                                    setPref('momentEmbedPreviewHeight', parseInt(e.currentTarget.value, 10))
+                                }
+                                aria-label="Moment preview height"
+                                class="accent-highlight-strongest w-full cursor-pointer"
+                            />
+                            <p class="text-sub text-xs mt-1">
+                                How much of the window height a preview may fill before it is cut off.
+                            </p>
+                        </div>
+                    </Show>
+                </div>
+        </div>
+    </SettingsSection>
+)
 
 const LooksSection: Component = () => {
     const [active, setActive] = createSignal(getActiveLook())
@@ -811,8 +869,7 @@ const LooksSection: Component = () => {
     }
 
     return (
-        <section>
-            <h3 class="text-main font-serif text-base font-semibold mb-2">Look</h3>
+        <SettingsSection title="Look">
             <p class="text-sub text-xs mb-3">A visual language layered on top of the colour theme. Composes with every theme.</p>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <For each={PRESET_LOOKS}>
@@ -912,7 +969,7 @@ const LooksSection: Component = () => {
                     </div>
                 </div>
             </Show>
-        </section>
+        </SettingsSection>
     )
 }
 
@@ -924,8 +981,7 @@ const LayoutSection: Component = () => {
         { id: 'focus', label: 'Focus', blurb: 'One centred writing column; panels in drawers', icon: 'crop_portrait' },
     ]
     return (
-        <section>
-            <h3 class="text-main font-serif text-base font-semibold mb-2">Layout</h3>
+        <SettingsSection title="Layout">
             <p class="text-sub text-xs mb-3">How the main screen is arranged. The list/grid feed toggle works in either.</p>
             <div class="grid grid-cols-2 gap-2">
                 <For each={options}>
@@ -971,7 +1027,7 @@ const LayoutSection: Component = () => {
                     </div>
                 </div>
             </Show>
-        </section>
+        </SettingsSection>
     )
 }
 
@@ -984,8 +1040,7 @@ const LibrariesSection: Component = () => {
         { id: 'left-rail', label: 'Shelf', blurb: 'The full-height shelf on the far left' },
     ]
     return (
-        <section>
-            <h3 class="text-main font-serif text-base font-semibold mb-2">Libraries</h3>
+        <SettingsSection title="Libraries">
             <p class="text-sub text-xs mb-3">Where the in-app library (server) switcher appears. Only shown when you have more than one library. Opening the desktop window's own library sidebar (from the switcher's manage button, or Ctrl/Cmd+Shift+S) replaces this switcher while it's up, so you never see both at once.</p>
             <div class="grid grid-cols-3 gap-2">
                 <For each={options}>
@@ -1016,15 +1071,14 @@ const LibrariesSection: Component = () => {
                     />
                 </label>
             </Show>
-        </section>
+        </SettingsSection>
     )
 }
 
 // --- Appearance tab: top bar ---
 
 const TopbarSection: Component = () => (
-    <section>
-        <h3 class="text-main font-serif text-base font-semibold mb-2">Top bar</h3>
+    <SettingsSection title="Top bar">
         <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
             <div>
                 <span class="text-main text-sm font-bold block">Show logo in title bar</span>
@@ -1037,14 +1091,13 @@ const TopbarSection: Component = () => (
                 class="accent-highlight-strongest h-5 w-5 cursor-pointer"
             />
         </label>
-    </section>
+    </SettingsSection>
 )
 
 // --- Appearance tab: projects ---
 
 const ProjectsSection: Component = () => (
-    <section>
-        <h3 class="text-main font-serif text-base font-semibold mb-2">Projects</h3>
+    <SettingsSection title="Projects">
         <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
             <div>
                 <span class="text-main text-sm font-bold block">Open Projects in a window</span>
@@ -1060,14 +1113,13 @@ const ProjectsSection: Component = () => (
                 class="accent-highlight-strongest h-5 w-5 cursor-pointer"
             />
         </label>
-    </section>
+    </SettingsSection>
 )
 
 // --- Appearance tab: backgrounds ---
 
 const BackgroundsSection: Component = () => (
-    <section>
-        <h3 class="text-main font-serif text-base font-semibold mb-2">Backgrounds</h3>
+    <SettingsSection title="Backgrounds">
         <div class="flex flex-col gap-3">
             <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
                 <div>
@@ -1099,7 +1151,7 @@ const BackgroundsSection: Component = () => (
                 />
             </label>
         </div>
-    </section>
+    </SettingsSection>
 )
 
 // --- Appearance tab: font ---
@@ -1127,8 +1179,7 @@ const FontSection: Component = () => {
     })
 
     return (
-        <section>
-            <h3 class="text-main font-serif text-base font-semibold mb-2">Font</h3>
+        <SettingsSection title="Font">
             <div class="bg-element border-element-accent rounded-lg border p-4">
                 <label for="settings-interface-font" class="text-main text-sm font-bold block mb-2">
                     Interface Font
@@ -1165,7 +1216,7 @@ const FontSection: Component = () => {
                     The quick brown fox jumps over the lazy dog. 0123456789
                 </p>
             </div>
-        </section>
+        </SettingsSection>
     )
 }
 
@@ -1195,8 +1246,7 @@ const MenuSection: Component = () => {
     const blurbOf = (id: MenuWidget['id']) => labelOf(id)?.blurb ?? ''
 
     return (
-        <section>
-            <h3 class="text-main font-serif text-base font-semibold mb-2">Menu column</h3>
+        <SettingsSection title="Menu column">
             <p class="text-sub text-xs mb-3">The right-hand column on the Standard desktop layout.</p>
             <div class="grid grid-cols-2 gap-2">
                 <For each={layouts}>
@@ -1270,7 +1320,7 @@ const MenuSection: Component = () => {
                     />
                 </label>
             </Show>
-        </section>
+        </SettingsSection>
     )
 }
 
@@ -1298,8 +1348,7 @@ const AppearanceScopeSection: Component = () => {
     const buckets = () => OVERRIDE_BUCKETS.filter((b) => overriddenKeys().includes(b.key))
     return (
         <Show when={appearanceIsGlobal()}>
-            <section>
-                <h3 class="text-main font-serif text-base font-semibold mb-2">Appearance scope</h3>
+            <SettingsSection title="Appearance scope">
                 <p class="text-sub text-xs mb-3">
                     Appearance is shared across all your libraries. Edits below apply to the{' '}
                     <b>global default</b>; switch to <b>This library</b> to override just this one.
@@ -1352,7 +1401,7 @@ const AppearanceScopeSection: Component = () => {
                         </div>
                     </div>
                 </Show>
-            </section>
+            </SettingsSection>
         </Show>
     )
 }
@@ -1449,8 +1498,7 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
             fallback={
                 <div class="space-y-6">
                     <GroupLabel title="Style" blurb="The colour theme, the look layered over it, and the type they are set in." />
-                    <section>
-                        <h3 class="text-main font-serif text-base font-semibold mb-2">Theme</h3>
+                    <SettingsSection title="Theme">
                         <p class="text-sub text-xs mb-3">Click a theme to apply it. Custom themes are stored in your browser.</p>
                         <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
                             <For each={PRESET_THEMES}>
@@ -1513,10 +1561,9 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
                             <span class="material-symbols-outlined text-sm">add</span>
                             New Theme
                         </button>
-                    </section>
+                    </SettingsSection>
 
-                    <section>
-                        <h3 class="text-main font-serif text-base font-semibold mb-2">Import Theme</h3>
+                    <SettingsSection title="Import Theme">
                         <p class="text-sub text-xs mb-2">Paste a shared theme string to add it to your themes.</p>
                         <div class="flex gap-2">
                             <input
@@ -1530,13 +1577,12 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
                                 Import
                             </button>
                         </div>
-                    </section>
+                    </SettingsSection>
 
                     {/* Per-archive theme (advanced, 4.6). Client-local; only user
                         themes can be assigned since presets have no colour map. */}
                     <Show when={props.archives.length > 0 && userThemes().length > 0}>
-                        <section>
-                            <h3 class="text-main font-serif text-base font-semibold mb-2">Per-Archive Theme</h3>
+                        <SettingsSection title="Per-Archive Theme">
                             <p class="text-sub text-xs mb-3">
                                 Give a specific archive its own look. Applies only to the feed while that archive is
                                 selected. Stored locally in this browser.
@@ -1560,7 +1606,7 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
                                     )}
                                 </For>
                             </div>
-                        </section>
+                        </SettingsSection>
                     </Show>
 
                     {/* Look and Font sit directly under Theme: a look composes
@@ -1568,11 +1614,12 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
                         same decision continued. */}
                     <LooksSection />
                     <FontSection />
+                    <ScaleSection />
+                    <ReadingSection />
 
                     <GroupLabel title="Layout" blurb="How the screen is arranged and which panels are on it." />
                     <LayoutSection />
                     <TopbarSection />
-                    <ProjectsSection />
                     <BackgroundsSection />
                     <Show when={isDesktop}>
                         <MenuSection />
@@ -1602,6 +1649,72 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
         </Show>
     )
 }
+
+// --- Modals tab: how much room a module window takes ---
+//
+// One tab rather than a control buried in each module's own settings: the
+// question "how wide should these be" is asked once, about all of them.
+
+const MODULE_WINDOWS: { key: 'todoWidth' | 'projectCardWidth' | 'canvasWidth'; label: string; blurb: string }[] = [
+    { key: 'todoWidth', label: 'To-do board', blurb: 'How wide the board of lists is allowed to grow.' },
+    { key: 'projectCardWidth', label: 'Project card', blurb: 'The card document and its rail of fields.' },
+    { key: 'canvasWidth', label: 'Canvas', blurb: 'The board is pan-and-zoom, so it takes all the room it is given.' },
+]
+
+const WidthPicker: Component<{ label: string; blurb: string; value: ModalWidth; onPick: (w: ModalWidth) => void }> = (
+    props,
+) => (
+    <div class="bg-element border-element-accent rounded-lg border p-4">
+        <div>
+            <span class="text-main text-sm font-bold block">{props.label}</span>
+            <span class="text-sub text-xs">{props.blurb}</span>
+        </div>
+        <div class="mt-2 flex justify-end">
+            <div class="border-element-accent inline-flex overflow-hidden rounded-md border">
+                <For each={MODAL_WIDTH_META}>
+                    {(w, i) => (
+                        <button
+                            onClick={() => props.onPick(w.id)}
+                            aria-label={`${props.label}: ${w.label}`}
+                            class={`px-3 py-1.5 text-xs transition-colors hover:cursor-pointer ${i() > 0 ? 'border-element-accent border-l' : ''} ${
+                                props.value === w.id
+                                    ? 'bg-highlight-strongest text-white font-semibold'
+                                    : 'text-sub hover:bg-element-accent hover:text-main'
+                            }`}
+                        >
+                            {w.label}
+                        </button>
+                    )}
+                </For>
+            </div>
+        </div>
+    </div>
+)
+
+const ModalsTab: Component = () => (
+    <div class="space-y-6">
+        <SettingsSection title="Window size">
+            <p class="text-sub mb-3 text-xs leading-relaxed">
+                A ceiling, not a fixed size: a window still shrinks to fit a smaller screen. Full stops only at the
+                edge of the dimmed area around it.
+            </p>
+            <div class="space-y-4">
+                <For each={MODULE_WINDOWS}>
+                    {(w) => (
+                        <WidthPicker
+                            label={w.label}
+                            blurb={w.blurb}
+                            value={prefs()[w.key]}
+                            onPick={(next) => setPref(w.key, next)}
+                        />
+                    )}
+                </For>
+            </div>
+        </SettingsSection>
+
+        <ProjectsSection />
+    </div>
+)
 
 // --- Tags tab: colour generator preset ---
 
@@ -1646,8 +1759,7 @@ const TagsTab: Component<{ canManageTags: boolean }> = (props) => {
 
     return (
         <div class="space-y-6">
-            <section>
-                <h3 class="text-main font-serif text-base font-semibold mb-2">Tag Colour Generator</h3>
+            <SettingsSection title="Tag Colour Generator">
                 <p class="text-sub text-xs mb-3">
                     Choose the palette used when suggesting a colour for a new tag. Applies to the "suggest colour"
                     button in the tag creator.
@@ -1682,10 +1794,9 @@ const TagsTab: Component<{ canManageTags: boolean }> = (props) => {
                         Reroll
                     </button>
                 </div>
-            </section>
+            </SettingsSection>
 
-            <section>
-                <h3 class="text-main font-serif text-base font-semibold mb-2">Bulk Re-colour</h3>
+            <SettingsSection title="Bulk Re-colour">
                 <p class="text-sub text-xs mb-3 leading-relaxed">
                     Regenerate the colour of every tag from the selected palette. Tags are shared library-wide,
                     so this changes them for everyone.
@@ -1703,7 +1814,7 @@ const TagsTab: Component<{ canManageTags: boolean }> = (props) => {
                         {recoloring() ? 'Recolouring…' : `Recolour all tags (${prefs().tagColorPreset})`}
                     </button>
                 </Show>
-            </section>
+            </SettingsSection>
         </div>
     )
 }

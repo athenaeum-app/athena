@@ -80,6 +80,8 @@ const preview = (page: Page) => card(page).getByTestId('moment-preview')
 
 async function enablePreview(page: Page) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    // These live under Appearance: General is behaviour and system settings.
+    await page.getByRole('button', { name: 'Appearance' }).first().click()
     const box = page.locator('label').filter({ hasText: 'Moment Reference Previews' }).first().locator('input')
     if (!(await box.isChecked())) await box.click()
     // Escape rather than a Close button: several panels render one.
@@ -136,6 +138,8 @@ test.describe('moment reference preview', () => {
         const before = (await preview(page).boundingBox())!.height
 
         await page.getByRole('button', { name: 'Settings', exact: true }).click()
+        // These live under Appearance: General is behaviour and system settings.
+        await page.getByRole('button', { name: 'Appearance' }).first().click()
         await page.getByLabel('Moment preview height').fill('80')
         await page.keyboard.press('Escape')
         await expect(page.getByTestId('settings-tabs')).toHaveCount(0)

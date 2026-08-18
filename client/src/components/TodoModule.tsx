@@ -4,7 +4,7 @@ import { api, type TodoList, type TodoItem, type TodoResetMode } from '../api'
 import { useUI } from '../ui'
 import { Modal, PickerDialog } from './Modal'
 import { createListboxNav } from '../listboxNav'
-import { prefs, setPref } from '../prefs'
+import { prefs, setPref, MODAL_WIDTH_CLASS } from '../prefs'
 import { notifyTodoChanged } from '../todoBus'
 import { serializeLists, parseLists, type ParsedItem } from '../todoTransfer'
 
@@ -458,7 +458,7 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
 
     return (
         <Modal onClose={props.onClose} class="animate-fade-in">
-            <div class="bg-element-matte border-element-accent flex h-[85vh] w-[92vw] max-w-6xl flex-col rounded-lg border shadow-2xl overflow-hidden">
+            <div class={`bg-element-matte border-element-accent flex h-[85vh] w-[92vw] flex-col rounded-lg border shadow-2xl overflow-hidden ${MODAL_WIDTH_CLASS[prefs().todoWidth]}`}>
                 {/* Header */}
                 <div class="bg-element border-element-accent flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
                     <div class="flex items-center gap-2">

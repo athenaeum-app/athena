@@ -27,6 +27,8 @@ test.describe('inline link preview settings', () => {
         await signIn(page)
         await page.goto('/')
         await page.getByRole('button', { name: 'Settings', exact: true }).click()
+        // These live under Appearance: General is behaviour and system settings.
+        await page.getByRole('button', { name: 'Appearance' }).first().click()
 
         await page.getByText('Inline Link Previews').click()
         await expect(perRowButton(page, 2)).toHaveClass(/bg-highlight-strongest/)
@@ -37,6 +39,8 @@ test.describe('inline link preview settings', () => {
         await signIn(page)
         await page.goto('/')
         await page.getByRole('button', { name: 'Settings', exact: true }).click()
+        // These live under Appearance: General is behaviour and system settings.
+        await page.getByRole('button', { name: 'Appearance' }).first().click()
         await page.getByText('Inline Link Previews').click()
 
         const description = page.getByText('How many previews sit side by side')

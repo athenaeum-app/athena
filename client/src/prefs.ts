@@ -38,6 +38,42 @@ const DEFAULT_MENU_WIDGETS: MenuWidget[] = [
     { id: 'tags', enabled: false },
 ]
 
+// How wide a module window is allowed to grow. One scale shared by every
+// module rather than a number per surface: the point of the setting is "give
+// me more room", and a person who wants that wants it in the same terms
+// everywhere. `full` stops only at the backdrop's own padding.
+export type ModalWidth = 'narrow' | 'medium' | 'large' | 'wide' | 'full'
+
+export const MODAL_WIDTH_META: { id: ModalWidth; label: string }[] = [
+    { id: 'narrow', label: 'Narrow' },
+    { id: 'medium', label: 'Medium' },
+    { id: 'large', label: 'Large' },
+    { id: 'wide', label: 'Wide' },
+    { id: 'full', label: 'Full' },
+]
+
+// Written out rather than built from the pref: Tailwind reads class names out
+// of the source, so a computed `max-w-[${n}rem]` compiles to no CSS at all.
+export const MODAL_WIDTH_CLASS: Record<ModalWidth, string> = {
+    narrow: 'max-w-[56rem]',
+    medium: 'max-w-[68rem]',
+    large: 'max-w-[80rem]',
+    wide: 'max-w-[96rem]',
+    full: 'max-w-none',
+}
+
+// The same scale at the desktop breakpoint, for a window that fills a phone
+// screen edge to edge and only takes a width once there is room for one. The
+// prefix is written into each value for the same reason as above: `lg:` glued
+// on at runtime is a class Tailwind never sees.
+export const MODAL_WIDTH_CLASS_LG: Record<ModalWidth, string> = {
+    narrow: 'lg:max-w-[56rem]',
+    medium: 'lg:max-w-[68rem]',
+    large: 'lg:max-w-[80rem]',
+    wide: 'lg:max-w-[96rem]',
+    full: 'lg:max-w-none',
+}
+
 export interface Prefs {
     // Root font-size multiplier (0.8 to 1.4). 1 = default 16px.
     uiScale: number
@@ -65,6 +101,12 @@ export interface Prefs {
     // on the far left; the two 'inline-*' modes stack it in the Archives
     // column (above or below the archives list).
     librariesPlacement: 'inline-above' | 'inline-below' | 'left-rail'
+    // Width of each module window. Defaults differ because the surfaces do:
+    // a card is a document, a board wants columns, and a canvas wants as much
+    // room as the window will give it.
+    todoWidth: ModalWidth
+    projectCardWidth: ModalWidth
+    canvasWidth: ModalWidth
     // Show the app logo beside the "Athena" title in the top bar. The bold
     // title + version render regardless; this only toggles the icon.
     showTopbarLogo: boolean
@@ -156,6 +198,9 @@ export const DEFAULT_PREFS: Prefs = {
     bookcaseMain: true,
     bookcaseProjects: true,
     projectsWindowed: true,
+    todoWidth: 'large',
+    projectCardWidth: 'medium',
+    canvasWidth: 'wide',
     font: '',
     animationsEnabled: true,
     animationSpeed: 1,
