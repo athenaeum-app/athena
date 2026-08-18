@@ -30,6 +30,9 @@ export const ConfirmModal: Component<ConfirmModalProps> = (props) => {
 
     return (
         <div
+            // Marks this as the layer that owns Escape while it is open, for
+            // hosts that close on the key themselves (ProjectsModule).
+            data-confirm-modal
             class="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] animate-fade-in"
             {...backdropDismiss(props.onCancel)}
             onKeyDown={(e) => {

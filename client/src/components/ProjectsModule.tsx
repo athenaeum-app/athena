@@ -277,6 +277,23 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
     }
     onMount(load)
 
+    // Escape closes the module. Handled here rather than left to the app's
+    // global shortcut chain, which the desktop shell can intercept before the
+    // page ever sees the key. Capture phase, so the layers that own Escape
+    // while they are open (an editor menu, the card modal, a confirm dialog)
+    // get to answer for themselves first.
+    onMount(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return
+            if (document.querySelector('[data-editor-menu], [data-card-modal], [data-confirm-modal]')) return
+            e.preventDefault()
+            e.stopPropagation()
+            props.onClose()
+        }
+        window.addEventListener('keydown', onKey, true)
+        onCleanup(() => window.removeEventListener('keydown', onKey, true))
+    })
+
     const openProject = () => projects.find((p) => p.id === openId()) || null
     const mutate = (id: string, fn: (p: Project) => void) => setProjects((p) => p.id === id, produce(fn))
 
@@ -422,6 +439,12 @@ const Portfolio: Component<{
     return (
         <div class="relative z-10 flex min-h-0 flex-1 flex-col">
             <div class="bg-element border-element-accent flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3 sm:px-5">
+                {/* Leftmost control is always "up one level": here that is out
+                    of the module, the way it is back to the portfolio in a
+                    project's hub. */}
+                <button onClick={props.onClose} class="text-sub hover:text-main transition-colors hover:cursor-pointer" title="Back to the library">
+                    <span class="material-symbols-outlined">arrow_back</span>
+                </button>
                 <span class="material-symbols-outlined text-highlight text-xl">space_dashboard</span>
                 <h1 class="text-main font-serif text-2xl font-semibold">Projects</h1>
                 <div class="border-element-accent flex overflow-hidden rounded-md border sm:ml-4">
@@ -440,9 +463,6 @@ const Portfolio: Component<{
                         )}
                     </For>
                 </div>
-                <button onClick={props.onClose} class="text-sub hover:text-main ml-auto transition-colors hover:cursor-pointer" title="Close">
-                    <span class="material-symbols-outlined">close</span>
-                </button>
             </div>
 
             <Show when={!props.loading} fallback={<div class="flex flex-1 items-center justify-center"><p class="text-sub text-sm">Loading…</p></div>}>
@@ -1669,6 +1689,7 @@ const CardModal: Component<{
         <div class="animate-fade-in fixed inset-0 z-[65] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={props.onClose}>
             <div
                 onClick={(e) => e.stopPropagation()}
+                data-card-modal
                 class="bg-element-matte border-element-accent flex h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border shadow-2xl"
             >
                 <div class="bg-element border-element-accent flex items-center gap-2 border-b px-4 py-3 sm:gap-3 sm:px-6 sm:py-4">
