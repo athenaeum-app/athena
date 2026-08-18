@@ -1029,6 +1029,45 @@ const TopbarSection: Component = () => (
     </section>
 )
 
+// --- Appearance tab: backgrounds ---
+
+const BackgroundsSection: Component = () => (
+    <section>
+        <h3 class="text-main font-serif text-base font-semibold mb-2">Backgrounds</h3>
+        <div class="flex flex-col gap-3">
+            <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
+                <div>
+                    <span class="text-main text-sm font-bold block">Bookcase behind Projects</span>
+                    <span class="text-sub text-xs">
+                        Drift the login page's bookshelf texture behind the Projects module. Panels turn solid while
+                        it is on, so translucent looks keep their contrast.
+                    </span>
+                </div>
+                <input
+                    type="checkbox"
+                    checked={prefs().bookcaseProjects}
+                    onChange={(e) => setPref('bookcaseProjects', e.currentTarget.checked)}
+                    class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                />
+            </label>
+            <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
+                <div>
+                    <span class="text-main text-sm font-bold block">Bookcase behind the main app</span>
+                    <span class="text-sub text-xs">
+                        The same texture behind the feed and side panels. Panels turn solid here too while it is on.
+                    </span>
+                </div>
+                <input
+                    type="checkbox"
+                    checked={prefs().bookcaseMain}
+                    onChange={(e) => setPref('bookcaseMain', e.currentTarget.checked)}
+                    class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                />
+            </label>
+        </div>
+    </section>
+)
+
 // --- Appearance tab: font ---
 //
 // Two sources, and they answer different questions. The look fonts are the
@@ -1499,6 +1538,7 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
                     <GroupLabel title="Layout" blurb="How the screen is arranged and which panels are on it." />
                     <LayoutSection />
                     <TopbarSection />
+                    <BackgroundsSection />
                     <Show when={isDesktop}>
                         <MenuSection />
                         <LibrariesSection />

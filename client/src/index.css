@@ -368,6 +368,21 @@ body {
     color: #13203f;
 }
 
+/* A surface wearing the bookcase texture (data-solid-surfaces on its root,
+   driven by the prefs.bookcase* toggles): panels must actually cover the
+   texture, so the usual translucent element tint is pre-composited over the
+   page background instead of left see-through. The doubled attribute keeps
+   these at the look rules' specificity while sitting later in source, and
+   unlayered they override the plain utilities under the Legacy look too. */
+[data-solid-surfaces][data-solid-surfaces] .bg-element {
+    background-color: color-mix(in srgb, var(--theme-element-matte) 50%, var(--theme-bg));
+    backdrop-filter: none;
+}
+[data-solid-surfaces][data-solid-surfaces] .bg-element-matte {
+    background-color: var(--theme-element-matte);
+    backdrop-filter: none;
+}
+
 /* Editorial (default): warm parchment wash, full serif body, roomy hairlines. */
 [data-look='editorial'] {
     --look-radius: 0.25rem;

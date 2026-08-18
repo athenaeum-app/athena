@@ -112,6 +112,12 @@ export interface Prefs {
     // How tall such a preview may get, as a percentage of the window height,
     // before it is cut off behind a fade. Clamped to 10 through 100 on load.
     momentEmbedPreviewHeight: number
+    // Drift the login page's bookcase watermark behind a surface. While a
+    // surface's texture is on, its panels render solid (data-solid-surfaces,
+    // index.css) so translucent looks don't let the shelves bleed through the
+    // foreground. On everywhere by default, matching the login page.
+    bookcaseMain: boolean
+    bookcaseProjects: boolean
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -140,6 +146,8 @@ export const DEFAULT_PREFS: Prefs = {
     canvasEmbedPreview: false,
     momentEmbedPreview: false,
     momentEmbedPreviewHeight: 40,
+    bookcaseMain: true,
+    bookcaseProjects: true,
     font: '',
     animationsEnabled: true,
     animationSpeed: 1,

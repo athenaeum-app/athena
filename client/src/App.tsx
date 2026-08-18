@@ -32,6 +32,7 @@ import { LibrariesPanel, librariesSwitcherVisible } from './components/Libraries
 import { MenuPanel } from './components/MenuPanel'
 import { FocusedMomentModal } from './components/FocusedMomentModal'
 import { Lightbox } from './components/Lightbox'
+import { BookcaseDrift } from './components/BookcaseDrift'
 import { watchForNewBuild } from './staleClient'
 import { UpdateNotice } from './components/UpdateNotice'
 import { pendingNotes, markVersionSeen } from './releaseNotes'
@@ -924,7 +925,16 @@ export const App: Component = () => {
     )
 
     return (
-        <div class="bg-background text-sub flex h-[100dvh] flex-col overflow-hidden">
+        <div
+            class="bg-background text-sub relative isolate flex h-[100dvh] flex-col overflow-hidden"
+            // Solid panels while the texture is on; see index.css.
+            data-solid-surfaces={prefs().bookcaseMain ? '' : undefined}
+        >
+            {/* The login page's drifting bookcase behind the whole shell,
+                opt-in per surface (Settings, Appearance, Backgrounds). */}
+            <Show when={prefs().bookcaseMain}>
+                <BookcaseDrift class="opacity-[0.04]" />
+            </Show>
             {/* 3-cell grid keeps the brand truly centred regardless of any
                 side content (e.g. the Electron window-control gutter, which
                 simply overlays the empty right cell). */}

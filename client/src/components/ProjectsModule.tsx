@@ -4,6 +4,8 @@ import { api, type Project, type ProjectMilestone, type ProjectCard } from '../a
 import { useUI } from '../ui'
 import { MomentBody } from './MomentBody'
 import { Editor } from './Editor'
+import { BookcaseDrift } from './BookcaseDrift'
+import { prefs } from '../prefs'
 
 // Projects module: a portfolio of long-horizon efforts. Each project is a
 // tabbed hub (overview document, milestone board, graveyard) with an identity
@@ -321,7 +323,18 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
     }
 
     return (
-        <div class="animate-fade-in text-main fixed inset-0 z-50 flex flex-col overflow-hidden" style={{ 'background-color': 'var(--theme-bg)' }}>
+        <div
+            class="animate-fade-in text-main isolate fixed inset-0 z-50 flex flex-col overflow-hidden"
+            style={{ 'background-color': 'var(--theme-bg)' }}
+            // Solid surfaces while the texture is on; see index.css.
+            data-solid-surfaces={prefs().bookcaseProjects ? '' : undefined}
+        >
+            {/* The login page's drifting bookcase, quieter: a working surface
+                wants texture, not a statement. Toggleable per surface in
+                Settings (Appearance, Background texture). */}
+            <Show when={prefs().bookcaseProjects}>
+                <BookcaseDrift class="opacity-[0.04]" />
+            </Show>
             {/* keyed: switching projects (opening one from an embedded project
                 card, say) remounts the Hub, so editor state, tab and pending
                 saves never leak across projects. */}
