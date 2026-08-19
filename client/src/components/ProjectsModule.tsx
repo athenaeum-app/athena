@@ -341,7 +341,13 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
             }}
         >
             <div
-                class="animate-fade-in text-main isolate flex h-full w-full flex-col overflow-hidden"
+                data-testid="projects-panel"
+                // relative: BookcaseDrift is an absolutely positioned -z-10
+                // layer, so without a positioned host it resolves against the
+                // Modal's fixed overlay instead, escapes overflow-hidden, and
+                // paints the shelf texture over the whole viewport above the
+                // scrim. That reads as every panel behind going transparent.
+                class="animate-fade-in text-main relative isolate flex h-full w-full flex-col overflow-hidden"
                 classList={{ 'border-element-accent max-h-[90vh] max-w-[90vw] rounded-xl border shadow-2xl': windowed() }}
                 style={{ 'background-color': 'var(--theme-bg)' }}
                 // Solid surfaces while the texture is on; see index.css.
