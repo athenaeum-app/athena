@@ -122,8 +122,9 @@ function mergeLinkRuns(parts: Part[]): Part[] {
 
 // excerpt flattens moment markdown to a short plain-text summary for compact
 // previews: strips embed tokens, images, and light markdown syntax so a moment
-// preview never recurses into another render (ADR-0015).
-function excerpt(content: string, max = 180): string {
+// preview never recurses into another render (ADR-0015). Exported because the
+// canvas draws the same flattened summary on a node too small for a body.
+export function excerpt(content: string, max = 180): string {
     let text = content || ''
     text = text.replace(/::(todo|canvas|project):[0-9a-fA-F-]{6,}::/g, '')
     text = text.replace(/\[\[[0-9a-fA-F-]{6,}\]\]/g, '')
@@ -146,10 +147,14 @@ export interface MomentBodyProps {
     // depth cap: a nested body draws its own moment references as compact
     // cards, so a cycle terminates on the second hop (ADR-0017).
     nested?: boolean
+    // Overrides the inlineLinkPreviews reading preference for this body. A
+    // canvas node is smaller than one preview card and every card is a fetch,
+    // so the board turns them off whatever the reader chose for the feed.
+    inlineLinks?: boolean
 }
 
 export const MomentBody: Component<MomentBodyProps> = (props) => {
-    const parts = () => parse(props.content || '', prefs().inlineLinkPreviews)
+    const parts = () => parse(props.content || '', props.inlineLinks ?? prefs().inlineLinkPreviews)
     return (
         <div class="flex w-full flex-col gap-2">
             <For each={parts()}>
@@ -213,6 +218,9 @@ const CardShell: Component<{
                     props.onOpen()
                 }
             }}
+            // The card draws its own surface, so a host tinting the text around
+            // it (a coloured canvas node) has to stop at this boundary.
+            data-embed-card
             class="bg-element-matte border-element-accent rounded-lg border p-3 transition-colors"
             classList={{ 'hover:border-highlight cursor-pointer': interactive() }}
         >
@@ -229,7 +237,10 @@ const CardShell: Component<{
 }
 
 const UnavailableChip: Component<{ icon: string; label: string }> = (props) => (
-    <span class="bg-element border-element-accent text-sub/70 inline-flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1 text-xs font-bold">
+    <span
+        data-embed-card
+        class="bg-element border-element-accent text-sub/70 inline-flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1 text-xs font-bold"
+    >
         <span class="material-symbols-outlined text-sm">{props.icon}</span>
         {props.label}
     </span>
@@ -354,49 +365,72 @@ const MomentEmbed: Component<{
     )
 }
 
-const TodoEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (props) => {
+// The live half of a todo embed, split out from the card so the canvas can put
+// the same checkable list inside a node instead of the feed's card chrome. It
+// owns the fetch because "which list" is reactive there: replacing a canvas
+// node's referenced list swaps the id under a mounted component.
+//
+// undefined = still loading, null = gone or forbidden.
+export function createTodoEmbed(id: () => string) {
     const [list, setList] = createSignal<TodoList | null | undefined>(undefined)
     const fetchList = async () => {
+        const wanted = id()
         try {
-            setList((await api.getTodoList(props.id)) ?? null)
+            const fetched = (await api.getTodoList(wanted)) ?? null
+            // A slower answer for a list we no longer point at must not land.
+            if (id() === wanted) setList(fetched)
         } catch {
-            setList(null)
+            if (id() === wanted) setList(null)
         }
     }
-    onMount(fetchList)
-    // The embed otherwise only ever fetches once on mount, so edits made
-    // elsewhere (the full Todo board, or another embed of the same list)
-    // wouldn't show up here without the moment being resaved. Refetch when
-    // todoBus reports this list changed.
+    createEffect(
+        on(id, () => {
+            setList(undefined)
+            void fetchList()
+        }),
+    )
+    // The embed otherwise only ever fetches once, so edits made elsewhere (the
+    // full Todo board, or another embed of the same list) wouldn't show up here
+    // without the moment being resaved. Refetch when todoBus reports a change.
     createEffect(
         on(
-            () => todoVersion(props.id),
+            () => todoVersion(id()),
             (_v, prevV) => {
                 if (prevV !== undefined) void fetchList()
             },
         ),
     )
-    const done = () => (list()?.items || []).filter((i) => i.done).length
-    const total = () => (list()?.items || []).length
-
-    // Nesting is one level (a subtask can't have subtasks), same as the board.
-    const topLevel = () => (list()?.items || []).filter((i) => !i.parent_id)
-    const childrenOf = (parentId: string) => (list()?.items || []).filter((i) => i.parent_id === parentId)
 
     // Optimistic inline toggle: flip locally, patch, revert on failure.
     const toggle = async (itemId: string, next: boolean) => {
-        setList((l) =>
-            l ? { ...l, items: l.items.map((i) => (i.id === itemId ? { ...i, done: next } : i)) } : l,
-        )
+        const patch = (done: boolean) =>
+            setList((l) => (l ? { ...l, items: l.items.map((i) => (i.id === itemId ? { ...i, done } : i)) } : l))
+        patch(next)
         try {
             await api.updateTodoItem(itemId, { done: next })
-            notifyTodoChanged(props.id)
+            notifyTodoChanged(id())
         } catch {
-            setList((l) =>
-                l ? { ...l, items: l.items.map((i) => (i.id === itemId ? { ...i, done: !next } : i)) } : l,
-            )
+            patch(!next)
         }
     }
+
+    return { list, toggle }
+}
+
+// Progress meter over checkable rows. Presentational: the caller owns the state
+// and the surrounding chrome, which is the whole reason this is not baked into
+// TodoEmbed.
+export const TodoChecklist: Component<{
+    list: TodoList
+    onToggle: (itemId: string, next: boolean) => void
+}> = (props) => {
+    const items = () => props.list.items || []
+    const done = () => items().filter((i) => i.done).length
+    const total = () => items().length
+
+    // Nesting is one level (a subtask can't have subtasks), same as the board.
+    const topLevel = () => items().filter((i) => !i.parent_id)
+    const childrenOf = (parentId: string) => items().filter((i) => i.parent_id === parentId)
 
     // One checkable row, shared by a task and its subtasks so a subtask reads
     // and behaves exactly like its parent, only indented.
@@ -406,8 +440,11 @@ const TodoEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (pro
             // Don't let a checkbox click bubble to the card's open handler.
             onClick={(e) => {
                 e.stopPropagation()
-                void toggle(row.item.id, !row.item.done)
+                props.onToggle(row.item.id, !row.item.done)
             }}
+            // Canvas nodes drag from anywhere on their body; a checkbox must
+            // check rather than start a drag.
+            onPointerDown={(e) => e.stopPropagation()}
             class="text-sub hover:text-main flex items-center gap-2 text-left text-sm transition-colors"
         >
             <span class="material-symbols-outlined text-base" classList={{ 'text-highlight-strongest': row.item.done }}>
@@ -417,6 +454,43 @@ const TodoEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (pro
         </button>
     )
 
+    return (
+        <>
+            <Show when={total() > 0}>
+                <div class="bg-element mb-2 h-1.5 w-full shrink-0 overflow-hidden rounded-full">
+                    <div
+                        class="bg-highlight-strongest h-full rounded-full transition-all"
+                        style={{ width: `${Math.round((done() / total()) * 100)}%` }}
+                    />
+                </div>
+            </Show>
+            <div class="flex flex-col gap-1">
+                <For each={topLevel()}>
+                    {(item) => (
+                        <div class="flex flex-col gap-1">
+                            <ItemRow item={item} />
+                            {/* Indented behind a rule, the way the Todo board
+                                draws the same relationship. Flat, a subtask was
+                                indistinguishable from a task of its own and the
+                                pairing was simply lost. */}
+                            <Show when={childrenOf(item.id).length > 0}>
+                                <div
+                                    data-testid="todo-embed-subtasks"
+                                    class="border-element-accent ml-2 flex flex-col gap-1 border-l pl-2.5"
+                                >
+                                    <For each={childrenOf(item.id)}>{(sub) => <ItemRow item={sub} />}</For>
+                                </div>
+                            </Show>
+                        </div>
+                    )}
+                </For>
+            </div>
+        </>
+    )
+}
+
+const TodoEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (props) => {
+    const { list, toggle } = createTodoEmbed(() => props.id)
     return (
         <Show
             when={list()}
@@ -432,36 +506,7 @@ const TodoEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (pro
                     label={l().title || 'Todo'}
                     onOpen={props.onOpen ? () => props.onOpen!(props.id) : undefined}
                 >
-                    <Show when={total() > 0}>
-                        <div class="bg-element mb-2 h-1.5 w-full overflow-hidden rounded-full">
-                            <div
-                                class="bg-highlight-strongest h-full rounded-full transition-all"
-                                style={{ width: `${Math.round((done() / total()) * 100)}%` }}
-                            />
-                        </div>
-                    </Show>
-                    <div class="flex flex-col gap-1">
-                        <For each={topLevel()}>
-                            {(item) => (
-                                <div class="flex flex-col gap-1">
-                                    <ItemRow item={item} />
-                                    {/* Indented behind a rule, the way the Todo
-                                        board draws the same relationship. Flat,
-                                        a subtask was indistinguishable from a
-                                        task of its own and the pairing was
-                                        simply lost. */}
-                                    <Show when={childrenOf(item.id).length > 0}>
-                                        <div
-                                            data-testid="todo-embed-subtasks"
-                                            class="border-element-accent ml-2 flex flex-col gap-1 border-l pl-2.5"
-                                        >
-                                            <For each={childrenOf(item.id)}>{(sub) => <ItemRow item={sub} />}</For>
-                                        </div>
-                                    </Show>
-                                </div>
-                            )}
-                        </For>
-                    </div>
+                    <TodoChecklist list={l()} onToggle={(itemId, next) => void toggle(itemId, next)} />
                 </CardShell>
             )}
         </Show>
@@ -508,6 +553,37 @@ const CanvasEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (p
 
 // A project summary: completion meter in the project's accent, the overview
 // flattened to an excerpt (never a nested render), and the open/done counts.
+// Presentational, so the canvas can draw the same summary inside a node.
+export const ProjectSummary: Component<{ project: Project }> = (props) => {
+    const liveCards = () => (props.project.cards || []).filter((c) => !c.dismissed)
+    const done = () => liveCards().filter((c) => c.done).length
+    const pct = () => (liveCards().length === 0 ? 0 : Math.round((done() / liveCards().length) * 100))
+    const milestones = () => (props.project.milestones || []).length
+    return (
+        <>
+            <div class="mb-2 flex shrink-0 items-center gap-2">
+                <div class="bg-element h-1.5 min-w-0 flex-1 overflow-hidden rounded-full">
+                    <div
+                        class="h-full rounded-full transition-all"
+                        style={{
+                            width: `${pct()}%`,
+                            'background-color': props.project.accent || 'var(--color-highlight-strongest)',
+                        }}
+                    />
+                </div>
+                <span class="text-sub shrink-0 font-mono text-xs font-bold">{pct()}%</span>
+            </div>
+            <Show when={excerpt(props.project.overview || '', 220)}>
+                <p class="text-sub line-clamp-3 text-sm">{excerpt(props.project.overview || '', 220)}</p>
+            </Show>
+            <p class="text-sub/70 mt-2 shrink-0 text-xs">
+                {liveCards().filter((c) => !c.done).length} open · {done()} done · {milestones()} milestone
+                {milestones() === 1 ? '' : 's'}
+            </p>
+        </>
+    )
+}
+
 const ProjectEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (props) => {
     const [project, setProject] = createSignal<Project | null | undefined>(undefined)
     onMount(async () => {
@@ -517,9 +593,6 @@ const ProjectEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (
             setProject(null)
         }
     })
-    const liveCards = () => (project()?.cards || []).filter((c) => !c.dismissed)
-    const done = () => liveCards().filter((c) => c.done).length
-    const pct = () => (liveCards().length === 0 ? 0 : Math.round((done() / liveCards().length) * 100))
     return (
         <Show
             when={project()}
@@ -535,22 +608,7 @@ const ProjectEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (
                     label={p().title || 'Untitled project'}
                     onOpen={props.onOpen ? () => props.onOpen!(props.id) : undefined}
                 >
-                    <div class="mb-2 flex items-center gap-2">
-                        <div class="bg-element h-1.5 min-w-0 flex-1 overflow-hidden rounded-full">
-                            <div
-                                class="h-full rounded-full transition-all"
-                                style={{ width: `${pct()}%`, 'background-color': p().accent || 'var(--color-highlight-strongest)' }}
-                            />
-                        </div>
-                        <span class="text-sub shrink-0 font-mono text-xs font-bold">{pct()}%</span>
-                    </div>
-                    <Show when={excerpt(p().overview || '', 220)}>
-                        <p class="text-sub line-clamp-3 text-sm">{excerpt(p().overview || '', 220)}</p>
-                    </Show>
-                    <p class="text-sub/70 mt-2 text-xs">
-                        {liveCards().filter((c) => !c.done).length} open · {done()} done · {(p().milestones || []).length} milestone
-                        {(p().milestones || []).length === 1 ? '' : 's'}
-                    </p>
+                    <ProjectSummary project={p()} />
                 </CardShell>
             )}
         </Show>

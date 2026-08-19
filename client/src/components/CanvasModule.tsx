@@ -1,13 +1,15 @@
-import { createSignal, createEffect, on, For, Show, Switch, Match, onMount, onCleanup, type Component } from 'solid-js'
+import { createSignal, createEffect, on, For, Show, Switch, Match, onMount, onCleanup, type Component, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { createStore, produce } from 'solid-js/store'
-import { api, type Canvas, type CanvasNode, type CanvasEdge, type CanvasNodeKind, type Moment, type TodoList } from '../api'
+import { api, type Canvas, type CanvasNode, type CanvasEdge, type CanvasNodeKind, type Moment, type Project, type TodoList } from '../api'
 import { useUI } from '../ui'
 import { Modal, PickerDialog } from './Modal'
 import { createListboxNav } from '../listboxNav'
 import { prefs, MODAL_WIDTH_CLASS_LG } from '../prefs'
 import { useIsDesktop } from '../media'
 import { createLongPress } from '../longPress'
+import { MomentBody, ProjectSummary, TodoChecklist, createTodoEmbed, excerpt } from './MomentBody'
+import { CanvasThumbnail } from './CanvasThumbnail'
 
 // Prepend https:// when a link node's URL has no scheme, so `example.com`
 // opens externally instead of resolving as an in-app relative path.
@@ -17,7 +19,8 @@ const withScheme = (u: string) => (/^[a-zA-Z][\w+.-]*:\/\//.test(u) ? u : `https
 // remounts (e.g. reopening a canvas) resolves from cache instead of flashing a
 // loading state and re-hitting the network.
 const momentRefCache = new Map<string, Moment>()
-const todoRefCache = new Map<string, TodoList>()
+const projectRefCache = new Map<string, Project>()
+const canvasRefCache = new Map<string, Canvas>()
 
 // Canvas module (4.10 / ADR-0013): an infinite pan/zoom board of nodes.
 //
@@ -31,6 +34,10 @@ interface CanvasModuleProps {
     onClose: () => void
     canManage: boolean
     onOpenMoment?: (id: string) => void
+    // A node, or an embed inside one, can point at another module. Without
+    // these the reference renders and then goes nowhere when it is clicked.
+    onOpenTodo?: (id: string) => void
+    onOpenProject?: (id: string) => void
     // The board a `::canvas:<id>::` reference asked for. Without it the module
     // opens on its "select a canvas" placeholder, one click short of the thing
     // that was referenced.
@@ -76,15 +83,45 @@ const NODE_COLORS = [
     '#e056fd', '#dff9fb', '#dfe6e9', '#95a5a6', '#2d3436',
 ]
 
-// Default node geometry per kind (world units).
+// A new text node takes a colour off the palette at random. A board of text
+// nodes is a board of ideas, and identical cards make them read as one block;
+// the variety is what tells them apart before a word of them is read.
+const randomNodeColor = () => NODE_COLORS[Math.floor(Math.random() * NODE_COLORS.length)]
+
+// Ink for text sitting on a coloured node: dark or light, whichever the fill
+// can carry. A fixed dark ink vanished on the darker half of the palette, which
+// only became a real problem once a colour got picked for you.
+export function readableInk(color: string): string {
+    const hex = /^#?([0-9a-f]{6})$/i.exec(color.trim())
+    if (!hex) return '#1c1c1c'
+    const packed = parseInt(hex[1], 16)
+    const r = (packed >> 16) & 0xff
+    const g = (packed >> 8) & 0xff
+    const b = packed & 0xff
+    // Rec. 709 luma, the usual stand-in for perceived brightness.
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 140 ? '#1c1c1c' : '#f4f4f4'
+}
+
+// A text node's content runs through the moment pipeline, so it can hold
+// markdown and live embeds. That is a render tree and a fetch per token, paid
+// for every node on a board that draws all of its nodes at once, so the content
+// is capped: a node is a card on a board, not a document. Anything longer
+// belongs in a moment the node can reference.
+export const MAX_NODE_TEXT = 4000
+
+// Default node geometry per kind (world units). The kinds that render real
+// content start large enough to show some of it; the ones that render a chip
+// stay small.
 const NODE_DEFAULTS: Record<CanvasNodeKind, { w: number; h: number }> = {
-    text: { w: 220, h: 140 },
+    text: { w: 300, h: 200 },
     sticky: { w: 180, h: 160 },
     image: { w: 240, h: 180 },
-    'moment-ref': { w: 240, h: 150 },
+    'moment-ref': { w: 300, h: 220 },
     shape: { w: 160, h: 120 },
     link: { w: 240, h: 64 },
-    'todo-ref': { w: 240, h: 130 },
+    'todo-ref': { w: 280, h: 200 },
+    'project-ref': { w: 280, h: 170 },
+    'canvas-ref': { w: 260, h: 210 },
 }
 
 interface Point {
@@ -122,6 +159,8 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
     const [stylePopover, setStylePopover] = createSignal<{ nodeId: string; sx: number; sy: number } | null>(null)
     const [momentPicker, setMomentPicker] = createSignal<{ world: Point; replaceId?: string } | null>(null)
     const [todoPicker, setTodoPicker] = createSignal<{ world: Point; replaceId?: string } | null>(null)
+    const [projectPicker, setProjectPicker] = createSignal<{ world: Point; replaceId?: string } | null>(null)
+    const [canvasPicker, setCanvasPicker] = createSignal<{ world: Point; replaceId?: string } | null>(null)
     const [linkPrompt, setLinkPrompt] = createSignal<{ world: Point; replaceId?: string; initial?: string } | null>(null)
 
     // When set, the next node created is auto-connected from this node id (§ drag
@@ -604,7 +643,8 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
 
     // Add helpers accept an optional world point (context menu) and otherwise
     // drop at the viewport centre (toolbar).
-    const addText = (at?: Point) => addNodeAt('text', '', at ?? viewCenterWorld())
+    const addText = (at?: Point) =>
+        addNodeAt('text', '', at ?? viewCenterWorld(), JSON.stringify({ color: randomNodeColor(), fontSize: 14 }))
     const addSticky = (at?: Point) =>
         addNodeAt('sticky', '', at ?? viewCenterWorld(), JSON.stringify({ color: '#f6e58d', fontSize: 14 }))
     const addShape = (at?: Point) => addNodeAt('shape', '', at ?? viewCenterWorld(), JSON.stringify({ color: '#dfe6e9', shape: 'rect' }))
@@ -634,6 +674,8 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
     }
     const addMomentRef = (at?: Point) => setMomentPicker({ world: at ?? viewCenterWorld() })
     const addTodoRef = (at?: Point) => setTodoPicker({ world: at ?? viewCenterWorld() })
+    const addProjectRef = (at?: Point) => setProjectPicker({ world: at ?? viewCenterWorld() })
+    const addCanvasRef = (at?: Point) => setCanvasPicker({ world: at ?? viewCenterWorld() })
 
     const onImagePicked = async (e: Event) => {
         const input = e.currentTarget as HTMLInputElement
@@ -651,7 +693,10 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
         }
     }
 
-    const saveNodeContent = async (node: CanvasNode, content: string) => {
+    const saveNodeContent = async (node: CanvasNode, rawContent: string) => {
+        // The textarea already caps typing; this catches a paste that outran
+        // maxlength and content that arrived from somewhere else entirely.
+        const content = rawContent.length > MAX_NODE_TEXT ? rawContent.slice(0, MAX_NODE_TEXT) : rawContent
         if (content === node.content) return
         patchNode(node.id, { content })
         try {
@@ -739,6 +784,10 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
             setMomentPicker({ world: { x: node.x + node.w / 2, y: node.y + node.h / 2 }, replaceId: node.id })
         } else if (node.kind === 'todo-ref') {
             setTodoPicker({ world: { x: node.x + node.w / 2, y: node.y + node.h / 2 }, replaceId: node.id })
+        } else if (node.kind === 'project-ref') {
+            setProjectPicker({ world: { x: node.x + node.w / 2, y: node.y + node.h / 2 }, replaceId: node.id })
+        } else if (node.kind === 'canvas-ref') {
+            setCanvasPicker({ world: { x: node.x + node.w / 2, y: node.y + node.h / 2 }, replaceId: node.id })
         }
     }
 
@@ -778,6 +827,7 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
         const p = momentPicker()
         setMomentPicker(null)
         if (!p) return
+        momentRefCache.set(moment.id, moment)
         if (p.replaceId) {
             const node = nodeById(p.replaceId)
             if (node) await saveNodeContent(node, moment.id)
@@ -795,6 +845,32 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
             if (node) await saveNodeContent(node, list.id)
         } else {
             await addNodeAt('todo-ref', list.id, p.world)
+        }
+    }
+
+    const chooseProject = async (project: Project) => {
+        const p = projectPicker()
+        setProjectPicker(null)
+        if (!p) return
+        projectRefCache.set(project.id, project)
+        if (p.replaceId) {
+            const node = nodeById(p.replaceId)
+            if (node) await saveNodeContent(node, project.id)
+        } else {
+            await addNodeAt('project-ref', project.id, p.world)
+        }
+    }
+
+    const chooseCanvasRef = async (canvas: Canvas) => {
+        const p = canvasPicker()
+        setCanvasPicker(null)
+        if (!p) return
+        canvasRefCache.set(canvas.id, canvas)
+        if (p.replaceId) {
+            const node = nodeById(p.replaceId)
+            if (node) await saveNodeContent(node, canvas.id)
+        } else {
+            await addNodeAt('canvas-ref', canvas.id, p.world)
         }
     }
 
@@ -982,6 +1058,8 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                                             <ToolButton icon="link" label="Add web link" onClick={() => addLink()} />
                                             <ToolButton icon="bookmark" label="Add moment reference" onClick={() => addMomentRef()} />
                                             <ToolButton icon="checklist" label="Add todo embed" onClick={() => addTodoRef()} />
+                                            <ToolButton icon="space_dashboard" label="Add project reference" onClick={() => addProjectRef()} />
+                                            <ToolButton icon="dashboard" label="Add canvas reference" onClick={() => addCanvasRef()} />
                                             <div class="bg-element-accent mx-1 h-5 w-px shrink-0" />
                                             <ToolButton
                                                 icon={tool() === 'pan' ? 'pan_tool' : 'highlight_alt'}
@@ -1164,6 +1242,11 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                                                         onOpenStyle={(sx, sy) => setStylePopover({ nodeId: node.id, sx, sy })}
                                                         onRemove={() => removeNode(node)}
                                                         onOpenMoment={props.onOpenMoment}
+                                                        onOpenTodo={props.onOpenTodo}
+                                                        onOpenProject={props.onOpenProject}
+                                                        // A canvas reference opens inside this module rather
+                                                        // than stacking a second one on top of it.
+                                                        onOpenCanvas={(id) => void openCanvas(id)}
                                                         onLongPress={(e) => openContextMenu(e, node.id)}
                                                     />
                                                 )}
@@ -1206,6 +1289,8 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                                                     else if (kind === 'link') addLink(at)
                                                     else if (kind === 'moment-ref') addMomentRef(at)
                                                     else if (kind === 'todo-ref') addTodoRef(at)
+                                                    else if (kind === 'project-ref') addProjectRef(at)
+                                                    else if (kind === 'canvas-ref') addCanvasRef(at)
                                                 }}
                                                 node={menu().nodeId ? nodeById(menu().nodeId!) : undefined}
                                                 onDuplicate={(n) => {
@@ -1261,6 +1346,22 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                                     {/* Todo picker */}
                                     <Show when={todoPicker()}>
                                         <TodoPicker onPick={chooseTodo} onClose={() => { setTodoPicker(null); connectAfterCreate = null }} />
+                                    </Show>
+
+                                    {/* Project picker */}
+                                    <Show when={projectPicker()}>
+                                        <ProjectPicker onPick={chooseProject} onClose={() => { setProjectPicker(null); connectAfterCreate = null }} />
+                                    </Show>
+
+                                    {/* Canvas picker: the board being edited is not offered, since
+                                        a node referencing its own board opens the board it is
+                                        already on. */}
+                                    <Show when={canvasPicker()}>
+                                        <CanvasPicker
+                                            excludeId={canvas().id}
+                                            onPick={chooseCanvasRef}
+                                            onClose={() => { setCanvasPicker(null); connectAfterCreate = null }}
+                                        />
                                     </Show>
 
                                     {/* Web-link prompt (in-app, replaces window.prompt) */}
@@ -1323,9 +1424,117 @@ interface NodeViewProps {
     onOpenStyle: (sx: number, sy: number) => void
     onRemove: () => void
     onOpenMoment?: (id: string) => void
+    onOpenTodo?: (id: string) => void
+    onOpenProject?: (id: string) => void
+    onOpenCanvas?: (id: string) => void
     // Long-press (touch) → open this node's context menu.
     onLongPress?: (e: PointerEvent) => void
 }
+
+// A node drag calls preventDefault on pointerdown, which cancels the click that
+// would otherwise have followed, so a pointer landing on something clickable
+// inside a node must not start one. Testing the target beats walling off the
+// whole body: the rest of the node still drags, which is what moves a node now
+// that real content fills it.
+const INTERACTIVE = 'a, button, input, textarea, select, [role="button"], [role="checkbox"], img'
+const startsInteraction = (target: EventTarget | null): boolean =>
+    target instanceof Element && !!target.closest(INTERACTIVE)
+
+// A board draws every node it holds, and a rich body costs a render tree plus a
+// fetch per embed. A node holds that back until it has been on screen once, and
+// keeps it afterwards: once rather than while, so panning away and back does
+// not flash a loading state at every crossing.
+function createOnScreen(el: () => HTMLElement | undefined): () => boolean {
+    const [seen, setSeen] = createSignal(false)
+    onMount(() => {
+        const target = el()
+        if (!target || typeof IntersectionObserver === 'undefined') {
+            setSeen(true)
+            return
+        }
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (!entries.some((entry) => entry.isIntersecting)) return
+                setSeen(true)
+                observer.disconnect()
+            },
+            // Roughly a screen of margin, so a node is ready by the time a pan
+            // reaches it rather than filling in behind the drag.
+            { rootMargin: '400px' },
+        )
+        observer.observe(target)
+        onCleanup(() => observer.disconnect())
+    })
+    return seen
+}
+
+// A node's box is the author's statement of how much of its content to show.
+// What outgrows it is clipped and faded, never scrolled: a scroller inside a
+// pan/zoom board fights the board for the wheel, and the resize handle is
+// already the control for "show me more of this".
+const ClippedBody: Component<{ fade: string; class?: string; children: JSX.Element }> = (props) => {
+    const [clipped, setClipped] = createSignal(false)
+    let frame: HTMLDivElement | undefined
+    let content: HTMLDivElement | undefined
+
+    onMount(() => {
+        if (!frame || !content || typeof ResizeObserver === 'undefined') return
+        // Both boxes: the content grows when an embed lands, and the frame
+        // shrinks when the node is resized. Either crosses the same line.
+        const check = () => setClipped(content!.offsetHeight > frame!.clientHeight + 1)
+        const observer = new ResizeObserver(check)
+        observer.observe(content)
+        observer.observe(frame)
+        onCleanup(() => observer.disconnect())
+    })
+
+    return (
+        <div ref={frame} class={`relative min-h-0 flex-1 overflow-hidden ${props.class ?? ''}`}>
+            <div ref={content}>{props.children}</div>
+            <Show when={clipped()}>
+                <div
+                    data-testid="node-clip-fade"
+                    class="pointer-events-none absolute inset-x-0 bottom-0 h-8"
+                    style={{ 'background-image': `linear-gradient(to top, ${props.fade}, transparent)` }}
+                />
+            </Show>
+        </div>
+    )
+}
+
+// The title strip every reference node wears: what this points at, and the one
+// click that opens it where it really lives.
+const RefHeader: Component<{ icon: string; label: string; accent?: string; onOpen?: () => void }> = (props) => (
+    <button
+        type="button"
+        disabled={!props.onOpen}
+        onClick={() => props.onOpen?.()}
+        title={props.onOpen ? `Open ${props.label}` : props.label}
+        class="flex w-full min-w-0 shrink-0 items-center gap-1.5 px-3 pt-2.5 pb-1.5 text-left"
+        classList={{ 'hover:text-main hover:cursor-pointer': !!props.onOpen }}
+    >
+        <span
+            class="material-symbols-outlined shrink-0 text-sm"
+            classList={{ 'text-highlight': !props.accent }}
+            style={props.accent ? { color: props.accent } : {}}
+        >
+            {props.icon}
+        </span>
+        <span class="min-w-0 flex-1 truncate text-sm font-bold">{props.label}</span>
+        <Show when={props.onOpen}>
+            <span class="material-symbols-outlined shrink-0 text-sm opacity-40">open_in_new</span>
+        </Show>
+    </button>
+)
+
+const RefMissing: Component<{ icon: string; label: string }> = (props) => (
+    <div class="flex h-full flex-col items-center justify-center gap-1 p-3 text-center">
+        <span class="material-symbols-outlined text-sub text-xl">{props.icon}</span>
+        <span class="text-sub text-xs italic">{props.label}</span>
+    </div>
+)
+
+const RefLoading: Component = () => <p class="text-sub p-3 text-xs">Loading…</p>
 
 // Fillable SVG for a shape node. preserveAspectRatio=none lets the
 // shape stretch to the node's current width/height.
@@ -1352,28 +1561,39 @@ const NodeView: Component<NodeViewProps> = (props) => {
     const style = () => parseStyle(props.node.style)
     let textRef: HTMLTextAreaElement | undefined
     let styleBtnRef: HTMLButtonElement | undefined
+    let rootRef: HTMLDivElement | undefined
+    const onScreen = createOnScreen(() => rootRef)
+    // Live length while editing, for the counter near the cap. Seeded from the
+    // saved content so reopening a long note shows the counter immediately.
+    const [draftLength, setDraftLength] = createSignal(props.node.content.length)
     // Touch: a stationary hold opens the node's actions (desktop uses right-click
     // / hover). Movement cancels it, so dragging a node still works.
     const lp = createLongPress((e) => props.onLongPress?.(e))
 
     createEffect(() => {
-        if (props.editing && textRef) {
-            textRef.focus()
-            textRef.select()
-        }
+        if (!props.editing || !textRef) return
+        setDraftLength(props.node.content.length)
+        textRef.focus()
+        textRef.select()
     })
 
     const isShape = () => props.node.kind === 'shape'
     const isTextual = () => props.node.kind === 'text' || props.node.kind === 'sticky' || props.node.kind === 'shape'
-    // A plain "text" node is a bare label on the board with no card chrome, unless
-    // the user gives it a background colour. A sticky is always a coloured card.
-    // (This is the difference between the two: text = annotation, sticky = note.)
+    // A text node's content is moment content: markdown, images and live embeds,
+    // rendered by the same pipeline the feed uses. That is now the difference
+    // between the two note kinds, since both wear a colour: a sticky is a plain
+    // scribble, a text node is a piece of writing that can reach other things.
+    const isRich = () => props.node.kind === 'text'
+    // Text nodes predating the coloured default (and any node whose colour was
+    // cleared) stay a bare label on the board rather than a card.
     const isPlainText = () => props.node.kind === 'text' && !style().color
     // The saved colour is the shape fill (SVG) for shapes, otherwise the node
-    // background. fg is the on-colour text colour.
+    // background. fg is the ink that colour can carry.
     const bg = () => (isShape() ? undefined : style().color || undefined)
-    const fg = () => (style().color ? '#1c1c1c' : undefined)
+    const fg = () => (style().color ? readableInk(style().color!) : undefined)
     const fontSize = () => `${style().fontSize ?? 14}px`
+    // What a clipped body fades into: the node's own surface, whatever it is.
+    const fade = () => bg() ?? 'var(--theme-element-matte)'
 
     // Connector dots just outside each edge; revealed on hover / when selected.
     const dotBase =
@@ -1382,6 +1602,11 @@ const NodeView: Component<NodeViewProps> = (props) => {
 
     return (
         <div
+            ref={rootRef}
+            // The board is one <div> per node with nothing in the markup saying
+            // which is which, so a test asserting on "the todo reference" had to
+            // find it by its content, which every other node can also contain.
+            data-node-kind={props.node.kind}
             class="group absolute"
             classList={{
                 'rounded-lg border shadow-lg overflow-hidden': !isShape() && !isPlainText(),
@@ -1400,13 +1625,16 @@ const NodeView: Component<NodeViewProps> = (props) => {
                 height: `${props.node.h}px`,
                 ...(bg() ? { background: bg() } : {}),
             }}
-            // Drag anywhere on the node. Inner interactive elements
-            // (textarea, links, buttons) stop propagation so they don't drag.
+            // Drag anywhere on the node except from something clickable, which
+            // needs its click more than the board needs another drag handle.
             onPointerDown={(e) => {
                 lp.handlers.onPointerDown(e)
-                if (props.canManage) props.onDragStart(e)
+                if (props.canManage && !startsInteraction(e.target)) props.onDragStart(e)
             }}
-            onDblClick={() => props.canManage && props.onRequestEdit()}
+            onDblClick={(e) => {
+                if (startsInteraction(e.target)) return
+                if (props.canManage) props.onRequestEdit()
+            }}
             onContextMenu={props.onContextMenu}
         >
             {/* Shape fill sits behind everything else. */}
@@ -1440,40 +1668,123 @@ const NodeView: Component<NodeViewProps> = (props) => {
                 </div>
             </Show>
 
-            {/* Body by kind */}
-            <div class="relative h-full w-full" style={fg() ? { color: fg() } : {}}>
+            {/* Body by kind. --node-ink carries the readable ink down to the
+                markdown pipeline, whose prose colours are theme-wide and know
+                nothing about the colour this node happens to be (index.css). */}
+            <div
+                class="relative flex h-full w-full flex-col"
+                data-node-ink={fg() ? '' : undefined}
+                style={fg() ? { color: fg(), '--node-ink': fg()! } : {}}
+            >
                 <Show when={isTextual()}>
                     <Show
                         when={props.editing}
                         fallback={
-                            <div
-                                class="h-full w-full overflow-hidden break-words whitespace-pre-wrap p-2"
-                                classList={{
-                                    'text-main': !fg(),
-                                    'flex items-center justify-center text-center': isShape(),
-                                    'opacity-50': !props.node.content,
-                                }}
-                                style={{ 'font-size': fontSize(), ...(fg() ? { color: fg() } : {}) }}
+                            <Show
+                                when={props.node.content}
+                                fallback={
+                                    <div
+                                        class="h-full w-full p-2 opacity-50"
+                                        classList={{
+                                            'text-main': !fg(),
+                                            'flex items-center justify-center text-center': isShape(),
+                                        }}
+                                        style={{ 'font-size': fontSize() }}
+                                    >
+                                        {isShape() ? 'Label…' : props.node.kind === 'sticky' ? 'Note…' : 'Text…'}
+                                    </div>
+                                }
                             >
-                                {props.node.content || (isShape() ? 'Label…' : props.node.kind === 'sticky' ? 'Note…' : 'Text…')}
-                            </div>
+                                <Show
+                                    when={isRich()}
+                                    fallback={
+                                        <div
+                                            class="h-full w-full overflow-hidden break-words whitespace-pre-wrap p-2"
+                                            classList={{
+                                                'text-main': !fg(),
+                                                'flex items-center justify-center text-center': isShape(),
+                                            }}
+                                            style={{ 'font-size': fontSize(), ...(fg() ? { color: fg() } : {}) }}
+                                        >
+                                            {props.node.content}
+                                        </div>
+                                    }
+                                >
+                                    <ClippedBody fade={fade()} class="p-2">
+                                        {/* Cheap stand-in until the node has been
+                                            on screen: laying out markdown and
+                                            opening a connection per embed for a
+                                            node nobody has looked at is the cost
+                                            this defers. */}
+                                        <Show
+                                            when={onScreen()}
+                                            fallback={
+                                                <p class="break-words opacity-70" style={{ 'font-size': fontSize() }}>
+                                                    {excerpt(props.node.content, 200)}
+                                                </p>
+                                            }
+                                        >
+                                            <div
+                                                data-testid="canvas-rich-text"
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{ 'font-size': fontSize() }}
+                                            >
+                                                <MomentBody
+                                                    content={props.node.content}
+                                                    class={fg() ? undefined : 'text-main'}
+                                                    // The board's own depth cap, the
+                                                    // one ADR-0017 defines: a body
+                                                    // inside a node draws its moment
+                                                    // references as compact cards, so
+                                                    // a preview never contains a
+                                                    // preview and a reference cycle
+                                                    // terminates on the second hop.
+                                                    nested
+                                                    // Preview cards are wider than most
+                                                    // nodes and each one is a fetch, so
+                                                    // a board leaves bare URLs as links
+                                                    // whatever the feed is set to.
+                                                    inlineLinks={false}
+                                                    onOpenMoment={props.onOpenMoment}
+                                                    onOpenTodo={props.onOpenTodo}
+                                                    onOpenCanvas={props.onOpenCanvas}
+                                                    onOpenProject={props.onOpenProject}
+                                                />
+                                            </div>
+                                        </Show>
+                                    </ClippedBody>
+                                </Show>
+                            </Show>
                         }
                     >
-                        <textarea
-                            ref={textRef}
-                            value={props.node.content}
-                            disabled={!props.canManage}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onDblClick={(e) => e.stopPropagation()}
-                            onBlur={(e) => {
-                                props.onEditDone()
-                                if (props.canManage) props.onSaveContent(e.currentTarget.value)
-                            }}
-                            placeholder={isShape() ? 'Label…' : props.node.kind === 'sticky' ? 'Note…' : 'Text…'}
-                            class="h-full w-full resize-none bg-transparent p-2 focus:outline-none disabled:opacity-90"
-                            classList={{ 'text-main': !fg(), 'text-center': isShape() }}
-                            style={{ 'font-size': fontSize(), ...(fg() ? { color: fg() } : {}) }}
-                        />
+                        <div class="relative flex h-full w-full flex-col">
+                            <textarea
+                                ref={textRef}
+                                value={props.node.content}
+                                disabled={!props.canManage}
+                                maxlength={MAX_NODE_TEXT}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onDblClick={(e) => e.stopPropagation()}
+                                onBlur={(e) => {
+                                    props.onEditDone()
+                                    if (props.canManage) props.onSaveContent(e.currentTarget.value)
+                                }}
+                                onInput={(e) => setDraftLength(e.currentTarget.value.length)}
+                                placeholder={isShape() ? 'Label…' : props.node.kind === 'sticky' ? 'Note…' : 'Markdown, and [[ ]] / :: :: embeds…'}
+                                class="h-full w-full resize-none bg-transparent p-2 focus:outline-none disabled:opacity-90"
+                                classList={{ 'text-main': !fg(), 'text-center': isShape() }}
+                                style={{ 'font-size': fontSize(), ...(fg() ? { color: fg() } : {}) }}
+                            />
+                            {/* Only once the cap is close enough to matter: a
+                                counter on an empty note is noise, and a note
+                                that silently stops accepting keystrokes is
+                                worse. */}
+                            <Show when={draftLength() > MAX_NODE_TEXT * 0.9}>
+                                <span class="pointer-events-none absolute bottom-1 right-2 font-mono text-[10px] opacity-60">
+                                    {draftLength()} / {MAX_NODE_TEXT}
+                                </span>
+                            </Show>
+                        </div>
                     </Show>
                 </Show>
 
@@ -1486,11 +1797,27 @@ const NodeView: Component<NodeViewProps> = (props) => {
                 </Show>
 
                 <Show when={props.node.kind === 'moment-ref'}>
-                    <MomentRefCard uuid={props.node.content} onOpen={props.onOpenMoment} />
+                    <MomentRefCard
+                        uuid={props.node.content}
+                        active={onScreen()}
+                        fade={fade()}
+                        onOpen={props.onOpenMoment}
+                        onOpenTodo={props.onOpenTodo}
+                        onOpenCanvas={props.onOpenCanvas}
+                        onOpenProject={props.onOpenProject}
+                    />
                 </Show>
 
                 <Show when={props.node.kind === 'todo-ref'}>
-                    <TodoRefCard listId={props.node.content} />
+                    <TodoRefCard listId={props.node.content} active={onScreen()} fade={fade()} onOpen={props.onOpenTodo} />
+                </Show>
+
+                <Show when={props.node.kind === 'project-ref'}>
+                    <ProjectRefCard projectId={props.node.content} active={onScreen()} fade={fade()} onOpen={props.onOpenProject} />
+                </Show>
+
+                <Show when={props.node.kind === 'canvas-ref'}>
+                    <CanvasRefCard canvasId={props.node.content} active={onScreen()} fade={fade()} onOpen={props.onOpenCanvas} />
                 </Show>
             </div>
 
@@ -1543,12 +1870,25 @@ const LinkChip: Component<{ url: string }> = (props) => {
 
 // --- moment-ref card ---
 
-const MomentRefCard: Component<{ uuid: string; onOpen?: (id: string) => void }> = (props) => {
+// The referenced moment rendered the way the feed renders it, clipped to the
+// node's box. A card that showed a title and three lines of flattened text was
+// a bookmark; a board is a place you arrange things you are reading, so the
+// node shows the moment itself and the header opens it in the reader.
+const MomentRefCard: Component<{
+    uuid: string
+    active: boolean
+    fade: string
+    onOpen?: (id: string) => void
+    onOpenTodo?: (id: string) => void
+    onOpenCanvas?: (id: string) => void
+    onOpenProject?: (id: string) => void
+}> = (props) => {
     const [moment, setMoment] = createSignal<Moment | null>(null)
     const [failed, setFailed] = createSignal(false)
     const [loading, setLoading] = createSignal(true)
 
     createEffect(() => {
+        if (!props.active) return
         const uuid = props.uuid
         const cached = momentRefCache.get(uuid)
         if (cached) {
@@ -1562,39 +1902,46 @@ const MomentRefCard: Component<{ uuid: string; onOpen?: (id: string) => void }> 
         api.getMoment(uuid)
             .then((m) => {
                 momentRefCache.set(uuid, m)
-                setMoment(m)
+                if (props.uuid === uuid) setMoment(m)
             })
             .catch(() => setFailed(true))
             .finally(() => setLoading(false))
     })
 
     return (
-        <Show
-            when={!failed()}
-            fallback={
-                <div class="flex h-full flex-col items-center justify-center gap-1 p-3 text-center">
-                    <span class="material-symbols-outlined text-sub text-xl">broken_image</span>
-                    <span class="text-sub text-xs italic">Deleted moment</span>
-                </div>
-            }
-        >
-            <Show when={!loading()} fallback={<p class="text-sub p-3 text-xs">Loading…</p>}>
+        <Show when={!failed()} fallback={<RefMissing icon="broken_image" label="Deleted moment" />}>
+            <Show when={!loading()} fallback={<RefLoading />}>
                 <Show when={moment()}>
                     {(m) => (
-                        <button
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={() => props.onOpen?.(m().id)}
-                            class="hover:bg-element flex h-full w-full flex-col gap-1 p-3 text-left transition-colors hover:cursor-pointer"
-                        >
-                            {/* w-full: Chromium 130 (Electron 33) does not stretch a column-flex
-                                <button>'s children, so truncate has nothing finite to clip
-                                against unless the width is explicit. */}
-                            <div class="flex w-full min-w-0 items-center gap-1">
-                                <span class="material-symbols-outlined text-highlight text-sm">bookmark</span>
-                                <span class="text-main min-w-0 truncate text-sm font-bold">{m().title || 'Untitled'}</span>
-                            </div>
-                            <p class="text-sub w-full min-w-0 line-clamp-3 text-xs leading-snug">{m().content}</p>
-                        </button>
+                        <>
+                            <RefHeader
+                                icon="bookmark"
+                                label={m().title || 'Untitled'}
+                                onOpen={props.onOpen ? () => props.onOpen!(m().id) : undefined}
+                            />
+                            {/* Clicks stay inside: the body holds real links,
+                                images that open the lightbox and checkable todo
+                                rows, and an open-the-reader handler over the
+                                whole card would fire under every one of them. */}
+                            <ClippedBody fade={props.fade} class="px-3 pb-2">
+                                <div onClick={(e) => e.stopPropagation()}>
+                                    <MomentBody
+                                        content={m().content}
+                                        class="text-sub text-sm"
+                                        // ADR-0017's depth cap: the body inside a
+                                        // preview draws its own moment references
+                                        // as compact cards, so a cycle terminates
+                                        // on the second hop.
+                                        nested
+                                        inlineLinks={false}
+                                        onOpenMoment={props.onOpen}
+                                        onOpenTodo={props.onOpenTodo}
+                                        onOpenCanvas={props.onOpenCanvas}
+                                        onOpenProject={props.onOpenProject}
+                                    />
+                                </div>
+                            </ClippedBody>
+                        </>
                     )}
                 </Show>
             </Show>
@@ -1604,64 +1951,140 @@ const MomentRefCard: Component<{ uuid: string; onOpen?: (id: string) => void }> 
 
 // --- todo-ref card ---
 
-const TodoRefCard: Component<{ listId: string }> = (props) => {
-    const [list, setList] = createSignal<TodoList | null>(null)
+// Deliberately not cached the way the other references are: a todo list is the
+// one referenced entity that changes while you are looking at it, and
+// createTodoEmbed subscribes to todoBus so checking a box anywhere updates it
+// here.
+const TodoRefCard: Component<{ listId: string; active: boolean; fade: string; onOpen?: (id: string) => void }> = (props) => (
+    // Gated by mounting rather than by a flag inside: the state below fetches
+    // as soon as it exists, and an off-screen node should not fetch at all.
+    <Show when={props.active}>
+        <LiveTodoRefCard listId={props.listId} fade={props.fade} onOpen={props.onOpen} />
+    </Show>
+)
+
+const LiveTodoRefCard: Component<{ listId: string; fade: string; onOpen?: (id: string) => void }> = (props) => {
+    const { list, toggle } = createTodoEmbed(() => props.listId)
+    return (
+        <Show when={list() !== null} fallback={<RefMissing icon="playlist_remove" label="Deleted list" />}>
+            <Show when={list()} fallback={<RefLoading />}>
+                {(l) => (
+                    <>
+                        <RefHeader
+                            icon="checklist"
+                            label={l().title || 'Untitled list'}
+                            onOpen={props.onOpen ? () => props.onOpen!(props.listId) : undefined}
+                        />
+                        <ClippedBody fade={props.fade} class="px-3 pb-2">
+                            <TodoChecklist list={l()} onToggle={(itemId, next) => void toggle(itemId, next)} />
+                        </ClippedBody>
+                    </>
+                )}
+            </Show>
+        </Show>
+    )
+}
+
+// --- project-ref card ---
+
+const ProjectRefCard: Component<{ projectId: string; active: boolean; fade: string; onOpen?: (id: string) => void }> = (props) => {
+    const [project, setProject] = createSignal<Project | null>(null)
     const [failed, setFailed] = createSignal(false)
     const [loading, setLoading] = createSignal(true)
 
     createEffect(() => {
-        const id = props.listId
-        const cached = todoRefCache.get(id)
+        if (!props.active) return
+        const id = props.projectId
+        const cached = projectRefCache.get(id)
         if (cached) {
-            setList(cached)
+            setProject(cached)
             setFailed(false)
             setLoading(false)
             return
         }
         setLoading(true)
         setFailed(false)
-        api.getTodoList(id)
-            .then((l) => {
-                if (l) {
-                    todoRefCache.set(id, l)
-                    setList(l)
-                } else {
-                    setFailed(true)
-                }
+        api.getProject(id)
+            .then((p) => {
+                projectRefCache.set(id, p)
+                if (props.projectId === id) setProject(p)
             })
             .catch(() => setFailed(true))
             .finally(() => setLoading(false))
     })
 
-    const done = () => list()?.items.filter((i) => i.done).length ?? 0
-    const total = () => list()?.items.length ?? 0
-    const pct = () => (total() ? Math.round((done() / total()) * 100) : 0)
+    return (
+        <Show when={!failed()} fallback={<RefMissing icon="space_dashboard" label="Deleted project" />}>
+            <Show when={!loading()} fallback={<RefLoading />}>
+                <Show when={project()}>
+                    {(p) => (
+                        <>
+                            <RefHeader
+                                icon={p().icon || 'space_dashboard'}
+                                label={p().title || 'Untitled project'}
+                                accent={p().accent || undefined}
+                                onOpen={props.onOpen ? () => props.onOpen!(p().id) : undefined}
+                            />
+                            <ClippedBody fade={props.fade} class="px-3 pb-2">
+                                <ProjectSummary project={p()} />
+                            </ClippedBody>
+                        </>
+                    )}
+                </Show>
+            </Show>
+        </Show>
+    )
+}
+
+// --- canvas-ref card ---
+
+// A wordless schematic of the referenced board, the same one a ::canvas:: embed
+// draws. Node text at this size is a smear of pixels, so the shape of the board
+// is the recognisable thing.
+const CanvasRefCard: Component<{ canvasId: string; active: boolean; fade: string; onOpen?: (id: string) => void }> = (props) => {
+    const [canvas, setCanvas] = createSignal<Canvas | null>(null)
+    const [failed, setFailed] = createSignal(false)
+    const [loading, setLoading] = createSignal(true)
+
+    createEffect(() => {
+        if (!props.active) return
+        const id = props.canvasId
+        const cached = canvasRefCache.get(id)
+        if (cached) {
+            setCanvas(cached)
+            setFailed(false)
+            setLoading(false)
+            return
+        }
+        setLoading(true)
+        setFailed(false)
+        api.getCanvas(id)
+            .then((c) => {
+                canvasRefCache.set(id, c)
+                if (props.canvasId === id) setCanvas(c)
+            })
+            .catch(() => setFailed(true))
+            .finally(() => setLoading(false))
+    })
 
     return (
-        <Show
-            when={!failed()}
-            fallback={
-                <div class="flex h-full flex-col items-center justify-center gap-1 p-3 text-center">
-                    <span class="material-symbols-outlined text-sub text-xl">playlist_remove</span>
-                    <span class="text-sub text-xs italic">Deleted list</span>
-                </div>
-            }
-        >
-            <Show when={!loading()} fallback={<p class="text-sub p-3 text-xs">Loading…</p>}>
-                <Show when={list()}>
-                    {(l) => (
-                        <div class="flex h-full w-full flex-col gap-2 p-3">
-                            <div class="flex items-center gap-1">
-                                <span class="material-symbols-outlined text-highlight text-sm">checklist</span>
-                                <span class="text-main text-sm font-bold truncate">{l().title || 'Untitled list'}</span>
-                            </div>
-                            <div class="text-sub text-xs">
-                                {done()} / {total()} done
-                            </div>
-                            <div class="bg-element-accent h-1.5 w-full overflow-hidden rounded-full">
-                                <div class="bg-highlight-strongest h-full rounded-full" style={{ width: `${pct()}%` }} />
-                            </div>
-                        </div>
+        <Show when={!failed()} fallback={<RefMissing icon="dashboard" label="Deleted canvas" />}>
+            <Show when={!loading()} fallback={<RefLoading />}>
+                <Show when={canvas()}>
+                    {(c) => (
+                        <>
+                            <RefHeader
+                                icon="dashboard"
+                                label={c().title || 'Untitled canvas'}
+                                onOpen={props.onOpen ? () => props.onOpen!(c().id) : undefined}
+                            />
+                            <ClippedBody fade={props.fade} class="px-3 pb-2">
+                                <CanvasThumbnail canvas={c()} />
+                                <p class="text-sub mt-1 text-xs">
+                                    {(c().nodes ?? []).length} node{(c().nodes ?? []).length === 1 ? '' : 's'}
+                                </p>
+                            </ClippedBody>
+                        </>
                     )}
                 </Show>
             </Show>
@@ -1691,6 +2114,21 @@ const CanvasContextMenu: Component<{
     onConnect: (n: CanvasNode) => void
     onDelete: (n: CanvasNode) => void
 }> = (props) => {
+    // Measured rather than assumed: the menu was clamped against a hardcoded
+    // height, so adding an entry to it pushed the last ones off the bottom of
+    // the window with nothing to say they had gone.
+    let menuRef: HTMLDivElement | undefined
+    const [placement, setPlacement] = createSignal({ left: props.menu.sx, top: props.menu.sy })
+    onMount(() => {
+        const box = menuRef?.getBoundingClientRect()
+        if (!box) return
+        const GAP = 8
+        setPlacement({
+            left: Math.max(GAP, Math.min(props.menu.sx, window.innerWidth - box.width - GAP)),
+            top: Math.max(GAP, Math.min(props.menu.sy, window.innerHeight - box.height - GAP)),
+        })
+    })
+
     // Portal to <body>: the canvas panel is .bg-element-matte, whose
     // backdrop-filter (Looks system) makes it the containing block for
     // position:fixed, which otherwise threw this menu far off-screen.
@@ -1699,8 +2137,10 @@ const CanvasContextMenu: Component<{
             {/* Click-away backdrop */}
             <div class="fixed inset-0 z-[60]" onPointerDown={props.onClose} onContextMenu={(e) => e.preventDefault()} />
             <div
-                class="bg-element-matte border-element-accent fixed z-[61] min-w-44 rounded-lg border py-1 text-sm shadow-2xl"
-                style={{ left: `${Math.min(props.menu.sx, window.innerWidth - 190)}px`, top: `${Math.min(props.menu.sy, window.innerHeight - 320)}px` }}
+                ref={menuRef}
+                data-testid="canvas-context-menu"
+                class="bg-element-matte border-element-accent fixed z-[61] min-w-44 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-lg border py-1 text-sm shadow-2xl"
+                style={{ left: `${placement().left}px`, top: `${placement().top}px` }}
                 onPointerDown={(e) => e.stopPropagation()}
             >
                 <Show
@@ -1715,6 +2155,8 @@ const CanvasContextMenu: Component<{
                             <MenuItem icon="link" label="Web link" onClick={() => props.onAdd('link')} />
                             <MenuItem icon="bookmark" label="Moment reference" onClick={() => props.onAdd('moment-ref')} />
                             <MenuItem icon="checklist" label="Todo embed" onClick={() => props.onAdd('todo-ref')} />
+                            <MenuItem icon="space_dashboard" label="Project reference" onClick={() => props.onAdd('project-ref')} />
+                            <MenuItem icon="dashboard" label="Canvas reference" onClick={() => props.onAdd('canvas-ref')} />
                         </>
                     }
                 >
@@ -1999,6 +2441,140 @@ const TodoPicker: Component<{ onPick: (l: TodoList) => void; onClose: () => void
     )
 }
 
+// --- project picker ---
+
+const ProjectPicker: Component<{ onPick: (p: Project) => void; onClose: () => void }> = (props) => {
+    const [query, setQuery] = createSignal('')
+    const [projects, setProjects] = createSignal<Project[]>([])
+    const [loading, setLoading] = createSignal(true)
+
+    onMount(async () => {
+        try {
+            const data = await api.listProjects()
+            // Archived projects are off the portfolio, so they are not things
+            // you are pinning to a board either.
+            setProjects((data ?? []).filter((p) => !p.archived))
+        } catch {
+            setProjects([])
+        } finally {
+            setLoading(false)
+        }
+    })
+
+    const filtered = () => {
+        const q = query().trim().toLowerCase()
+        if (!q) return projects()
+        return projects().filter((p) => (p.title || '').toLowerCase().includes(q) || (p.overview || '').toLowerCase().includes(q))
+    }
+
+    const openCards = (p: Project) => (p.cards || []).filter((c) => !c.dismissed && !c.done).length
+
+    const nav = createListboxNav(filtered, (p) => props.onPick(p), props.onClose)
+
+    return (
+        <PickerShell title="Reference a project" onClose={props.onClose}>
+            <input
+                autofocus
+                value={query()}
+                onInput={(e) => setQuery(e.currentTarget.value)}
+                onKeyDown={nav.onKeyDown}
+                placeholder="Search projects by title…"
+                class="bg-element border-element-accent text-main mb-2 w-full rounded-md border px-3 py-2 text-sm focus:outline-none"
+            />
+            <div ref={nav.setListRef} class="max-h-72 overflow-y-auto">
+                <Show when={!loading()} fallback={<p class="text-sub p-2 text-sm">Loading…</p>}>
+                    <Show when={filtered().length > 0} fallback={<p class="text-sub/60 p-2 text-sm italic">No projects.</p>}>
+                        <For each={filtered()}>
+                            {(p, index) => (
+                                <button
+                                    onClick={() => props.onPick(p)}
+                                    onMouseMove={() => nav.setActive(index())}
+                                    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:cursor-pointer"
+                                    classList={{
+                                        'bg-element-accent': nav.active() === index(),
+                                        'hover:bg-element-accent': nav.active() !== index(),
+                                    }}
+                                >
+                                    <span
+                                        class="material-symbols-outlined shrink-0 text-base"
+                                        style={{ color: p.accent || 'var(--color-highlight-strongest)' }}
+                                    >
+                                        {p.icon || 'space_dashboard'}
+                                    </span>
+                                    <span class="text-main min-w-0 flex-1 truncate text-sm font-bold">{p.title || 'Untitled project'}</span>
+                                    <span class="text-sub shrink-0 text-xs">{openCards(p)} open</span>
+                                </button>
+                            )}
+                        </For>
+                    </Show>
+                </Show>
+            </div>
+        </PickerShell>
+    )
+}
+
+// --- canvas picker ---
+
+const CanvasPicker: Component<{ excludeId: string; onPick: (c: Canvas) => void; onClose: () => void }> = (props) => {
+    const [query, setQuery] = createSignal('')
+    const [boards, setBoards] = createSignal<Canvas[]>([])
+    const [loading, setLoading] = createSignal(true)
+
+    onMount(async () => {
+        try {
+            const data = await api.listCanvases()
+            setBoards((data ?? []).filter((c) => c.id !== props.excludeId))
+        } catch {
+            setBoards([])
+        } finally {
+            setLoading(false)
+        }
+    })
+
+    const filtered = () => {
+        const q = query().trim().toLowerCase()
+        if (!q) return boards()
+        return boards().filter((c) => (c.title || '').toLowerCase().includes(q))
+    }
+
+    const nav = createListboxNav(filtered, (c) => props.onPick(c), props.onClose)
+
+    return (
+        <PickerShell title="Reference a canvas" onClose={props.onClose}>
+            <input
+                autofocus
+                value={query()}
+                onInput={(e) => setQuery(e.currentTarget.value)}
+                onKeyDown={nav.onKeyDown}
+                placeholder="Search canvases by title…"
+                class="bg-element border-element-accent text-main mb-2 w-full rounded-md border px-3 py-2 text-sm focus:outline-none"
+            />
+            <div ref={nav.setListRef} class="max-h-72 overflow-y-auto">
+                <Show when={!loading()} fallback={<p class="text-sub p-2 text-sm">Loading…</p>}>
+                    <Show when={filtered().length > 0} fallback={<p class="text-sub/60 p-2 text-sm italic">No other canvases.</p>}>
+                        <For each={filtered()}>
+                            {(c, index) => (
+                                <button
+                                    onClick={() => props.onPick(c)}
+                                    onMouseMove={() => nav.setActive(index())}
+                                    class="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition-colors hover:cursor-pointer"
+                                    classList={{
+                                        'bg-element-accent': nav.active() === index(),
+                                        'hover:bg-element-accent': nav.active() !== index(),
+                                    }}
+                                >
+                                    <span class="text-main min-w-0 truncate text-sm font-bold">{c.title || 'Untitled canvas'}</span>
+                                    <span class="text-sub shrink-0 text-xs">{(c.nodes ?? []).length} nodes</span>
+                                </button>
+                            )}
+                        </For>
+                    </Show>
+                </Show>
+            </div>
+        </PickerShell>
+    )
+}
+
 const PickerShell: Component<{ title: string; onClose: () => void; children: any }> = (props) => (
     <PickerDialog title={props.title} onClose={props.onClose} layer="surface" position="absolute">
         {props.children}
@@ -2020,9 +2596,11 @@ const GuideOverlay: Component<{ onClose: () => void }> = (props) => (
                 <GuideRow icon="pan_tool" title="Pan">Drag empty space (Pan tool), or use the Pan/Select toggle in the toolbar.</GuideRow>
                 <GuideRow icon="zoom_in" title="Zoom">Scroll the mouse wheel; the point under the cursor stays put.</GuideRow>
                 <GuideRow icon="add_box" title="Add nodes">Use the toolbar, or right-click empty space to drop a node where you click.</GuideRow>
-                <GuideRow icon="open_with" title="Move & edit">Drag a node from anywhere on its body. Double-click a text, sticky or shape node to edit its label.</GuideRow>
+                <GuideRow icon="open_with" title="Move & edit">Drag a node from anywhere on its body except a link, a checkbox or a button, which take the click instead. Double-click a text, sticky or shape node to edit it.</GuideRow>
                 <GuideRow icon="conversion_path" title="Connect">Hover a node and drag from one of its edge dots onto another node, or drop in empty space to create a new node already connected. Click a connector to remove it.</GuideRow>
-                <GuideRow icon="sticky_note_2" title="Text vs. sticky">A text node is a bare label on the board; a sticky is a coloured note card. Give a text node a background colour to turn it into a card.</GuideRow>
+                <GuideRow icon="sticky_note_2" title="Text vs. sticky">Both are coloured cards, and a new one picks its colour for you. A sticky holds plain text; a text node is written the way a moment is, so markdown, images and embeds all work in it (up to {MAX_NODE_TEXT.toLocaleString()} characters).</GuideRow>
+                <GuideRow icon="alternate_email" title="Embeds in a text node">Type <code>[[id]]</code> for a moment, or <code>::todo:id::</code>, <code>::canvas:id::</code> and <code>::project:id::</code> for the modules. They render live, exactly as they do in a moment.</GuideRow>
+                <GuideRow icon="link" title="Reference nodes">Moment, todo, project and canvas references are nodes in their own right: the moment renders its body, the todo list is checkable in place, and the header opens the real thing.</GuideRow>
                 <GuideRow icon="open_in_full" title="Resize">Drag a node's bottom-right corner. Size persists.</GuideRow>
                 <GuideRow icon="highlight_alt" title="Multi-select">Switch to the Select tool, then drag a box over empty space. Shift-click nodes to add or remove.</GuideRow>
                 <GuideRow icon="grid_4x4" title="Snapping">Toggle snap-to-grid; positions and sizes snap to the grid on drop.</GuideRow>

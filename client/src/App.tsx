@@ -1271,6 +1271,8 @@ export const App: Component = () => {
                     canManage={canManageCanvas()}
                     initialCanvasId={requestedCanvasId()}
                     onOpenMoment={(id) => setFocusMomentId(id)}
+                    onOpenTodo={() => setShowTodos(true)}
+                    onOpenProject={openProject}
                 />
             </Show>
 

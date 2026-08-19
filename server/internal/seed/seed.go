@@ -434,15 +434,20 @@ func (s *seeder) seedCanvasShell() {
 func (s *seeder) seedCanvasContent() {
 	canvasID := s.canvas.ID
 
-	momentRef := s.node(models.CanvasNodeMomentRef, 40, 40, 240, 120, s.welcome.ID, nil)
-	text := s.node(models.CanvasNodeText, 340, 40, 220, 120, "Ideas parking lot. Drop anything here.", nil)
-	image := s.node(models.CanvasNodeImage, 40, 220, 300, 180, s.assetURL("canvas-hero.png"), nil)
-	sticky := s.node(models.CanvasNodeSticky, 620, 40, 180, 140, "Remember to breathe.",
+	momentRef := s.node(models.CanvasNodeMomentRef, 40, 40, 280, 200, s.welcome.ID, nil)
+	// A text node is moment content on a board, so the demo board's one shows
+	// markdown and a live embed rather than a line of flat text.
+	text := s.node(models.CanvasNodeText, 340, 40, 300, 260,
+		"### Ideas parking lot\n\nDrop anything here. This node takes **markdown**, images and embeds, "+
+			"same as a moment does:\n\n::todo:"+s.todoGeneral.ID+"::",
+		strptr(`{"color":"#7ED6DF","fontSize":14}`))
+	image := s.node(models.CanvasNodeImage, 40, 300, 280, 180, s.assetURL("canvas-hero.png"), nil)
+	sticky := s.node(models.CanvasNodeSticky, 700, 40, 180, 140, "Remember to breathe.",
 		strptr(`{"color":"#F5A623","fontSize":16}`))
-	shape := s.node(models.CanvasNodeShape, 620, 220, 160, 120, "",
+	shape := s.node(models.CanvasNodeShape, 700, 220, 160, 120, "",
 		strptr(`{"color":"#4C8BF5","shape":"rounded"}`))
-	link := s.node(models.CanvasNodeLink, 380, 220, 240, 90, "https://create.roblox.com/docs", nil)
-	todoRef := s.node(models.CanvasNodeTodoRef, 340, 340, 260, 150, s.todoGeneral.ID, nil)
+	link := s.node(models.CanvasNodeLink, 340, 340, 300, 90, "https://create.roblox.com/docs", nil)
+	todoRef := s.node(models.CanvasNodeTodoRef, 340, 470, 300, 200, s.todoGeneral.ID, nil)
 
 	// Connect a few nodes so canvas_edges is exercised.
 	s.edge(canvasID, momentRef.ID, text.ID)

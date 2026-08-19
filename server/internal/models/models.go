@@ -219,13 +219,15 @@ type Canvas struct {
 // CanvasNode kinds. Content semantics vary by kind (see CanvasNode.Content).
 // Unknown kinds are tolerated by the domain layer and treated as text.
 const (
-	CanvasNodeMomentRef = "moment-ref" // references a moment by UUID (stays in sync)
-	CanvasNodeText      = "text"       // raw text content
-	CanvasNodeImage     = "image"      // image asset URL in content
-	CanvasNodeSticky    = "sticky"     // colored text card
-	CanvasNodeShape     = "shape"      // plain box / shape
-	CanvasNodeLink      = "link"       // a URL in content, rendered as a chip
-	CanvasNodeTodoRef   = "todo-ref"   // references a todo list by id (live summary)
+	CanvasNodeMomentRef  = "moment-ref"  // references a moment by UUID (stays in sync)
+	CanvasNodeText       = "text"        // raw text content
+	CanvasNodeImage      = "image"       // image asset URL in content
+	CanvasNodeSticky     = "sticky"      // colored text card
+	CanvasNodeShape      = "shape"       // plain box / shape
+	CanvasNodeLink       = "link"        // a URL in content, rendered as a chip
+	CanvasNodeTodoRef    = "todo-ref"    // references a todo list by id (live summary)
+	CanvasNodeProjectRef = "project-ref" // references a project by id (live summary)
+	CanvasNodeCanvasRef  = "canvas-ref"  // references another canvas by id
 )
 
 // CanvasNode is a single positioned element on a Canvas.
@@ -239,8 +241,9 @@ type CanvasNode struct {
 	H        float64 `json:"h"`
 	ZOrder   int     `json:"z_order"`
 	// Content holds raw text (text/sticky nodes), the asset URL (image nodes),
-	// the referenced moment UUID (moment-ref nodes), a URL (link nodes), or the
-	// referenced todo list id (todo-ref nodes).
+	// a URL (link nodes), or the referenced entity's id (the *-ref nodes). Text
+	// node content runs through the moment pipeline, so it can carry embed
+	// tokens of its own.
 	Content string `json:"content"`
 	// Style is an optional JSON blob for presentation only, e.g.
 	// {"color":"#8899aa","fontSize":14}. nil when the node has no styling.

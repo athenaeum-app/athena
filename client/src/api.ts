@@ -501,7 +501,16 @@ export interface ProjectCard {
     updated_at: string
 }
 
-export type CanvasNodeKind = 'moment-ref' | 'text' | 'image' | 'sticky' | 'shape' | 'link' | 'todo-ref'
+export type CanvasNodeKind =
+    | 'moment-ref'
+    | 'text'
+    | 'image'
+    | 'sticky'
+    | 'shape'
+    | 'link'
+    | 'todo-ref'
+    | 'project-ref'
+    | 'canvas-ref'
 
 export interface CanvasNode {
     id: string

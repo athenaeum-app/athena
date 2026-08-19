@@ -80,17 +80,32 @@ _Avoid_: task list, checklist (as a proper noun), agenda.
 
 **Canvas**:
 An embeddable free-form board: an infinite pan/zoom surface holding freely
-positioned nodes (moment-ref, text, image, sticky, shape, link, todo-ref) joined
-by edges. Unlike a Moment it has no linear structure. See
+positioned nodes (text, sticky, shape, image, link, and the Reference nodes)
+joined by edges. Unlike a Moment it has no linear structure. See
 [ADR-0013](adr/0013-server-synced-embeddable-modules.md).
 _Avoid_: board, whiteboard, corkboard, diagram.
+
+**Text node**:
+A Canvas node whose content is written and rendered the way a Moment's body is:
+markdown, images and Embeds, capped at 4000 characters. A new one takes a
+colour off the node palette. The plain-scribble node is the sticky. See
+[ADR-0018](adr/0018-canvas-nodes-render-the-moment-pipeline.md).
+_Avoid_: note, label, card.
+
+**Reference node**:
+A Canvas node that points at another entity by id and renders its current state:
+`moment-ref` renders the Moment's body, `todo-ref` a checkable list, and
+`project-ref` and `canvas-ref` a summary. The node's box is the clip: content
+that outgrows it is faded off, never scrolled. The header opens the real thing.
+_Avoid_: link node (that is the URL node), card, embed node.
 
 ## Embeds
 
 **Embed**:
-An inline reference to another entity (a Moment, Todo list, or Canvas), written
-as a token inside a Moment's or chat message's body and rendered as a Preview in
-read mode. Three kinds exist; each renders and behaves differently.
+An inline reference to another entity (a Moment, Todo list, Canvas or Project),
+written as a token inside a Moment's or chat message's body and rendered as a
+Preview in read mode. Four kinds exist; each renders and behaves differently.
+A Canvas text node runs the same pipeline, so the same tokens work there.
 _Avoid_: link, mention, transclusion, reference (as a proper noun). A moment
 Embed is still an Embed even though its token looks like a wiki-link.
 
@@ -114,6 +129,11 @@ inline; clicking the header opens the todo board.
 **Canvas embed**:
 An Embed of a Canvas. Renders as a _compact_ Preview (name + node count);
 clicking opens the canvas board.
+
+**Project embed**:
+An Embed of a Project. Renders as a _compact_ Preview: a completion meter in the
+project's accent, an excerpt of the overview, and the open/done counts. Clicking
+opens the project's Hub.
 
 **Focused reader**:
 The read-only expanded view of a single Moment (large, centered, full body +

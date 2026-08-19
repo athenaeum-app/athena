@@ -599,6 +599,41 @@ input[type='checkbox']:not(.native-checkbox):focus-visible {
     font-weight: 600;
 }
 
+/* A canvas node wearing a colour is a surface of its own, and the theme's text
+   tones were chosen for the page background rather than for a lime or a slate
+   card. Text on such a node follows --node-ink instead, which CanvasModule
+   picks from the fill's luminance (readableInk).
+   Embed cards are excluded by [data-embed-card]: a card brings its own
+   background, so it keeps the tones that background was designed for. The
+   exclusion has to name the card rather than look for a background above it,
+   since the module panel the whole board sits on has one too. Unlayered, so it
+   beats the theme utilities on the same elements. */
+[data-node-ink] :where(.prose, .text-sub, .text-main):not(:where([data-embed-card] *)) {
+    color: var(--node-ink);
+}
+[data-node-ink] .prose:not(:where([data-embed-card] *)) {
+    --tw-prose-body: var(--node-ink);
+    --tw-prose-headings: var(--node-ink);
+    --tw-prose-lead: var(--node-ink);
+    --tw-prose-quotes: var(--node-ink);
+    --tw-prose-bullets: var(--node-ink);
+    --tw-prose-counters: var(--node-ink);
+    --tw-prose-captions: var(--node-ink);
+    --tw-prose-quote-borders: color-mix(in srgb, var(--node-ink) 40%, transparent);
+    --tw-prose-hr: color-mix(in srgb, var(--node-ink) 30%, transparent);
+    --tw-prose-th-borders: color-mix(in srgb, var(--node-ink) 30%, transparent);
+    --tw-prose-td-borders: color-mix(in srgb, var(--node-ink) 25%, transparent);
+}
+/* MarkdownText paints these three with theme classes of their own, which the
+   prose variables above never reach. Links keep their underline, so losing the
+   accent colour does not lose the affordance. */
+[data-node-ink] .prose :where(strong, em, a, code):not(:where([data-embed-card] *)) {
+    color: var(--node-ink);
+}
+[data-node-ink] .prose :where(code):not(:where([data-embed-card] *)) {
+    background-color: color-mix(in srgb, var(--node-ink) 14%, transparent);
+}
+
 /* Content images are clickable (open the Lightbox). */
 .prose img { cursor: zoom-in; }
 

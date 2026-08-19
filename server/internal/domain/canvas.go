@@ -151,13 +151,15 @@ func DeleteCanvas(id string) (*models.Canvas, error) {
 // allowedCanvasKinds is the set of node kinds that persist as-is. Any other
 // kind falls back to text (see CreateCanvasNode) so unknown kinds are tolerated.
 var allowedCanvasKinds = map[string]bool{
-	models.CanvasNodeMomentRef: true,
-	models.CanvasNodeText:      true,
-	models.CanvasNodeImage:     true,
-	models.CanvasNodeSticky:    true,
-	models.CanvasNodeShape:     true,
-	models.CanvasNodeLink:      true,
-	models.CanvasNodeTodoRef:   true,
+	models.CanvasNodeMomentRef:  true,
+	models.CanvasNodeText:       true,
+	models.CanvasNodeImage:      true,
+	models.CanvasNodeSticky:     true,
+	models.CanvasNodeShape:      true,
+	models.CanvasNodeLink:       true,
+	models.CanvasNodeTodoRef:    true,
+	models.CanvasNodeProjectRef: true,
+	models.CanvasNodeCanvasRef:  true,
 }
 
 // CreateCanvasNode adds a node. Returns nil if the canvas is gone. style is an
