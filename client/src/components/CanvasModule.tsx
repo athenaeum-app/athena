@@ -48,6 +48,27 @@ const MIN_SCALE = 0.25
 const MAX_SCALE = 2.5
 const GRID = 24 // snap-to-grid step, world units
 
+// Floors for a resize, world units. Small enough for a chip, large enough that
+// a node cannot be dragged down to a sliver with no way back.
+const MIN_NODE_W = 60
+const MIN_NODE_H = 48
+
+// Snap a node's width or height by its trailing edge rather than by its extent.
+// The edge is the thing you watch land on a gridline, and snapping the extent
+// only lines it up for a node whose leading edge already sits on one, which is
+// why a resized node kept coming to rest between the lines.
+//
+// Pure, and takes the grid as an argument, because the arithmetic is the part
+// that was wrong: it is worth testing without a board around it.
+export function snapExtent(origin: number, extent: number, min: number, gridOn: boolean): number {
+    if (!gridOn) return Math.max(min, extent)
+    let snapped = Math.round((origin + extent) / GRID) * GRID - origin
+    // Clamping to the minimum would put the edge back off the grid, so step out
+    // to the first gridline that clears it instead.
+    while (snapped < min) snapped += GRID
+    return snapped
+}
+
 // Breathing room, in screen pixels, left around the nodes when framing a board.
 const FRAME_PADDING = 48
 
@@ -402,6 +423,7 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
     }
 
     const snapV = (v: number) => (snap() ? Math.round(v / GRID) * GRID : v)
+    const snapSize = (origin: number, extent: number, min: number) => snapExtent(origin, extent, min, snap())
 
     // Draw the snap grid (screen-space, aligned to the world via pan/scale) only
     // while snap is on, so the grid the user snaps to is actually visible.
@@ -440,7 +462,15 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
         } else if (drag.kind === 'resize') {
             const dx = (e.clientX - drag.startX) / scale()
             const dy = (e.clientY - drag.startY) / scale()
-            patchNode(drag.id, { w: Math.max(60, drag.w0 + dx), h: Math.max(48, drag.h0 + dy) })
+            const node = nodeById(drag.id)
+            if (node) {
+                // Snap live, the way a move does, so the grid feels like a grid
+                // rather than something that tidies up after you let go.
+                patchNode(drag.id, {
+                    w: snapSize(node.x, drag.w0 + dx, MIN_NODE_W),
+                    h: snapSize(node.y, drag.h0 + dy, MIN_NODE_H),
+                })
+            }
         } else if (drag.kind === 'marquee') {
             const w = toWorld(e.clientX, e.clientY)
             const box = rectFrom(drag.startWX, drag.startWY, w.x, w.y)
@@ -477,8 +507,8 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
         } else if (finished.kind === 'resize') {
             const node = nodeById(finished.id)
             if (node) {
-                const w = Math.max(60, snapV(node.w))
-                const h = Math.max(48, snapV(node.h))
+                const w = snapSize(node.x, node.w, MIN_NODE_W)
+                const h = snapSize(node.y, node.h, MIN_NODE_H)
                 patchNode(finished.id, { w, h })
                 try {
                     await api.updateCanvasNode(finished.id, { w, h })
@@ -1609,7 +1639,12 @@ const NodeView: Component<NodeViewProps> = (props) => {
             data-node-kind={props.node.kind}
             class="group absolute"
             classList={{
-                'rounded-lg border shadow-lg overflow-hidden': !isShape() && !isPlainText(),
+                // No overflow-hidden here: the connector dots sit *outside* the
+                // node's box by design, and clipping the card clipped them away
+                // on every kind that draws one. They were still hit-testable
+                // nowhere, so dragging one fell through to the surface and
+                // panned the board. The body below does the clipping instead.
+                'rounded-lg border shadow-lg': !isShape() && !isPlainText(),
                 'rounded-lg': isPlainText(),
                 'ring-2 ring-highlight-strongest': props.selected,
                 'border-highlight-strongest': props.selected && !isShape() && !isPlainText(),
@@ -1672,7 +1707,7 @@ const NodeView: Component<NodeViewProps> = (props) => {
                 markdown pipeline, whose prose colours are theme-wide and know
                 nothing about the colour this node happens to be (index.css). */}
             <div
-                class="relative flex h-full w-full flex-col"
+                class="relative flex h-full w-full flex-col overflow-hidden rounded-lg"
                 data-node-ink={fg() ? '' : undefined}
                 style={fg() ? { color: fg(), '--node-ink': fg()! } : {}}
             >

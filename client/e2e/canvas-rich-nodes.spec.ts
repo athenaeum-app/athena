@@ -194,3 +194,33 @@ test('the add-node menu fits the window wherever it is opened', async ({ page })
     expect(box.x + box.width).toBeLessThanOrEqual(view.width)
     expect(box.y + box.height).toBeLessThanOrEqual(view.height)
 })
+
+test('a connector can be drawn from a card node', async ({ page }) => {
+    await signIn(page)
+    await seed(page.request)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await openBoard(page, false)
+
+    // The connector dots sit outside a node's box, and the card kinds clipped
+    // their own overflow, so the dots were drawn nowhere and hit-tested
+    // nowhere: a drag from one fell through to the surface and panned the
+    // board. Only shapes and bare text nodes could be wired up.
+    const surface = board(page)
+    const from = surface.locator('[data-node-kind="todo-ref"]')
+    const to = surface.locator('[data-node-kind="project-ref"]')
+    const fromBox = (await from.boundingBox())!
+    const toBox = (await to.boundingBox())!
+
+    // Hover first: the dots are revealed on hover, and the one on the
+    // underside is the third of the four (top, right, bottom, left).
+    await page.mouse.move(fromBox.x + fromBox.width / 2, fromBox.y + fromBox.height / 2)
+    const dot = (await from.getByTitle('Drag to connect to another node').nth(2).boundingBox())!
+
+    const before = await surface.locator('svg line[marker-end]').count()
+    await page.mouse.move(dot.x + dot.width / 2, dot.y + dot.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(toBox.x + toBox.width / 2, toBox.y + toBox.height / 2, { steps: 8 })
+    await page.mouse.up()
+
+    await expect(surface.locator('svg line[marker-end]')).toHaveCount(before + 1)
+})
