@@ -165,12 +165,22 @@ test('capture README demo GIFs', async ({ page }) => {
     const plants = await post<{ id: string }>(req, `/api/v1/todos/${project.id}/items`, { text: 'Water the office plants' })
     await patch(req, `/api/v1/todo-items/${plants.id}`, { priority: 1, recurrence: 'weekly', due_at: dueIn(5) })
 
+    // The board is deliberately small: the clip shows a node moving and a box
+    // being ticked, and anything else on screen is just bytes in the GIF. The
+    // reference nodes come further down, once their targets exist.
     const canvas = await post<{ id: string }>(req, '/api/v1/canvases', { title: 'Roadmap sketch' })
-    const node = (kind: string, x: number, y: number, w: number, h: number, content: string, style: object) =>
-        post<{ id: string }>(req, `/api/v1/canvases/${canvas.id}/nodes`, { kind, x, y, w, h, content, style: JSON.stringify(style) })
+    const node = (kind: string, x: number, y: number, w: number, h: number, content: string, style?: object) =>
+        post<{ id: string }>(req, `/api/v1/canvases/${canvas.id}/nodes`, {
+            kind,
+            x,
+            y,
+            w,
+            h,
+            content,
+            style: style ? JSON.stringify(style) : undefined,
+        })
     await node('sticky', 90, 90, 190, 130, 'Foundation:\nsolid-query cache', { color: '#f6e58d', fontSize: 14 })
-    await node('sticky', 360, 120, 190, 130, 'Tasks:\ndue - priority - agenda', { color: '#7bed9f', fontSize: 14 })
-    await node('shape', 150, 300, 210, 120, 'Looks system', { color: '#dfe6e9', shape: 'rounded' })
+    await node('shape', 90, 270, 190, 120, 'Looks system', { color: '#dfe6e9', shape: 'rounded' })
 
     for (const content of [
         'Attic shelf catalogued. Twenty-two to rebind, four beyond saving.',
@@ -211,6 +221,21 @@ test('capture README demo GIFs', async ({ page }) => {
         titles: ['Build the fourth bed', 'Top up the compost'],
     })
     await patch(req, `/api/v1/project-cards/${built[0].id}`, { done: true })
+
+    // Canvas reference nodes, now that their targets exist: a text node holding
+    // moment content and a live to-do embed, a to-do reference checkable on the
+    // board, and a project reference with its meter (ADR-0018).
+    await node(
+        'text',
+        320,
+        90,
+        300,
+        300,
+        ['### Roadmap', '', 'The board carries what a **moment** carries:', '', `::todo:${project.id}::`].join('\n'),
+        { color: '#7ed6df', fontSize: 14 },
+    )
+    await node('todo-ref', 660, 90, 300, 190, project.id)
+    await node('project-ref', 660, 320, 300, 170, bindery.id)
 
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/')
@@ -330,8 +355,11 @@ test('capture README demo GIFs', async ({ page }) => {
 
     // ---------- Demo 5: the canvas ----------
     //
-    // Dragging one node, not panning the board: a moving viewport repaints
-    // every pixel of every frame, which is exactly what GIF is worst at.
+    // Dragging one node and ticking one box, not panning the board: a moving
+    // viewport repaints every pixel of every frame, which is exactly what GIF
+    // is worst at. Two discrete changes on an otherwise still board is the
+    // shape this format is good at, and it is also the thing worth showing,
+    // since a reference node is live rather than a picture of a list.
     const canvasFrames = frames('canvas')
     await appearance('sunset', 'aurora')
     await page.getByRole('button', { name: 'Canvas', exact: true }).first().click()
@@ -339,16 +367,21 @@ test('capture README demo GIFs', async ({ page }) => {
     await expect(page.getByText('Foundation:')).toBeVisible()
     await page.waitForTimeout(800)
 
-    // The shape at the bottom of the board: it has clear space to its right,
-    // so the drag ends somewhere legible instead of on top of a sticky note.
-    const sticky = page.getByText('Looks system').first()
-    const box = await sticky.boundingBox()
+    // The shape at the bottom left: it has clear space below it, so the drag
+    // ends somewhere legible instead of on top of another node.
+    const shape = page.getByText('Looks system').first()
+    const box = await shape.boundingBox()
+    // The to-do reference node's first row, ticked at the end of the clip. The
+    // copy embedded in the text node beside it follows on the same frame.
+    const row = page
+        .getByTestId('canvas-surface')
+        .locator('[data-node-kind="todo-ref"]')
+        .getByRole('button', { name: /Ship the refinement pass/ })
     const canvasFps = await canvasFrames.during(page, async () => {
         await page.waitForTimeout(700)
         if (box) {
-            // Absolute target, into the clear right-hand side of the board.
             const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-            const to = { x: 760, y: 430 }
+            const to = { x: from.x + 150, y: from.y + 150 }
             await page.mouse.move(from.x, from.y)
             await page.mouse.down()
             for (const step of [0.25, 0.5, 0.75, 1]) {
@@ -357,6 +390,8 @@ test('capture README demo GIFs', async ({ page }) => {
             }
             await page.mouse.up()
         }
+        await page.waitForTimeout(700)
+        await row.click()
         await page.waitForTimeout(1300)
     })
     const canvasGif = encodeGif('canvas', Number(canvasFps.toFixed(2)))

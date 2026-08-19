@@ -23,8 +23,10 @@ manage several servers at once. No external account, no third-party service.
   board, and a graveyard that keeps dismissed cards recoverable. Overviews and
   cards use the same editor as moments, and a project embeds anywhere as a
   live summary card.
-- **Canvas.** An infinite pan-and-zoom board with sticky notes, text, shapes,
-  images, links, moment references, and live todo embeds, joined by connectors.
+- **Canvas.** An infinite pan-and-zoom board joined by connectors. Text nodes
+  are written the way moments are, markdown and live embeds included, and
+  reference nodes render what they point at: a moment in full, a checkable todo
+  list, a project's progress, another board's layout.
 - **Chat.** A library-wide message log with the same formatting and embeds as
   moments.
 - **Appearance.** Eleven color themes and six "Look" presets that compose
@@ -44,7 +46,7 @@ Every clip below is the running app, one theme and look each, named underneath.
 
 | Writing a moment | Canvas |
 | --- | --- |
-| ![Writing, tagging and posting a moment](docs/demos/moments.gif)<br><sub>Rosewood theme, Legacy look</sub> | ![Dragging a node around the board](docs/demos/canvas.gif)<br><sub>Sunset theme, Aurora look</sub> |
+| ![Writing, tagging and posting a moment](docs/demos/moments.gif)<br><sub>Rosewood theme, Legacy look</sub> | ![Dragging a node, then checking a task off a reference node](docs/demos/canvas.gif)<br><sub>Sunset theme, Aurora look</sub> |
 
 | Chat | On a phone |
 | --- | --- |

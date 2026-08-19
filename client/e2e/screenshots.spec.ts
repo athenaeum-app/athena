@@ -109,15 +109,39 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     const review = await post<{ id: string }>(req, `/api/v1/todos/${project.id}/items`, { text: 'Overdue: reply to the archive request' })
     await patch(req, `/api/v1/todo-items/${review.id}`, { priority: 2, due_at: dueIn(-2) })
 
-    // --- Canvas: a small board of notes + shapes ---
+    // --- Canvas: a board of notes, shapes and live references. The reference
+    //     nodes come further down, once the entities they point at exist. ---
     const canvas = await post<{ id: string }>(req, '/api/v1/canvases', { title: 'Roadmap sketch' })
-    const node = (kind: string, x: number, y: number, w: number, h: number, content: string, style: object) =>
-        post(req, `/api/v1/canvases/${canvas.id}/nodes`, { kind, x, y, w, h, content, style: JSON.stringify(style) })
-    await node('sticky', 60, 60, 180, 130, 'Foundation:\nsolid-query cache', { color: '#f6e58d', fontSize: 14 })
-    await node('sticky', 300, 80, 180, 130, 'Tasks:\ndue • priority • agenda', { color: '#7bed9f', fontSize: 14 })
-    await node('shape', 120, 260, 200, 120, 'Looks system', { color: '#dfe6e9', shape: 'rounded' })
-    await node('shape', 380, 280, 160, 120, 'Canvas shapes', { color: '#c8d6ff', shape: 'ellipse' })
-    await node('text', 60, 420, 320, 60, 'Everything composes into one athenaeum.', { color: '#ffffff', fontSize: 16 })
+    const node = (kind: string, x: number, y: number, w: number, h: number, content: string, style?: object) =>
+        post(req, `/api/v1/canvases/${canvas.id}/nodes`, {
+            kind,
+            x,
+            y,
+            w,
+            h,
+            content,
+            style: style ? JSON.stringify(style) : undefined,
+        })
+    await node('sticky', 60, 60, 200, 140, 'Foundation:\nsolid-query cache', { color: '#f6e58d', fontSize: 14 })
+    await node('shape', 60, 240, 200, 120, 'Looks system', { color: '#dfe6e9', shape: 'rounded' })
+    await node('shape', 60, 400, 200, 120, 'Canvas shapes', { color: '#c8d6ff', shape: 'ellipse' })
+    // A text node carries moment content: markdown, and a live to-do embed.
+    await node(
+        'text',
+        300,
+        60,
+        300,
+        300,
+        [
+            '### Roadmap',
+            '',
+            'Everything composes into one **athenaeum**, and the board carries the',
+            'same content a moment does:',
+            '',
+            `::todo:${daily.id}::`,
+        ].join('\n'),
+        { color: '#7ed6df', fontSize: 14 },
+    )
 
     // --- Chat: a short conversation ---
     for (const content of [
@@ -239,6 +263,13 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     await patch(req, `/api/v1/project-cards/${drafts[1].id}`, { priority: 2, due_at: dueIn(8) })
     await cards(atlas.id, ink.id, ['Letter the continents', 'Ink the compass rose'])
 
+    // --- Canvas reference nodes, now that their targets exist. A moment
+    //     reference renders the moment, a to-do reference is checkable on the
+    //     board itself, and a project reference carries its meter (ADR-0018). ---
+    await node('moment-ref', 640, 60, 300, 300, m1.id)
+    await node('todo-ref', 980, 60, 300, 200, project.id)
+    await node('project-ref', 980, 300, 300, 180, bindery.id)
+
     // ---------- Capture ----------
     //
     // Every surface is shot under a different theme + look pairing, so the
@@ -317,8 +348,9 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     await page.screenshot({ path: resolve(SHOT_DIR, 'canvas.png') })
 
     // Right-click empty canvas to prove the context menu lands under the cursor
-    // (regression fix: it was thrown off-screen by the panel's backdrop-filter).
-    await page.mouse.click(1050, 700, { button: 'right' })
+    // (regression fix: it was thrown off-screen by the panel's backdrop-filter)
+    // and that it fits the window whatever is on it.
+    await page.mouse.click(620, 640, { button: 'right' })
     await expect(page.getByText('Add node', { exact: true })).toBeVisible()
     await page.waitForTimeout(300)
     await page.screenshot({ path: resolve(SHOT_DIR, 'canvas-menu.png') })
