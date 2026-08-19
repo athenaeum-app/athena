@@ -93,6 +93,14 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'General and Appearance no longer overlap. Anything visual is now under Appearance; General keeps behaviour, time format and reset.',
         'Settings tabs with a lot of scrolling now have a contents list down the side that follows where you are.',
     ],
+    '2.20.0': [
+        'Canvas text nodes are now written the way a moment is: markdown, images, and live to-do, canvas, moment and project embeds, up to 4000 characters.',
+        'A new text node picks a background colour for itself, and its text stays readable on whichever colour it gets.',
+        'A moment reference on a canvas now shows the moment itself, clipped to the size you drag the node to.',
+        'A to-do reference on a canvas is now checkable in place, instead of a progress bar you could only look at.',
+        'Canvases can now hold references to projects and to other canvases.',
+        'Opening Projects no longer washes the shelf texture over the whole screen, which made the panels behind it look transparent.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
