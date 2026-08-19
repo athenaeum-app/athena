@@ -295,3 +295,71 @@ func TestPresetRoleDefaultsDoNotClobberCustomisations(t *testing.T) {
 		t.Errorf("customised Viewer permissions = %d, want %d", got, custom)
 	}
 }
+
+// The admin panel opens its role editor on what a user already holds, so the
+// listing has to carry it. It did not, and the editor opened empty: Save writes
+// the selection as the whole set, so every trip through it stripped the user
+// back to the default role.
+func TestListUsersWithRoles_CarriesEachUsersAssignment(t *testing.T) {
+	setupDB(t)
+
+	owner, err := Register("owner", "password123", nil)
+	if err != nil {
+		t.Fatalf("register owner: %v", err)
+	}
+	// Only the first registration is unauthenticated; everyone after joins by
+	// invite, same as the real server.
+	invite, err := CreateInvite(owner.ID, 1, nil)
+	if err != nil {
+		t.Fatalf("create invite: %v", err)
+	}
+	member, err := Register("member", "password123", &invite.ID)
+	if err != nil {
+		t.Fatalf("register member: %v", err)
+	}
+
+	editor, err := CreateRole("Editor", "#ff0000", 5, 3)
+	if err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	if err := SetUserRoles(member.ID, []string{editor.ID}); err != nil {
+		t.Fatalf("assign roles: %v", err)
+	}
+
+	users, err := ListUsersWithRoles()
+	if err != nil {
+		t.Fatalf("list users with roles: %v", err)
+	}
+
+	byName := map[string][]string{}
+	for _, u := range users {
+		for _, r := range u.Roles {
+			byName[u.Username] = append(byName[u.Username], r.ID)
+		}
+	}
+
+	if !contains(byName["member"], editor.ID) {
+		t.Errorf("member is missing the Editor role: %v", byName["member"])
+	}
+	// The default role is assigned by the server rather than chosen, and the
+	// editor has to show it so that saving does not look like it removed it.
+	if !contains(byName["member"], DefaultRoleID) {
+		t.Errorf("member is missing the default role: %v", byName["member"])
+	}
+	if !contains(byName["owner"], "role_owner") {
+		t.Errorf("owner is missing the Owner role: %v", byName["owner"])
+	}
+	// One user's roles must not leak into another's row.
+	if contains(byName["owner"], editor.ID) {
+		t.Errorf("owner picked up the member's Editor role: %v", byName["owner"])
+	}
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, v := range haystack {
+		if v == needle {
+			return true
+		}
+	}
+	return false
+}

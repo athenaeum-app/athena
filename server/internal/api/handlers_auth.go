@@ -238,7 +238,7 @@ func (s *Server) handleUserDirectory(w http.ResponseWriter, r *http.Request) {
 // and is gated by ManageUsers. The lightweight member directory lives at
 // GET /api/v1/users (see handleUserDirectory).
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := auth.ListUsers()
+	users, err := auth.ListUsersWithRoles()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list users")
 		return

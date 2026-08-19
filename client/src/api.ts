@@ -346,7 +346,7 @@ export const api = {
     listUsers: () => request<PublicUser[]>('/api/v1/users'),
 
     // Users (admin), full records, gated by ManageUsers.
-    listAllUsers: () => request<User[]>('/api/v1/users/all'),
+    listAllUsers: () => request<AdminUser[]>('/api/v1/users/all'),
     assignUserRoles: (userId: string, roleIds: string[]) =>
         request(`/api/v1/users/${userId}/roles`, { method: 'PATCH', body: JSON.stringify({ role_ids: roleIds }) }),
 
@@ -619,6 +619,13 @@ export interface User {
     username: string
     is_owner: boolean
     created_at: string
+}
+
+// A user plus the roles they hold, as the admin listing returns them. The role
+// editor opens on this rather than on an empty selection, which is what used to
+// hand every user back the default role on save.
+export interface AdminUser extends User {
+    roles: Role[]
 }
 
 // Minimal, member-visible directory record (GET /api/v1/users). Used to

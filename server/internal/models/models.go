@@ -14,6 +14,15 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// AdminUser is a User together with the roles assigned to them. The admin
+// panel needs both in one place: to show who holds what without a request per
+// row, and to open the role editor on the assignment that is actually stored
+// rather than on an empty one.
+type AdminUser struct {
+	User
+	Roles []Role `json:"roles"`
+}
+
 // PublicUser is the minimal, non-sensitive projection of a User used by the
 // member-visible directory (GET /api/v1/users). It resolves author IDs to
 // usernames for chat, the audit log, and canvases without ever exposing

@@ -31,6 +31,54 @@ func ListUsers() ([]models.User, error) {
 	return users, nil
 }
 
+// ListUsersWithRoles returns every user with the roles assigned to them, for
+// the admin panel. Two queries rather than one per user: the roles are read in
+// a single pass and grouped in memory, so the cost does not follow the size of
+// the library.
+func ListUsersWithRoles() ([]models.AdminUser, error) {
+	users, err := ListUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := db.DB.Query(
+		`SELECT ur.user_id, r.id, r.name, r.color, r.position, r.is_preset, r.is_default, r.permissions, r.created_at, r.updated_at
+		 FROM user_roles ur
+		 JOIN roles r ON r.id = ur.role_id
+		 ORDER BY r.position ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list user roles: %w", err)
+	}
+	defer rows.Close()
+
+	byUser := map[string][]models.Role{}
+	for rows.Next() {
+		var userID string
+		var role models.Role
+		if err := rows.Scan(
+			&userID, &role.ID, &role.Name, &role.Color, &role.Position,
+			&role.IsPreset, &role.IsDefault, &role.Permissions, &role.CreatedAt, &role.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan user role: %w", err)
+		}
+		byUser[userID] = append(byUser[userID], role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]models.AdminUser, 0, len(users))
+	for _, user := range users {
+		roles := byUser[user.ID]
+		if roles == nil {
+			roles = []models.Role{}
+		}
+		out = append(out, models.AdminUser{User: user, Roles: roles})
+	}
+	return out, nil
+}
+
 // ListUserDirectory returns every user as a minimal public record (id +
 // username), ordered by username. Any authenticated member may read this to
 // resolve author IDs to usernames; it deliberately omits password hashes,

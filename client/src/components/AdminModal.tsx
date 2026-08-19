@@ -1,6 +1,6 @@
 import { createSignal, For, Show, createResource, onMount, type Component } from 'solid-js'
 import { Modal } from './Modal'
-import { api, type User, type Role, type Invite, type AuditEntry } from '../api'
+import { api, type AdminUser, type Role, type Invite, type AuditEntry } from '../api'
 import { PERMISSIONS, PERMISSION_GROUPS, hasPermission, togglePermission } from '../permissions'
 import { useUI } from '../ui'
 import { useAuth } from '../auth'
@@ -254,11 +254,11 @@ const AuditLogView: Component = () => {
 const UsersView: Component = () => {
     const ui = useUI()
     const auth = useAuth()
-    const [users, setUsers] = createSignal<User[]>([])
+    const [users, setUsers] = createSignal<AdminUser[]>([])
     const [roles, setRoles] = createSignal<Role[]>([])
     const [invites, setInvites] = createSignal<Invite[]>([])
     const [loading, setLoading] = createSignal(true)
-    const [editingUser, setEditingUser] = createSignal<User | null>(null)
+    const [editingUser, setEditingUser] = createSignal<AdminUser | null>(null)
     const [selectedRoleIds, setSelectedRoleIds] = createSignal<string[]>([])
     const [saving, setSaving] = createSignal(false)
     const [newInviteUses, setNewInviteUses] = createSignal(1)
@@ -292,12 +292,13 @@ const UsersView: Component = () => {
         }
     })
 
-    const startEditUser = (user: User) => {
+    const startEditUser = (user: AdminUser) => {
         setEditingUser(user)
-        // Pre-select the user's current roles. We don't know role IDs from
-        // the User model (it only has is_owner), so we start empty and let
-        // the admin pick. The Member role is always added by the server.
-        setSelectedRoleIds([])
+        // Open on what the user actually holds. Opening on an empty selection
+        // did not merely look wrong: Save writes the selection as the whole
+        // set, so every trip through this editor stripped the user back to the
+        // default role.
+        setSelectedRoleIds(user.roles.map((role) => role.id))
     }
 
     const toggleRole = (id: string) => {
@@ -371,12 +372,32 @@ const UsersView: Component = () => {
                 <div class="space-y-2">
                     <For each={users()}>
                         {(user) => (
-                            <div class="bg-element border-element-accent flex items-center justify-between rounded-lg border p-3">
-                                <div class="flex items-center gap-2">
+                            <div
+                                data-testid="admin-user-row"
+                                data-username={user.username}
+                                class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-3"
+                            >
+                                <div class="flex min-w-0 flex-wrap items-center gap-2">
                                     <span class="text-main font-bold">{user.username}</span>
                                     <Show when={user.is_owner}>
                                         <span class="text-highlight-strongest text-xs font-bold">★ Owner</span>
                                     </Show>
+                                    {/* Who holds what, without opening the editor to find out. */}
+                                    <For each={user.roles}>
+                                        {(role) => (
+                                            <span
+                                                data-testid="user-role-chip"
+                                                class="rounded-full border px-2 py-0.5 text-[10px] font-bold"
+                                                style={{
+                                                    'background-color': role.color + '22',
+                                                    'border-color': role.color + '66',
+                                                    color: role.color,
+                                                }}
+                                            >
+                                                {role.name}
+                                            </span>
+                                        )}
+                                    </For>
                                 </div>
                                 <div class="flex items-center gap-3">
                                     <span class="text-sub text-xs">{formatDate(user.created_at)}</span>
@@ -395,7 +416,7 @@ const UsersView: Component = () => {
 
             {/* User role editor */}
             <Show when={editingUser()}>
-                <div class="bg-element-matte border-highlight rounded-xl border-2 p-4 space-y-3">
+                <div data-testid="admin-role-editor" class="bg-element-matte border-highlight rounded-xl border-2 p-4 space-y-3">
                     <div class="flex items-center justify-between">
                         <h4 class="text-main font-bold">
                             Roles for {editingUser()!.username}
