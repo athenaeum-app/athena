@@ -46,7 +46,7 @@ Every clip below is the running app, one theme and look each, named underneath.
 
 | Writing a moment | Canvas |
 | --- | --- |
-| ![Writing, tagging and posting a moment](docs/demos/moments.gif)<br><sub>Rosewood theme, Legacy look</sub> | ![Dragging a node, then checking a task off a reference node](docs/demos/canvas.gif)<br><sub>Sunset theme, Aurora look</sub> |
+| ![Writing, tagging and posting a moment](docs/demos/moments.gif)<br><sub>Rosewood theme, Legacy look</sub> | ![Moving a node, drawing a connector, then checking a task off a reference node](docs/demos/canvas.gif)<br><sub>Sunset theme, Aurora look</sub> |
 
 | Chat | On a phone |
 | --- | --- |

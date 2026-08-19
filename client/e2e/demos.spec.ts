@@ -82,6 +82,16 @@ function encodeGif(name: string, fps: number, width: number = GIF_WIDTH, stride:
 }
 
 // A frame sink that numbers shots in capture order for one demo.
+interface Point {
+    x: number
+    y: number
+}
+
+const centreOf = (box: { x: number; y: number; width: number; height: number }): Point => ({
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+})
+
 function frames(name: string) {
     const dir = resolve(FRAME_DIR, name)
     mkdirSync(dir, { recursive: true })
@@ -179,8 +189,9 @@ test('capture README demo GIFs', async ({ page }) => {
             content,
             style: style ? JSON.stringify(style) : undefined,
         })
-    await node('sticky', 90, 90, 190, 130, 'Foundation:\nsolid-query cache', { color: '#f6e58d', fontSize: 14 })
-    await node('shape', 90, 270, 190, 120, 'Looks system', { color: '#dfe6e9', shape: 'rounded' })
+    const sticky = await node('sticky', 72, 96, 192, 120, 'Foundation:\nsolid-query cache', { color: '#f6e58d', fontSize: 14 })
+    const shape = await node('shape', 72, 264, 192, 120, 'Looks system', { color: '#dfe6e9', shape: 'rounded' })
+    const web = await node('link', 72, 432, 192, 72, 'https://create.roblox.com/docs')
 
     for (const content of [
         'Attic shelf catalogued. Twenty-two to rebind, four beyond saving.',
@@ -225,17 +236,27 @@ test('capture README demo GIFs', async ({ page }) => {
     // Canvas reference nodes, now that their targets exist: a text node holding
     // moment content and a live to-do embed, a to-do reference checkable on the
     // board, and a project reference with its meter (ADR-0018).
-    await node(
+    const textNode = await node(
         'text',
-        320,
-        90,
-        300,
-        300,
+        312,
+        96,
+        288,
+        288,
         ['### Roadmap', '', 'The board carries what a **moment** carries:', '', `::todo:${project.id}::`].join('\n'),
         { color: '#7ed6df', fontSize: 14 },
     )
-    await node('todo-ref', 660, 90, 300, 190, project.id)
-    await node('project-ref', 660, 320, 300, 170, bindery.id)
+    const todoRef = await node('todo-ref', 648, 96, 288, 192, project.id)
+    const projectRef = await node('project-ref', 648, 336, 288, 168, bindery.id)
+
+    // Connectors, the thing the board is for: the clip draws one more by hand,
+    // but a board with none at all reads as a pile of cards rather than a map.
+    const edge = (from: string, to: string) =>
+        post(req, `/api/v1/canvases/${canvas.id}/edges`, { from_node: from, to_node: to })
+    await edge(sticky.id, textNode.id)
+    await edge(shape.id, textNode.id)
+    await edge(textNode.id, todoRef.id)
+    await edge(textNode.id, projectRef.id)
+    await edge(web.id, projectRef.id)
 
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/')
@@ -355,11 +376,12 @@ test('capture README demo GIFs', async ({ page }) => {
 
     // ---------- Demo 5: the canvas ----------
     //
-    // Dragging one node and ticking one box, not panning the board: a moving
-    // viewport repaints every pixel of every frame, which is exactly what GIF
-    // is worst at. Two discrete changes on an otherwise still board is the
-    // shape this format is good at, and it is also the thing worth showing,
-    // since a reference node is live rather than a picture of a list.
+    // Three discrete changes on an otherwise still board: a node moves and its
+    // connectors follow, a new connector is drawn by hand, and a task is ticked
+    // on a live reference node. Not panning the board, and not zooming: a
+    // moving viewport repaints every pixel of every frame, which is exactly
+    // what GIF is worst at, while a still frame with one thing changing in it
+    // is what the format is good at.
     const canvasFrames = frames('canvas')
     await appearance('sunset', 'aurora')
     await page.getByRole('button', { name: 'Canvas', exact: true }).first().click()
@@ -367,32 +389,61 @@ test('capture README demo GIFs', async ({ page }) => {
     await expect(page.getByText('Foundation:')).toBeVisible()
     await page.waitForTimeout(800)
 
-    // The shape at the bottom left: it has clear space below it, so the drag
-    // ends somewhere legible instead of on top of another node.
-    const shape = page.getByText('Looks system').first()
-    const box = await shape.boundingBox()
-    // The to-do reference node's first row, ticked at the end of the clip. The
-    // copy embedded in the text node beside it follows on the same frame.
-    const row = page
-        .getByTestId('canvas-surface')
+    const surface = page.getByTestId('canvas-surface')
+    const linkNode = surface.locator('[data-node-kind="link"]')
+    const stickyNode = surface.locator('[data-node-kind="sticky"]')
+    const shapeNode = surface.locator('[data-node-kind="shape"]')
+    // The to-do reference's first row, ticked at the end of the clip. The copy
+    // embedded in the text node beside it follows on the same frame.
+    const row = surface
         .locator('[data-node-kind="todo-ref"]')
         .getByRole('button', { name: /Ship the refinement pass/ })
+
+    // Drag along a path rather than in one jump, so the pointer is filmed
+    // moving and the connectors are filmed following it.
+    const dragAlong = async (from: Point, to: Point) => {
+        await page.mouse.move(from.x, from.y)
+        await page.mouse.down()
+        for (const step of [0.25, 0.5, 0.75, 1]) {
+            await page.mouse.move(from.x + (to.x - from.x) * step, from.y + (to.y - from.y) * step)
+            await page.waitForTimeout(90)
+        }
+        await page.mouse.up()
+    }
+
+    const shapeBox = await shapeNode.boundingBox()
+    const stickyBox = await stickyNode.boundingBox()
+    const linkBox = await linkNode.boundingBox()
     const canvasFps = await canvasFrames.during(page, async () => {
         await page.waitForTimeout(700)
-        if (box) {
-            const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-            const to = { x: from.x + 150, y: from.y + 150 }
-            await page.mouse.move(from.x, from.y)
-            await page.mouse.down()
-            for (const step of [0.25, 0.5, 0.75, 1]) {
-                await page.mouse.move(from.x + (to.x - from.x) * step, from.y + (to.y - from.y) * step)
-                await page.waitForTimeout(90)
-            }
-            await page.mouse.up()
+
+        // 1. Move a connected node. Its two edges redraw as it goes. The
+        //    target is the clear ground under the text node, so the shape does
+        //    not come to rest on top of the web link below it.
+        if (shapeBox && linkBox) {
+            await dragAlong(centreOf(shapeBox), { x: linkBox.x + linkBox.width + 170, y: linkBox.y + 20 })
+            await page.waitForTimeout(500)
         }
-        await page.waitForTimeout(700)
+
+        // 2. Draw a new connector: hover the sticky to reveal its edge dots,
+        //    then drag from the one on its underside onto the web link below.
+        //    The dot is located rather than guessed at from the node's box: it
+        //    sits outside the node and scales with the board, and a start point
+        //    that misses it lands on empty space and pans the whole board.
+        if (stickyBox && linkBox) {
+            await page.mouse.move(centreOf(stickyBox).x, centreOf(stickyBox).y)
+            await page.waitForTimeout(400)
+            const dot = await stickyNode.getByTitle('Drag to connect to another node').nth(2).boundingBox()
+            if (dot) {
+                await dragAlong(centreOf(dot), centreOf(linkBox))
+                await page.waitForTimeout(600)
+            }
+        }
+
+        // 3. Tick a task on the reference node, which the copy inside the text
+        //    node mirrors: the references are live, not pictures of a list.
         await row.click()
-        await page.waitForTimeout(1300)
+        await page.waitForTimeout(1400)
     })
     const canvasGif = encodeGif('canvas', Number(canvasFps.toFixed(2)))
     await page.keyboard.press('Escape')
