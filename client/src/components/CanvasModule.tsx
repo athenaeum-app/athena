@@ -748,6 +748,38 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
         }
     }
 
+    // Bring every node onto the grid in one go, for a board that was arranged
+    // before snapping was turned on. Origins first, then extents measured from
+    // the snapped origin, so both edges of a node land on a line rather than
+    // just the leading one.
+    const snapAllToGrid = async () => {
+        const moves = (active()?.nodes ?? [])
+            .map((node) => {
+                const x = snapV(node.x)
+                const y = snapV(node.y)
+                const w = snapExtent(x, node.w, MIN_NODE_W, true)
+                const h = snapExtent(y, node.h, MIN_NODE_H, true)
+                const moved = x !== node.x || y !== node.y || w !== node.w || h !== node.h
+                return moved ? { id: node.id, x, y, w, h } : null
+            })
+            .filter((move): move is { id: string; x: number; y: number; w: number; h: number } => move !== null)
+
+        if (moves.length === 0) {
+            ui.toast('Everything is already on the grid.', 'info')
+            return
+        }
+        for (const move of moves) patchNode(move.id, { x: move.x, y: move.y, w: move.w, h: move.h })
+        try {
+            await Promise.all(
+                moves.map(({ id, x, y, w, h }) => api.updateCanvasNode(id, { x, y, w, h })),
+            )
+            ui.toast(`Snapped ${moves.length} node${moves.length === 1 ? '' : 's'} to the grid.`, 'success')
+        } catch (err) {
+            console.error('Failed to snap nodes to the grid:', err)
+            ui.toast('Could not save the new positions.', 'error')
+        }
+    }
+
     const bringToFront = async (node: CanvasNode) => {
         const maxZ = Math.max(0, ...(active()?.nodes ?? []).map((n) => n.z_order))
         const z = maxZ + 1
@@ -1103,6 +1135,15 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                                                 active={snap()}
                                                 onClick={() => setSnap((s) => !s)}
                                             />
+                                            {/* Only while snapping is on: off the grid it would
+                                                be an action with no visible rule behind it. */}
+                                            <Show when={snap()}>
+                                                <ToolButton
+                                                    icon="auto_fix_high"
+                                                    label="Snap everything to the grid"
+                                                    onClick={() => void snapAllToGrid()}
+                                                />
+                                            </Show>
                                             <input
                                                 ref={fileInputRef}
                                                 type="file"
@@ -2638,7 +2679,7 @@ const GuideOverlay: Component<{ onClose: () => void }> = (props) => (
                 <GuideRow icon="link" title="Reference nodes">Moment, todo, project and canvas references are nodes in their own right: the moment renders its body, the todo list is checkable in place, and the header opens the real thing.</GuideRow>
                 <GuideRow icon="open_in_full" title="Resize">Drag a node's bottom-right corner. Size persists.</GuideRow>
                 <GuideRow icon="highlight_alt" title="Multi-select">Switch to the Select tool, then drag a box over empty space. Shift-click nodes to add or remove.</GuideRow>
-                <GuideRow icon="grid_4x4" title="Snapping">Toggle snap-to-grid; positions and sizes snap to the grid on drop.</GuideRow>
+                <GuideRow icon="grid_4x4" title="Snapping">Toggle snap-to-grid; positions and sizes follow the grid as you drag. While it is on, the button beside it brings every node already on the board onto the grid at once.</GuideRow>
                 <GuideRow icon="right_click" title="Right-click">Opens a context menu on empty space (add) or on a node (edit, style, duplicate, connect, delete).</GuideRow>
             </ul>
     </PickerDialog>
