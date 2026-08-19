@@ -38,7 +38,9 @@ linux:
     # deb or an rpm: those are the system package manager's to update, and here
     # that means the user downloading the next one by hand. rpm builds through
     # fpm, which shells out to rpmbuild, so the Linux release runner has to
-    # install it (see .github/workflows/release.yml).
+    # install it; when that install fails the release job overrides this list
+    # from the command line and ships the other two (see
+    # .github/workflows/release.yml).
     target:
         - AppImage
         - deb

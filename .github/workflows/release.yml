@@ -153,9 +153,20 @@ jobs:
       # rpmbuild. The ubuntu runner does not ship it, and without it the rpm
       # is the only target that fails, after the other two have already
       # uploaded.
+      #
+      # Bounded and allowed to fail. An apt mirror that stops answering held
+      # v2.21.0's Linux job for over twenty minutes, twice, with every other
+      # artifact already built: one optional package took the whole release
+      # down with it. Now a stalled archive costs the rpm and nothing else,
+      # and the step says which it was.
       - name: Install rpm tooling
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        id: rpm_tooling
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y rpm
 
       # No lockfile in electron/, so use npm install rather than npm ci.
       - name: Install dependencies
@@ -169,6 +180,18 @@ jobs:
         shell: bash
         run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
 
+      # Drop the rpm target when its toolchain did not install, so the deb and
+      # the AppImage still ship. electron-builder.yml names all three targets
+      # statically, and a --linux list on the command line overrides it; without
+      # that override the whole Linux build fails on the one target it cannot
+      # build.
+      - name: Skip the rpm target without rpmbuild
+        if: matrix.os == 'ubuntu-latest' && steps.rpm_tooling.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::warning::rpmbuild is unavailable; building the AppImage and deb only."
+          echo "BUILDER_TARGETS=--linux AppImage deb" >> "$GITHUB_ENV"
+
       # electron-builder.yml declares the GitHub publish provider. Each
       # matrix OS uploads its installers to the release for this tag.
       # Builds are currently unsigned (no code-signing secrets configured).
@@ -180,8 +203,14 @@ jobs:
       # existingType/publishingType mismatch that skipped v2.0.1's assets.
       # publish-release below flips it live only once every platform, plus
       # the server image, is confirmed done.
+      # shell: bash on every OS, not just Linux, so BUILDER_TARGETS expands the
+      # same way everywhere. It is empty on the runs where nothing overrode the
+      # targets, which is all of them but a stalled apt mirror. The job already
+      # relies on bash being present on the Windows runner (see the version
+      # sync above).
       - name: Build & publish
-        run: npm run build -- --publish always
+        shell: bash
+        run: npm run build -- --publish always $BUILDER_TARGETS
         env:
           # See create-release's comment: publishing to athena, not this
           # workflow's own athena-dev, needs the cross-repo PAT.
