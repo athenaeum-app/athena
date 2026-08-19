@@ -31,6 +31,7 @@ import {
     MODAL_WIDTH_META,
     type MenuWidget,
     type ModalWidth,
+    type Prefs,
 } from '../prefs'
 import {
     PRESET_LOOKS,
@@ -1096,23 +1097,51 @@ const TopbarSection: Component = () => (
 
 // --- Appearance tab: projects ---
 
+const NOTE_HINTS: { id: Prefs['projectCardNoteHint']; label: string; blurb: string }[] = [
+    { id: 'preview', label: 'Preview', blurb: 'The first two lines of the note, under the title' },
+    { id: 'label', label: 'Just a mention', blurb: '"Contains notes" in the corner of the card' },
+]
+
 const ProjectsSection: Component = () => (
     <SettingsSection title="Projects">
-        <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
-            <div>
-                <span class="text-main text-sm font-bold block">Open Projects in a window</span>
+        <div class="flex flex-col gap-3">
+            <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
+                <div>
+                    <span class="text-main text-sm font-bold block">Open Projects in a window</span>
+                    <span class="text-sub text-xs">
+                        Projects opens as a large panel with your library still visible around it. Turn this off to
+                        have it fill the screen instead.
+                    </span>
+                </div>
+                <input
+                    type="checkbox"
+                    checked={prefs().projectsWindowed}
+                    onChange={(e) => setPref('projectsWindowed', e.currentTarget.checked)}
+                    class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                />
+            </label>
+            <div class="bg-element border-element-accent rounded-lg border p-4">
+                <span class="text-main text-sm font-bold block">Notes on a board card</span>
                 <span class="text-sub text-xs">
-                    Projects opens as a large panel with your library still visible around it. Turn this off to have
-                    it fill the screen instead.
+                    How a card on the board says it carries a note, without you having to open it.
                 </span>
+                <div data-testid="project-card-note-hint" class="mt-3 grid grid-cols-2 gap-2">
+                    <For each={NOTE_HINTS}>
+                        {(o) => (
+                            <button
+                                onClick={() => setPref('projectCardNoteHint', o.id)}
+                                class={`rounded-xl border-2 p-3 text-left transition-all hover:cursor-pointer ${
+                                    prefs().projectCardNoteHint === o.id ? 'border-highlight bg-element-accent' : 'border-element-accent hover:border-highlight'
+                                }`}
+                            >
+                                <span class="text-main block text-xs font-black">{o.label}</span>
+                                <span class="text-sub block text-[10px] leading-tight mt-0.5">{o.blurb}</span>
+                            </button>
+                        )}
+                    </For>
+                </div>
             </div>
-            <input
-                type="checkbox"
-                checked={prefs().projectsWindowed}
-                onChange={(e) => setPref('projectsWindowed', e.currentTarget.checked)}
-                class="accent-highlight-strongest h-5 w-5 cursor-pointer"
-            />
-        </label>
+        </div>
     </SettingsSection>
 )
 

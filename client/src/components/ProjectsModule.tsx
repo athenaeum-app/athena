@@ -2,7 +2,7 @@ import { createSignal, createEffect, For, Show, onMount, onCleanup, type Compone
 import { createStore, produce, reconcile } from 'solid-js/store'
 import { api, type Project, type ProjectMilestone, type ProjectCard } from '../api'
 import { useUI } from '../ui'
-import { MomentBody } from './MomentBody'
+import { MomentBody, excerpt } from './MomentBody'
 import { Editor } from './Editor'
 import { BookcaseDrift } from './BookcaseDrift'
 import { prefs, MODAL_WIDTH_CLASS } from '../prefs'
@@ -126,6 +126,11 @@ const momentum = (p: Project) => {
     }
     return days
 }
+
+// What a board card shows of its note, per prefs.projectCardNoteHint: the
+// flattened excerpt, or nothing when the reader asked for the plain label.
+// Two lines' worth; the card is a summary, and the modal holds the document.
+const cardNote = (card: ProjectCard) => (prefs().projectCardNoteHint === 'preview' ? excerpt(card.body, 120) : '')
 
 // The first meaningful non-heading line of the overview, stripped of markup.
 const snippetOf = (p: Project) => {
@@ -1501,6 +1506,9 @@ const Hub: Component<{
                                                                                     </button>
                                                                                 </Show>
                                                                             </div>
+                                                                            <Show when={cardNote(c)}>
+                                                                                {(text) => <p class="text-sub/60 line-clamp-2 pl-6 text-xs">{text()}</p>}
+                                                                            </Show>
                                                                             <div class="flex items-center gap-1.5 pl-6">
                                                                                 <span class="text-sub/50 font-mono text-[10px] font-bold">{keyOf(props.project)}-{cardNum(props.project, c.id)}</span>
                                                                                 <Show when={priorityIcon(c.priority)}>
@@ -1517,7 +1525,12 @@ const Hub: Component<{
                                                                                 </div>
                                                                                 <div class="ml-auto flex shrink-0 items-center gap-1">
                                                                                     <Show when={c.body.trim()}>
-                                                                                        <span class="material-symbols-outlined text-sub text-[14px]" title="Has a body">notes</span>
+                                                                                        <Show
+                                                                                            when={prefs().projectCardNoteHint === 'label'}
+                                                                                            fallback={<span class="material-symbols-outlined text-sub text-[14px]" title="Has a body">notes</span>}
+                                                                                        >
+                                                                                            <span class="text-sub/70 whitespace-nowrap text-[10px] italic">Contains notes</span>
+                                                                                        </Show>
                                                                                     </Show>
                                                                                     <Show when={c.due_at}>
                                                                                         <span

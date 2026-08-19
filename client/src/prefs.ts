@@ -166,6 +166,12 @@ export interface Prefs {
     // Open Projects as a large panel over the library instead of filling the
     // screen. On by default; turn it off to have the module fill the window.
     projectsWindowed: boolean
+    // How a board card says it carries a note. 'preview' draws a two-line
+    // flattened excerpt of the note under the card's title; 'label' says only
+    // "Contains notes" in the card's meta row, for a column read as a list of
+    // titles. Defaults to the excerpt: a column you can read without opening
+    // anything is the reason the hint exists.
+    projectCardNoteHint: 'preview' | 'label'
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -198,6 +204,7 @@ export const DEFAULT_PREFS: Prefs = {
     bookcaseMain: true,
     bookcaseProjects: true,
     projectsWindowed: true,
+    projectCardNoteHint: 'preview',
     todoWidth: 'large',
     projectCardWidth: 'medium',
     canvasWidth: 'wide',
@@ -267,6 +274,9 @@ function load(): Prefs {
         }
         if (!['minimal', 'rich'].includes(merged.menuLayout)) {
             merged.menuLayout = DEFAULT_PREFS.menuLayout
+        }
+        if (!['preview', 'label'].includes(merged.projectCardNoteHint)) {
+            merged.projectCardNoteHint = DEFAULT_PREFS.projectCardNoteHint
         }
         merged.menuWidgets = normalizeMenuWidgets(merged.menuWidgets)
         merged.inlineLinkPreviewsPerRow = clampPerRow(
