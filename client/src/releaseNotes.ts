@@ -110,6 +110,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'A line break you typed is now a line break when it renders. A single newline is a space in Markdown, so anything written across several lines came back as one paragraph. This affects moments, chat, project documents and canvas notes alike.',
         'With snap-to-grid on, a new button beside it brings every node on the board onto the grid at once, for a board arranged before the setting was turned on.',
     ],
+    '2.22.0': [
+        'A card on a project board now shows the first lines of its note, so a column can be read without opening every card.',
+        'Prefer it tidier? Settings can swap that preview for a plain "Contains notes" in the card corner.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
