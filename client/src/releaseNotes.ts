@@ -101,6 +101,11 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Canvases can now hold references to projects and to other canvases.',
         'Opening Projects no longer washes the shelf texture over the whole screen, which made the panels behind it look transparent.',
     ],
+    '2.20.1': [
+        'The admin user list now shows the roles each person holds, and Edit Roles opens on them. It used to open empty, so saving handed the user back the default role and nothing else.',
+        'Canvas connectors can now be dragged from any node. On note, image, link and reference cards the dots to drag from were being clipped away, and the attempt panned the board instead.',
+        'With snap-to-grid on, resizing a canvas node now snaps its edge to the grid as you drag, the way moving one already did.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
