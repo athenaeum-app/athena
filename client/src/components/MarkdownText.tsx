@@ -56,6 +56,60 @@ function groupGalleries(container: HTMLElement): void {
     flush()
 }
 
+// Elements whose text content is inline all the way down, so every newline
+// inside one came from the author rather than from the renderer's own layout of
+// the HTML.
+const TEXT_BLOCKS = 'p, h1, h2, h3, h4, h5, h6, li, dd, dt, td, th, figcaption'
+
+// Block-level tags, as the markdown renderer emits them. A newline sitting
+// beside one of these separates two blocks and is the renderer's, not the
+// author's.
+const BLOCK_TAGS = new Set(['P', 'DIV', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'TABLE', 'HR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6'])
+
+const isBlock = (node: Node | null): boolean =>
+    node instanceof Element && BLOCK_TAGS.has(node.tagName)
+
+// A single newline is a *soft* break in markdown: it renders as a space, so a
+// line the author ended with Shift+Enter comes back joined onto the next one.
+// That is the right reading of the spec and the wrong reading of a textarea,
+// which is what every piece of content in this app is typed into. Newlines
+// inside a block become real breaks here.
+//
+// Done on the rendered tree rather than by rewriting the source with markdown's
+// own two-trailing-spaces hard break, because that rewrite cannot tell prose
+// from a fenced code block and corrupts the block.
+export function hardBreaks(container: HTMLElement): void {
+    for (const block of Array.from(container.querySelectorAll(TEXT_BLOCKS))) {
+        // Code keeps its own newlines: <pre> renders them already, and a <br>
+        // inside one is copied out as markup instead of as a line.
+        if (block.closest('pre, code')) continue
+        for (const text of Array.from(block.childNodes)) {
+            if (text.nodeType !== Node.TEXT_NODE) continue
+            const value = text.textContent ?? ''
+            if (!value.includes('\n')) continue
+            // The newline that separates a tight list item's text from its
+            // nested list belongs to the renderer, not the author: breaking on
+            // it indents nothing and leaves a blank line above the sublist. Any
+            // newline touching a block sibling is one of those.
+            let inner = value
+            if (isBlock(text.previousSibling)) inner = inner.replace(/^\n/, '')
+            if (isBlock(text.nextSibling)) inner = inner.replace(/\n$/, '')
+            if (!inner.includes('\n')) {
+                if (inner !== value) text.textContent = inner
+                continue
+            }
+
+            const parts = inner.split('\n')
+            const fragment = document.createDocumentFragment()
+            parts.forEach((part, i) => {
+                if (i > 0) fragment.appendChild(document.createElement('br'))
+                if (part) fragment.appendChild(document.createTextNode(part))
+            })
+            ;(text as ChildNode).replaceWith(fragment)
+        }
+    }
+}
+
 // Give every table its own horizontal scroll box. A table is sized by its
 // content and has no way to shrink, so a wide one escapes the moment card and
 // scrolls the entire Moments column sideways; scrolling it in place keeps the
@@ -111,6 +165,9 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
             .use(rehypeHighlight, { languages })
             .processSync({ value: raw })
         containerRef.innerHTML = String(file)
+        // Before the gallery pass, which already expects to meet a <br> in an
+        // image-only block (see isImageBlock).
+        hardBreaks(containerRef)
         groupGalleries(containerRef)
         wrapTables(containerRef)
     }
