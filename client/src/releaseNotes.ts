@@ -106,6 +106,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Canvas connectors can now be dragged from any node. On note, image, link and reference cards the dots to drag from were being clipped away, and the attempt panned the board instead.',
         'With snap-to-grid on, resizing a canvas node now snaps its edge to the grid as you drag, the way moving one already did.',
     ],
+    '2.21.0': [
+        'A line break you typed is now a line break when it renders. A single newline is a space in Markdown, so anything written across several lines came back as one paragraph. This affects moments, chat, project documents and canvas notes alike.',
+        'With snap-to-grid on, a new button beside it brings every node on the board onto the grid at once, for a board arranged before the setting was turned on.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
