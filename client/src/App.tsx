@@ -1264,6 +1264,7 @@ export const App: Component = () => {
                     onClose={() => setShowTodos(false)}
                     canManage={canManageTodos()}
                     onOpenMoment={(id) => setFocusMomentId(id)}
+                    onOpenProject={openProject}
                     onRequestNewMoment={handleCreateMomentToLink}
                 />
             </Show>

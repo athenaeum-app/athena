@@ -1,6 +1,7 @@
 import { createSignal, createMemo, For, Show, onMount, type Component } from 'solid-js'
 import { createStore, produce, reconcile } from 'solid-js/store'
-import { api, type TodoList, type TodoItem, type TodoResetMode } from '../api'
+import { api, type Project, type TodoList, type TodoItem, type TodoResetMode } from '../api'
+import { bucketByDue, dueMs, projectDeadlines, type ProjectDeadline } from '../projectAgenda'
 import { useUI } from '../ui'
 import { Modal, PickerDialog } from './Modal'
 import { createListboxNav } from '../listboxNav'
@@ -23,6 +24,9 @@ interface TodoModuleProps {
     onClose: () => void
     canManage: boolean
     onOpenMoment?: (id: string) => void
+    // Opens the Projects module on one project, for an agenda row that came
+    // from a project card or milestone.
+    onOpenProject?: (id: string) => void
     // Opens the moment editor in create mode; the supplied callback links the
     // created moment back to the task the picker was opened for.
     onRequestNewMoment?: (link: (momentId: string) => void) => void
@@ -68,7 +72,6 @@ const isoToDateInput = (iso?: string) => {
 }
 const dateInputToIso = (s: string) => (s ? new Date(`${s}T00:00:00`).toISOString() : '')
 const formatDue = (iso: string) => new Intl.DateTimeFormat(navigator.language, { month: 'short', day: 'numeric' }).format(new Date(iso))
-const dueMs = (iso?: string) => (iso ? new Date(iso).setHours(0, 0, 0, 0) : Infinity)
 const isOverdue = (i: TodoItem) => !!i.due_at && !i.done && dueMs(i.due_at) < startOfToday()
 const isDueToday = (i: TodoItem) => !!i.due_at && dueMs(i.due_at) === startOfToday()
 
@@ -88,8 +91,12 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
     const [doneFilter, setDoneFilter] = createSignal<'all' | 'active' | 'done'>('all')
     const [sortMode, setSortMode] = createSignal<'manual' | 'due' | 'priority'>('manual')
     // Board vs. agenda: the agenda pulls due-dated items across every
-    // list onto one deadline-ordered timeline.
+    // list, and every live project, onto one deadline-ordered timeline.
     const [boardView, setBoardView] = createSignal<'board' | 'agenda'>('board')
+    // Projects are read for their deadlines alone, and only the agenda shows
+    // them, so a failure here leaves the board exactly as it was.
+    const [projects, setProjects] = createSignal<Project[]>([])
+    const deadlines = createMemo(() => projectDeadlines(projects()))
 
     // Toggle an item found by its list_id (used by the agenda, which is flat).
     const toggleById = (item: TodoItem) => {
@@ -185,6 +192,26 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
             ui.toast('Could not load to-do lists.', 'error')
         } finally {
             setLoading(false)
+        }
+    }
+
+    // Projects arrive whole (every card, milestone and document in the
+    // library), so they are fetched when the agenda is first opened rather
+    // than on mount: a board that never shows a deadline should not pay for
+    // one. Read access needs no permission of its own, since a project you can
+    // open is a project whose deadlines are yours to see.
+    let projectsRequested = false
+    const showAgenda = async () => {
+        setBoardView('agenda')
+        if (projectsRequested) return
+        projectsRequested = true
+        try {
+            setProjects(await api.listProjects())
+        } catch (err) {
+            console.error('Failed to load projects for the agenda:', err)
+            // Left unset so opening the agenda again tries once more; the
+            // to-do half of it works either way.
+            projectsRequested = false
         }
     }
 
@@ -479,7 +506,7 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                                 Board
                             </button>
                             <button
-                                onClick={() => setBoardView('agenda')}
+                                onClick={() => void showAgenda()}
                                 class="flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors"
                                 classList={{ 'bg-highlight-strongest text-white': boardView() === 'agenda', 'text-sub hover:text-main': boardView() !== 'agenda' }}
                                 title="Agenda view"
@@ -576,10 +603,12 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                                 fallback={
                                     <AgendaView
                                         lists={lists}
+                                        deadlines={deadlines()}
                                         search={search()}
                                         canManage={props.canManage}
                                         onToggle={toggleById}
                                         onOpenMoment={props.onOpenMoment}
+                                        onOpenProject={props.onOpenProject}
                                     />
                                 }
                             >
@@ -741,30 +770,31 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
 }
 
 // --- agenda view ---
-// A cross-list timeline of every open, due-dated task, bucketed by deadline
-// window. Read-mostly: you can tick an item off (which drops it from the
+// A cross-list timeline of everything open and due-dated, bucketed by deadline
+// window. Read-mostly: you can tick a task off (which drops it from the
 // agenda) or jump to its linked moment.
+//
+// It covers the Projects module too. A dated card, or a milestone with a date
+// on it, is work with a deadline attached like any other; leaving it out meant
+// the one screen that answers "what is due" only ever answered it for half of
+// what was due.
+type AgendaRow =
+    | { kind: 'task'; key: string; dueAt: string; priority: number; item: TodoItem; listTitle: string }
+    | { kind: 'project'; key: string; dueAt: string; priority: number; deadline: ProjectDeadline }
+
 const AgendaView: Component<{
     lists: TodoList[]
+    deadlines: ProjectDeadline[]
     search: string
     canManage: boolean
     onToggle: (item: TodoItem) => void
     onOpenMoment?: (id: string) => void
+    onOpenProject?: (id: string) => void
 }> = (props) => {
     const grouped = createMemo(() => {
-        const todayDate = new Date()
-        todayDate.setHours(0, 0, 0, 0)
-        const today = todayDate.getTime()
-        const tomorrowDate = new Date(todayDate)
-        tomorrowDate.setDate(tomorrowDate.getDate() + 1)
-        const tomorrow = tomorrowDate.getTime()
-        const weekDate = new Date(todayDate)
-        weekDate.setDate(weekDate.getDate() + 7)
-        const weekEnd = weekDate.getTime()
-
         const q = props.search.trim().toLowerCase()
         const titles = new Map(props.lists.map((l) => [l.id, l.title]))
-        const rows: { item: TodoItem; listTitle: string }[] = []
+        const rows: AgendaRow[] = []
         for (const l of props.lists) {
             // Daily lists are excluded: their items carry no due date you can
             // see or set, so any left over from before would show up here as
@@ -773,25 +803,18 @@ const AgendaView: Component<{
             for (const it of l.items) {
                 if (it.done || !it.due_at) continue
                 if (q && !it.text.toLowerCase().includes(q)) continue
-                rows.push({ item: it, listTitle: titles.get(it.list_id) ?? '' })
+                rows.push({ kind: 'task', key: `task:${it.id}`, dueAt: it.due_at, priority: it.priority, item: it, listTitle: titles.get(it.list_id) ?? '' })
             }
         }
-        rows.sort((a, b) => dueMs(a.item.due_at) - dueMs(b.item.due_at) || b.item.priority - a.item.priority)
-
-        const buckets: { key: string; label: string; rows: typeof rows }[] = [
-            { key: 'overdue', label: 'Overdue', rows: [] },
-            { key: 'today', label: 'Today', rows: [] },
-            { key: 'tomorrow', label: 'Tomorrow', rows: [] },
-            { key: 'week', label: 'This week', rows: [] },
-            { key: 'later', label: 'Later', rows: [] },
-        ]
-        for (const r of rows) {
-            const ms = dueMs(r.item.due_at)
-            const b =
-                ms < today ? buckets[0] : ms === today ? buckets[1] : ms === tomorrow ? buckets[2] : ms <= weekEnd ? buckets[3] : buckets[4]
-            b.rows.push(r)
+        for (const d of props.deadlines) {
+            // The project and milestone names are searched alongside the title,
+            // so "kitchen" finds a project's deadlines without knowing what any
+            // of its cards are called.
+            if (q && ![d.title, d.projectTitle, d.milestoneTitle ?? ''].some((t) => t.toLowerCase().includes(q))) continue
+            rows.push({ kind: 'project', key: `${d.kind}:${d.id}`, dueAt: d.dueAt, priority: d.priority, deadline: d })
         }
-        return buckets.filter((b) => b.rows.length > 0)
+        rows.sort((a, b) => dueMs(a.dueAt) - dueMs(b.dueAt) || b.priority - a.priority)
+        return bucketByDue(rows, (r) => r.dueAt)
     })
 
     return (
@@ -801,7 +824,7 @@ const AgendaView: Component<{
                 fallback={
                     <div class="flex h-full flex-col items-center justify-center gap-2 text-center">
                         <span class="material-symbols-outlined text-sub/40 text-4xl">event_available</span>
-                        <p class="text-sub text-sm">Nothing scheduled. Give a task a due date to see it here.</p>
+                        <p class="text-sub text-sm">Nothing scheduled. Give a task or a project card a due date to see it here.</p>
                     </div>
                 }
             >
@@ -824,38 +847,45 @@ const AgendaView: Component<{
                                 <div class="flex flex-col gap-1.5">
                                     <For each={bucket.rows}>
                                         {(row) => (
-                                            <div
-                                                class="group bg-element-matte border-element-accent flex items-center gap-2.5 rounded-md border p-2.5"
-                                                style={priorityColor(row.item.priority) ? { 'border-left': `3px solid ${priorityColor(row.item.priority)}` } : {}}
+                                            <Show
+                                                when={row.kind === 'task' ? row : null}
+                                                fallback={<ProjectAgendaRow row={row as Extract<AgendaRow, { kind: 'project' }>} overdue={bucket.key === 'overdue'} onOpen={props.onOpenProject} />}
                                             >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={row.item.done}
-                                                    disabled={!props.canManage}
-                                                    onChange={() => props.onToggle(row.item)}
-                                                    class="h-4 w-4 shrink-0"
-                                                />
-                                                <div class="min-w-0 flex-1">
-                                                    <p class="text-main truncate text-sm">{row.item.text}</p>
-                                                    <p class="text-sub/70 truncate text-[11px]">{row.listTitle}</p>
-                                                </div>
-                                                <Show when={row.item.recurrence}>
-                                                    <span class="material-symbols-outlined text-sub/60 text-sm" title={`Repeats ${row.item.recurrence}`}>
-                                                        repeat
-                                                    </span>
-                                                </Show>
-                                                <Show when={row.item.moment_id}>
-                                                    <button onClick={() => props.onOpenMoment?.(row.item.moment_id!)} class="text-sub hover:text-main shrink-0 hover:cursor-pointer" title="Open linked moment">
-                                                        <span class="material-symbols-outlined text-sm">bookmark</span>
-                                                    </button>
-                                                </Show>
-                                                <span
-                                                    class="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
-                                                    classList={{ 'bg-danger/20 text-danger': isOverdue(row.item), 'bg-element-accent text-sub': !isOverdue(row.item) }}
-                                                >
-                                                    {formatDue(row.item.due_at!)}
-                                                </span>
-                                            </div>
+                                                {(taskRow) => (
+                                                    <div
+                                                        class="group bg-element-matte border-element-accent flex items-center gap-2.5 rounded-md border p-2.5"
+                                                        style={priorityColor(taskRow().priority) ? { 'border-left': `3px solid ${priorityColor(taskRow().priority)}` } : {}}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={taskRow().item.done}
+                                                            disabled={!props.canManage}
+                                                            onChange={() => props.onToggle(taskRow().item)}
+                                                            class="h-4 w-4 shrink-0"
+                                                        />
+                                                        <div class="min-w-0 flex-1">
+                                                            <p class="text-main truncate text-sm">{taskRow().item.text}</p>
+                                                            <p class="text-sub/70 truncate text-[11px]">{taskRow().listTitle}</p>
+                                                        </div>
+                                                        <Show when={taskRow().item.recurrence}>
+                                                            <span class="material-symbols-outlined text-sub/60 text-sm" title={`Repeats ${taskRow().item.recurrence}`}>
+                                                                repeat
+                                                            </span>
+                                                        </Show>
+                                                        <Show when={taskRow().item.moment_id}>
+                                                            <button onClick={() => props.onOpenMoment?.(taskRow().item.moment_id!)} class="text-sub hover:text-main shrink-0 hover:cursor-pointer" title="Open linked moment">
+                                                                <span class="material-symbols-outlined text-sm">bookmark</span>
+                                                            </button>
+                                                        </Show>
+                                                        <span
+                                                            class="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
+                                                            classList={{ 'bg-danger/20 text-danger': isOverdue(taskRow().item), 'bg-element-accent text-sub': !isOverdue(taskRow().item) }}
+                                                        >
+                                                            {formatDue(taskRow().item.due_at!)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </Show>
                                         )}
                                     </For>
                                 </div>
@@ -865,6 +895,42 @@ const AgendaView: Component<{
                 </div>
             </Show>
         </div>
+    )
+}
+
+// A project's card or milestone on the agenda. No checkbox: finishing project
+// work happens on the board, where the rest of its state lives, so the row is
+// a way in rather than a place to tick something off.
+const ProjectAgendaRow: Component<{ row: Extract<AgendaRow, { kind: 'project' }>; overdue: boolean; onOpen?: (id: string) => void }> = (props) => {
+    const deadline = () => props.row.deadline
+    return (
+        <button
+            type="button"
+            disabled={!props.onOpen}
+            onClick={() => props.onOpen?.(deadline().projectId)}
+            class="group bg-element-matte border-element-accent enabled:hover:border-highlight flex items-center gap-2.5 rounded-md border p-2.5 text-left transition-colors enabled:hover:cursor-pointer"
+            style={{ 'border-left': `3px solid ${priorityColor(deadline().priority) || deadline().accent}` }}
+            title={props.onOpen ? `Open ${deadline().projectTitle}` : undefined}
+        >
+            <span class="material-symbols-outlined shrink-0 text-base" style={{ color: deadline().accent }}>
+                {deadline().kind === 'milestone' ? 'flag' : deadline().icon}
+            </span>
+            <div class="min-w-0 flex-1">
+                <p class="text-main truncate text-sm">{deadline().title}</p>
+                <p class="text-sub/70 truncate text-[11px]">
+                    {deadline().projectTitle}
+                    <Show when={deadline().kind === 'milestone'} fallback={<Show when={deadline().milestoneTitle}>{` · ${deadline().milestoneTitle}`}</Show>}>
+                        {` · milestone · ${deadline().done}/${deadline().total} done`}
+                    </Show>
+                </p>
+            </div>
+            <span
+                class="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
+                classList={{ 'bg-danger/20 text-danger': props.overdue, 'bg-element-accent text-sub': !props.overdue }}
+            >
+                {formatDue(deadline().dueAt)}
+            </span>
+        </button>
     )
 }
 
