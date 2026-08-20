@@ -26,7 +26,7 @@ interface TodoModuleProps {
     onOpenMoment?: (id: string) => void
     // Opens the Projects module on one project, for an agenda row that came
     // from a project card or milestone.
-    onOpenProject?: (id: string) => void
+    onOpenProject?: (id: string, tab?: 'board') => void
     // Opens the moment editor in create mode; the supplied callback links the
     // created moment back to the task the picker was opened for.
     onRequestNewMoment?: (link: (momentId: string) => void) => void
@@ -789,7 +789,7 @@ const AgendaView: Component<{
     canManage: boolean
     onToggle: (item: TodoItem) => void
     onOpenMoment?: (id: string) => void
-    onOpenProject?: (id: string) => void
+    onOpenProject?: (id: string, tab?: 'board') => void
 }> = (props) => {
     const grouped = createMemo(() => {
         const q = props.search.trim().toLowerCase()
@@ -901,16 +901,16 @@ const AgendaView: Component<{
 // A project's card or milestone on the agenda. No checkbox: finishing project
 // work happens on the board, where the rest of its state lives, so the row is
 // a way in rather than a place to tick something off.
-const ProjectAgendaRow: Component<{ row: Extract<AgendaRow, { kind: 'project' }>; overdue: boolean; onOpen?: (id: string) => void }> = (props) => {
+const ProjectAgendaRow: Component<{ row: Extract<AgendaRow, { kind: 'project' }>; overdue: boolean; onOpen?: (id: string, tab?: 'board') => void }> = (props) => {
     const deadline = () => props.row.deadline
     return (
         <button
             type="button"
             disabled={!props.onOpen}
-            onClick={() => props.onOpen?.(deadline().projectId)}
+            onClick={() => props.onOpen?.(deadline().projectId, 'board')}
             class="group bg-element-matte border-element-accent enabled:hover:border-highlight flex items-center gap-2.5 rounded-md border p-2.5 text-left transition-colors enabled:hover:cursor-pointer"
             style={{ 'border-left': `3px solid ${priorityColor(deadline().priority) || deadline().accent}` }}
-            title={props.onOpen ? `Open ${deadline().projectTitle}` : undefined}
+            title={props.onOpen ? `Open ${deadline().projectTitle} on the board` : undefined}
         >
             <span class="material-symbols-outlined shrink-0 text-base" style={{ color: deadline().accent }}>
                 {deadline().kind === 'milestone' ? 'flag' : deadline().icon}

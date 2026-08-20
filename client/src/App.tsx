@@ -26,7 +26,7 @@ import { Editor } from './components/Editor'
 import { SettingsModal } from './components/SettingsModal'
 import { AdminModal } from './components/AdminModal'
 import { TodoModule } from './components/TodoModule'
-import { ProjectsModule } from './components/ProjectsModule'
+import { ProjectsModule, type HubTab } from './components/ProjectsModule'
 import { CanvasModule } from './components/CanvasModule'
 import { LibrariesPanel, librariesSwitcherVisible } from './components/LibrariesPanel'
 import { MenuPanel } from './components/MenuPanel'
@@ -169,9 +169,14 @@ export const App: Component = () => {
     // Which project a ::project:id:: embed asked for; same contract as
     // requestedCanvasId above.
     const [requestedProjectId, setRequestedProjectId] = createSignal<string | undefined>()
-    const openProject = (id?: string) => {
+    // The tab that project opens on, for callers that know which one answers
+    // the click: an agenda row is a dated card or milestone, so it wants the
+    // board. Everything else leaves it unset and lands on the brief.
+    const [requestedProjectTab, setRequestedProjectTab] = createSignal<HubTab | undefined>()
+    const openProject = (id?: string, tab?: HubTab) => {
         setRequestedDocumentId(undefined)
         setRequestedProjectId(id)
+        setRequestedProjectTab(tab)
         setShowProjects(true)
     }
     // A ::doc:id:: embed opens the same module one level deeper: the project's
@@ -186,6 +191,7 @@ export const App: Component = () => {
     const closeProjects = () => {
         setShowProjects(false)
         setRequestedProjectId(undefined)
+        setRequestedProjectTab(undefined)
         setRequestedDocumentId(undefined)
     }
     // Focus-layout drawers: the side panels collapse into slide-in
@@ -1274,6 +1280,7 @@ export const App: Component = () => {
                     onClose={closeProjects}
                     canManage={canManageProjects()}
                     initialProjectId={requestedProjectId()}
+                    initialProjectTab={requestedProjectTab()}
                     initialDocumentId={requestedDocumentId()}
                     onOpenMoment={(id) => setFocusMomentId(id)}
                     onOpenTodo={() => setShowTodos(true)}
