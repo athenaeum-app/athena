@@ -89,12 +89,19 @@ for (const shell of [
             await expect(page.getByTitle('Timeline down')).toHaveClass(/bg-highlight-strongest/)
             await page.getByTitle('Timeline across').click()
 
-            // The screen fits the window on a desktop: the agenda scrolls
-            // inside its own box rather than pushing the panels off the end.
-            if (!shell.mobile) {
-                const fit = await page.getByTestId('projects-overview').evaluate((el: HTMLElement) => el.scrollHeight <= el.clientHeight)
-                expect(fit).toBe(true)
-            }
+            // The screen scrolls; nothing inside it does, bar the tray when
+            // it holds more than it can show. A box that scrolls two pixels
+            // of its own scrollbar gutter is the fault being guarded here.
+            const strays = await page.getByTestId('projects-overview').evaluate((root: HTMLElement) =>
+                [...root.querySelectorAll('*')]
+                    .filter((el) => {
+                        const e = el as HTMLElement
+                        if (e.closest('[data-testid="agenda-unscheduled"]')) return false
+                        return e.scrollHeight > e.clientHeight + 1 && getComputedStyle(e).overflowY !== 'visible'
+                    })
+                    .map((el) => (el as HTMLElement).className),
+            )
+            expect(strays).toEqual([])
 
             // A deadline still opens the board it lives on, timeline or not.
             await page.getByRole('button', { name: new RegExp(`${title} today`) }).click()

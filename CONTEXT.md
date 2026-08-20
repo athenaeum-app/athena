@@ -70,10 +70,10 @@ unscheduled work under the run.
 _Avoid_: calendar, gantt, schedule
 
 **Unscheduled**:
-Outstanding cards and milestones with no due date, held in a tray under the
-timeline rather than in a panel of their own, because the point of it is the
-short distance between a card there and the day it belongs on. Work, not
-backlog: everything in it is live, it simply has no date yet.
+Outstanding cards and milestones with no due date, in a card of their own
+directly under the timeline, close enough that a row can be dragged onto a day
+without losing sight of either. Work, not backlog: everything in it is live, it
+simply has no date yet.
 _Avoid_: backlog, inbox, undated pile
 
 **Deadline**:

@@ -1056,7 +1056,11 @@ const TimelineHorizontal: Component<{
             onDrop={scroll.stop}
             onDragEnd={scroll.stop}
             data-testid="agenda-timeline"
-            class="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2"
+            /* overflow-y-hidden on purpose: a box with overflow-x auto and
+               overflow-y visible computes to auto on both, and the scrollbar
+               that puts on the side scrolls the two pixels of its own gutter
+               and nothing else. */
+            class="-mx-1 flex min-h-56 gap-2 overflow-x-auto overflow-y-hidden px-1 pb-2"
         >
             <Show when={ends().overdue.length > 0}>
                 <div class="border-danger/60 flex w-64 shrink-0 flex-col rounded-lg border-t-2 pt-2">
@@ -1222,22 +1226,22 @@ const UnscheduledTray: Component<{
     <div
         {...dropTarget(props.drag, 'none')}
         data-testid="agenda-unscheduled"
-        class="bg-element border-element-accent/60 mt-3 shrink-0 rounded-b-lg border-t pt-2 transition-colors"
-        classList={{ 'bg-highlight/10': props.drag.over() === 'none' }}
+        class="bg-element border-element-accent/60 mt-5 rounded-lg border p-4 transition-colors sm:p-5"
+        classList={{ 'bg-highlight/10 ring-highlight ring-1': props.drag.over() === 'none' }}
     >
-        <div class="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <p class="text-main text-sm font-bold uppercase tracking-wide">
-                Not scheduled <span class="text-sub/60 font-mono">{props.rows.length}</span>
-            </p>
+        <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h3 class="text-main font-serif text-xl font-semibold">
+                Not scheduled <span class="text-sub/60 font-mono text-base">{props.rows.length}</span>
+            </h3>
             <Show when={props.drag.enabled}>
-                <p class="text-sub/70 text-xs">Drag one onto a day to date it. Drag a dated one back here to take its date off.</p>
+                <p class="text-sub/70 text-sm">Drag one onto a day to date it. Drag a dated one back here to take its date off.</p>
             </Show>
         </div>
         <Show
             when={props.rows.length > 0}
-            fallback={<p class="text-sub/50 text-sm italic">Everything outstanding has a date on it.</p>}
+            fallback={<p class="text-sub/50 italic">Everything outstanding has a date on it.</p>}
         >
-            <div class="grid max-h-28 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2 2xl:grid-cols-3">
+            <div class="grid max-h-72 grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
                 <For each={props.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
             </div>
         </Show>
@@ -1302,16 +1306,21 @@ const Overview: Component<{
     )
     const timeline = () => prefs().projectsAgendaTimeline
     const vertical = () => prefs().projectsAgendaVertical
-    // The agenda's own scroller, so a drag down the run of days can reach the
-    // days below the fold.
-    const agendaScroll = edgeAutoScroll('y')
+    // The screen is the scroller, so a drag held near the top or bottom of
+    // it walks down the run of days rather than stopping at the fold.
+    const pageScroll = edgeAutoScroll('y')
 
     return (
         // Nothing on this screen scrolls the screen: the masthead and the
         // three panels take what they need and the agenda takes the rest,
         // scrolling inside its own box. Below lg the parts are taller than any
         // window they would fit in, so there the page scrolls as usual.
-        <div data-testid="projects-overview" class="animate-fade-in min-h-0 flex-1 overflow-y-auto lg:flex lg:flex-col lg:overflow-hidden">
+        <div data-testid="projects-overview" ref={pageScroll.ref}
+            onDragOver={pageScroll.onDragOver}
+            onDragLeave={pageScroll.stop}
+            onDrop={pageScroll.stop}
+            onDragEnd={pageScroll.stop}
+            class="animate-fade-in min-h-0 flex-1 overflow-y-auto">
             <Show
                 when={liveProjects().length > 0}
                 fallback={
@@ -1327,7 +1336,7 @@ const Overview: Component<{
                     this is, what it is called, where it stands, and the spine.
                     The counts read as a sentence rather than six tiles, which
                     is what made this screen feel like a dashboard. */}
-                <div class="px-4 py-4 sm:px-6 sm:py-5 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+                <div class="px-4 py-5 sm:px-6 sm:py-6">
                     <div class="flex shrink-0 items-center gap-2">
                         <span class="material-symbols-outlined text-highlight text-xl">insights</span>
                         <span class="text-sub font-mono text-sm font-bold tracking-widest">PORTFOLIO</span>
@@ -1357,9 +1366,8 @@ const Overview: Component<{
                         fine side by side. */}
                     <OverviewCard
                         title="Agenda"
-                        class="mt-4 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
+                        class="mt-5"
                         pad="p-4 sm:p-5"
-                        body="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
                         note={
                             <span class="text-sub text-sm">
                                 <span class="text-main font-mono font-bold">{deadlines().length}</span> dated across{' '}
@@ -1395,39 +1403,35 @@ const Overview: Component<{
                         }
                     >
                         <Show
-                            when={deadlines().length > 0 || (timeline() && unscheduled().length > 0)}
+                            when={deadlines().length > 0}
                             fallback={<p class="text-sub/60 italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
                         >
-                            {/* The run of days scrolls inside this, so the
-                                tray under it stays put and the screen behind
-                                it never moves. */}
-                            <div
-                                ref={agendaScroll.ref}
-                                onDragOver={agendaScroll.onDragOver}
-                                onDragLeave={agendaScroll.stop}
-                                onDrop={agendaScroll.stop}
-                                onDragEnd={agendaScroll.stop}
-                                class="lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
-                            >
-                                <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />}>
-                                    <Show
-                                        when={vertical()}
-                                        fallback={<TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />}
-                                    >
-                                        <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />
-                                    </Show>
+                            <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />}>
+                                <Show
+                                    when={vertical()}
+                                    fallback={<TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />}
+                                >
+                                    <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />
                                 </Show>
-                            </div>
-                            <Show when={timeline()}>
-                                <UnscheduledTray rows={unscheduled()} drag={drag} onOpen={props.onOpen} />
                             </Show>
                         </Show>
                     </OverviewCard>
 
-                    <div class="mt-4 grid grid-cols-1 items-start gap-4 lg:shrink-0 lg:grid-cols-2 xl:grid-cols-3">
-                        <OverviewCard title="Momentum" note={<span class="text-sub text-sm">finished per day · 14d</span>}>
-                            <MomentumBars days={allMomentum()} height={72} barClass="min-w-0 flex-1" />
-                            <div class="text-sub/60 mt-1.5 flex justify-between text-xs">
+                    {/* Its own card under the agenda, not a strip inside it:
+                        undated work is a list in its own right, and a drawer
+                        squeezed under the days was too shallow to read and
+                        too shallow to aim at. */}
+                    <Show when={timeline()}>
+                        <UnscheduledTray rows={unscheduled()} drag={drag} onOpen={props.onOpen} />
+                    </Show>
+
+                    {/* items-start: three panels of different lengths, each
+                        as tall as it needs. Stretching them to match the
+                        longest only buys a matched pair of empty halves. */}
+                    <div class="mt-5 grid grid-cols-1 items-start gap-5 lg:grid-cols-2 xl:grid-cols-3">
+                        <OverviewCard title="Momentum" pad="p-4 sm:p-5" note={<span class="text-sub text-sm">finished per day · 14d</span>}>
+                            <MomentumBars days={allMomentum()} height={128} barClass="min-w-0 flex-1" />
+                            <div class="text-sub/60 mt-2 flex justify-between text-xs">
                                 <span>2 weeks ago</span>
                                 <span class="text-main font-mono">
                                     {allMomentum().reduce((a, b) => a + b, 0)} finished · best day {Math.max(0, ...allMomentum())}
@@ -1436,9 +1440,9 @@ const Overview: Component<{
                             </div>
                         </OverviewCard>
 
-                        <OverviewCard title="Needs attention" body="max-h-32 overflow-y-auto">
+                        <OverviewCard title="Needs attention" pad="p-4 sm:p-5" body="max-h-72 overflow-y-auto">
                             <Show when={attention().length > 0} fallback={<p class="text-sub/50 italic">Nothing overdue or stalled. Every project is moving.</p>}>
-                                <div class="flex flex-col gap-0.5">
+                                <div class="flex flex-col gap-1">
                                     <For each={attention()}>
                                         {(row) => (
                                             <button
@@ -1460,9 +1464,9 @@ const Overview: Component<{
                             </Show>
                         </OverviewCard>
 
-                        <OverviewCard title="Recently finished" body="max-h-32 overflow-y-auto">
+                        <OverviewCard title="Recently finished" pad="p-4 sm:p-5" body="max-h-72 overflow-y-auto">
                             <Show when={recentlyFinished().length > 0} fallback={<p class="text-sub/50 italic">Nothing finished yet.</p>}>
-                                <div class="flex flex-col gap-0.5">
+                                <div class="flex flex-col gap-1">
                                     <For each={recentlyFinished()}>
                                         {(row) => (
                                             <button
