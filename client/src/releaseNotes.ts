@@ -130,6 +130,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Projects opens on a new Overview: everything due soonest across every project, portfolio-wide counts, combined momentum, and which projects are overdue or have stopped moving. The grid of projects is now the Catalog tab.',
         'The chat preview in the menu no longer lags a few seconds behind the conversation itself.',
     ],
+    '2.24.1': [
+        "The Projects overview is laid out the way a project's own overview is, and a due date on either agenda now opens the board the card or milestone lives on rather than the project brief.",
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
