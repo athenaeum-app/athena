@@ -141,6 +141,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'A deadline on the Projects overview can be dragged from one day to another to change its due date, with a mouse. A touch screen still sets dates on the card itself.',
         'Cards and milestones with no date now sit in a tray under the timeline: drag one onto a day to date it, or drag a dated one back to take its date off.',
     ],
+    '2.26.1': [
+        'The Projects overview fits the window now: the agenda scrolls inside its own box instead of pushing the rest of the screen below the fold.',
+        'Dragging on the timeline no longer widens every empty day. Only the day under the pointer opens, and the run scrolls by itself when you hold near either end.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
