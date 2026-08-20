@@ -121,6 +121,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Searching for a word with an apostrophe in it no longer fails.',
         'An embed written inside a code block now stays as you typed it instead of turning into a card.',
     ],
+    '2.23.1': [
+        'A moment brought over from the old server now shows as a card when you reference it, instead of its raw id.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
