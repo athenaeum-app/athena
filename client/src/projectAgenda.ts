@@ -10,11 +10,14 @@ import { type Project } from './api'
 
 export type DeadlineKind = 'card' | 'milestone'
 
-export interface ProjectDeadline {
+// A piece of a project's outstanding work, dated or not. The overview lets
+// one be dragged onto a day, which is the same row before and after it has a
+// date, so the date is the only part that is optional.
+export interface ProjectWorkItem {
     id: string
     kind: DeadlineKind
     title: string
-    dueAt: string
+    dueAt?: string
     // 0 none, 1 low, 2 med, 3 high. Milestones carry no priority of their own.
     priority: number
     projectId: string
@@ -29,6 +32,11 @@ export interface ProjectDeadline {
     total?: number
 }
 
+// One with a date on it, which is what an agenda is made of.
+export interface ProjectDeadline extends ProjectWorkItem {
+    dueAt: string
+}
+
 const startOfToday = () => {
     const date = new Date()
     date.setHours(0, 0, 0, 0)
@@ -39,20 +47,24 @@ const startOfToday = () => {
 // due today.
 export const dueMs = (iso?: string) => (iso ? new Date(iso).setHours(0, 0, 0, 0) : Infinity)
 
-// Everything a live project is waiting on, soonest first.
+// Everything a live project still has outstanding, dated or not.
 //
 // Archived projects are left out. Archiving is how a project stops being work
 // in progress, and a shelved deadline resurfacing on a to-do list is exactly
 // what archiving was meant to stop.
-export function projectDeadlines(projects: Project[]): ProjectDeadline[] {
-    const out: ProjectDeadline[] = []
+//
+// A card that is done or dismissed is behind you. A milestone whose cards are
+// all finished has landed, whatever its date says; an empty one has not,
+// since nothing has been planned into it yet.
+export function projectWork(projects: Project[]): ProjectWorkItem[] {
+    const out: ProjectWorkItem[] = []
     for (const project of projects) {
         if (project.archived) continue
         const milestoneTitles = new Map(project.milestones.map((m) => [m.id, m.title]))
         const live = project.cards.filter((c) => !c.dismissed)
 
         for (const card of live) {
-            if (card.done || !card.due_at) continue
+            if (card.done) continue
             out.push({
                 id: card.id,
                 kind: 'card',
@@ -68,12 +80,8 @@ export function projectDeadlines(projects: Project[]): ProjectDeadline[] {
         }
 
         for (const milestone of project.milestones) {
-            if (!milestone.due_at) continue
             const cards = live.filter((c) => c.milestone_id === milestone.id)
             const done = cards.filter((c) => c.done).length
-            // A milestone whose cards are all finished has landed, whatever its
-            // date says. An empty one has not: nothing has been planned into it
-            // yet, so the date is still ahead of it.
             if (cards.length > 0 && done === cards.length) continue
             out.push({
                 id: milestone.id,
@@ -90,7 +98,23 @@ export function projectDeadlines(projects: Project[]): ProjectDeadline[] {
             })
         }
     }
-    return out.sort((a, b) => dueMs(a.dueAt) - dueMs(b.dueAt) || b.priority - a.priority)
+    return out
+}
+
+// The dated part of that, soonest first: what the agendas are made of.
+export function projectDeadlines(projects: Project[]): ProjectDeadline[] {
+    return projectWork(projects)
+        .filter((item): item is ProjectDeadline => !!item.dueAt)
+        .sort((a, b) => dueMs(a.dueAt) - dueMs(b.dueAt) || b.priority - a.priority)
+}
+
+// The undated part: work that is real but has never been put on a day. The
+// overview keeps it beside the timeline so a date can be given by dragging it
+// onto one. Grouped by project, since that is the order it was written in.
+export function unscheduledWork(projects: Project[]): ProjectWorkItem[] {
+    return projectWork(projects)
+        .filter((item) => !item.dueAt)
+        .sort((a, b) => a.projectTitle.localeCompare(b.projectTitle) || b.priority - a.priority || a.title.localeCompare(b.title))
 }
 
 // The deadline windows an agenda is read in. Ordered soonest first; a row

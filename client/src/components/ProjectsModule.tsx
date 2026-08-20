@@ -30,7 +30,16 @@ import {
     type DocumentHeading,
     type DocumentThread,
 } from '../projectDocuments'
-import { bucketByDue, projectDeadlines, timelineDays, timelineEnds, type ProjectDeadline, type TimelineDay } from '../projectAgenda'
+import {
+    bucketByDue,
+    projectDeadlines,
+    timelineDays,
+    timelineEnds,
+    unscheduledWork,
+    type ProjectDeadline,
+    type ProjectWorkItem,
+    type TimelineDay,
+} from '../projectAgenda'
 import { loadUsers, userName } from '../users'
 import { Editor } from './Editor'
 import { BookcaseDrift } from './BookcaseDrift'
@@ -422,6 +431,30 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
         })
     }
 
+    // A date moved on the overview's timeline. Optimistic like every other
+    // field patch here, and noon rather than midnight so the day it lands on
+    // is the day it was dropped on wherever it is read. null takes the date
+    // off, which is what dropping into the unscheduled tray means.
+    const scheduleWork = (item: ProjectWorkItem, at: number | null) => {
+        const iso = at === null ? '' : isoAtNoon(at)
+        mutate(item.projectId, (p) => {
+            if (item.kind === 'card') {
+                const card = p.cards.find((c) => c.id === item.id)
+                if (card) card.due_at = iso || undefined
+            } else {
+                const milestone = p.milestones.find((m) => m.id === item.id)
+                if (milestone) milestone.due_at = iso || undefined
+            }
+        })
+        const saved =
+            item.kind === 'card' ? api.updateProjectCard(item.id, { due_at: iso }) : api.updateProjectMilestone(item.id, { due_at: iso })
+        saved.catch((err) => {
+            console.error('Failed to change a due date:', err)
+            ui.toast('Could not change that due date.', 'error')
+            void load()
+        })
+    }
+
     const newProject = async () => {
         try {
             const created = await api.createProject('New project')
@@ -517,6 +550,7 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
                         setView={setPview}
                         canManage={props.canManage}
                         onRetry={load}
+                        onSchedule={scheduleWork}
                         onOpen={openProjectAt}
                         onNew={newProject}
                         onRestore={(id) => patchProject(id, (p) => (p.archived = false), { archived: false })}
@@ -578,6 +612,7 @@ const Portfolio: Component<{
     setView: (v: PortfolioView) => void
     canManage: boolean
     onRetry: () => void
+    onSchedule: (item: ProjectWorkItem, at: number | null) => void
     onOpen: (id: string, tab?: HubTab) => void
     onNew: () => void
     onRestore: (id: string) => void
@@ -633,7 +668,17 @@ const Portfolio: Component<{
                         </div>
                     }
                 >
-                    <Show when={props.view !== 'overview'} fallback={<Overview projects={props.projects} onOpen={props.onOpen} />}>
+                    <Show
+                        when={props.view !== 'overview'}
+                        fallback={
+                            <Overview
+                                projects={props.projects}
+                                canManage={props.canManage}
+                                onSchedule={props.onSchedule}
+                                onOpen={props.onOpen}
+                            />
+                        }
+                    >
                     <div class="animate-fade-in min-h-0 flex-1 overflow-y-auto p-5">
                         <Show
                             when={shown().length > 0 || (props.view === 'active' && props.canManage)}
@@ -821,17 +866,86 @@ const PortfolioSpine: Component<{ projects: Project[] }> = (props) => (
 
 // ---- the agenda ----
 
-// One deadline, wherever the agenda is drawn: in a day's column, in a day's
-// row, or in the plain list. Plain until hovered, with the project's colour
-// down its left edge so a column of several projects is still readable.
-const DeadlineRow: Component<{ row: ProjectDeadline; overdue: boolean; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
+// Dragging a deadline is how a date is changed from here: the timeline is a
+// picture of the fortnight, and moving something to Thursday is the whole
+// gesture. This carries the drag across the timeline's parts, which are
+// separate components but one drop surface.
+//
+// Same mechanism as the board's card drag (HTML5, not pointer events), so a
+// touch screen cannot do it. The card's own date field still can, which is
+// why nothing here is the only way to set a date.
+interface AgendaDrag {
+    // Whether dragging is allowed at all: a viewer reads the agenda, it does
+    // not schedule anything.
+    enabled: boolean
+    item: () => ProjectWorkItem | null
+    start: (item: ProjectWorkItem) => void
+    end: () => void
+    // Which target the pointer is over, so it can say it will take the drop.
+    // A day is its midnight; the unscheduled tray is 'none'.
+    over: () => number | 'none' | null
+    // at: local midnight of the day to move it to, or null to clear the date.
+    schedule: (item: ProjectWorkItem, at: number | null) => void
+    setOver: (target: number | 'none' | null) => void
+}
+
+// Noon, not midnight: a date stored at midnight lands on the day before as
+// soon as it is read a timezone to the west.
+const isoAtNoon = (at: number) => {
+    const date = new Date(at)
+    date.setHours(12, 0, 0, 0)
+    return date.toISOString()
+}
+
+// The handlers that make something a drop target. Spread onto the element,
+// because the timeline has six of them and they must behave identically.
+const dropTarget = (drag: AgendaDrag, key: number | 'none') => ({
+    onDragOver: (e: DragEvent) => {
+        if (!drag.item()) return
+        // Without preventDefault the browser refuses the drop.
+        e.preventDefault()
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+        if (drag.over() !== key) drag.setOver(key)
+    },
+    onDragLeave: () => {
+        if (drag.over() === key) drag.setOver(null)
+    },
+    onDrop: (e: DragEvent) => {
+        e.preventDefault()
+        const item = drag.item()
+        drag.setOver(null)
+        drag.end()
+        if (item) drag.schedule(item, key === 'none' ? null : key)
+    },
+})
+
+// One row of work, wherever the agenda draws it: in a day's column, in a
+// day's row, in the plain list, or in the tray of undated work. Plain until
+// hovered, with the project's colour down its left edge so a column of
+// several projects is still readable.
+const DeadlineRow: Component<{
+    row: ProjectWorkItem
+    overdue: boolean
+    drag: AgendaDrag
+    onOpen: (id: string, tab?: HubTab) => void
+}> = (props) => {
     const row = () => props.row
+    const dragging = () => props.drag.item()?.id === row().id
     return (
         <button
+            draggable={props.drag.enabled}
+            onDragStart={(e) => {
+                // Firefox starts no drag at all without payload on the event.
+                e.dataTransfer?.setData('text/plain', row().id)
+                if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+                props.drag.start(row())
+            }}
+            onDragEnd={() => props.drag.end()}
             onClick={() => props.onOpen(row().projectId, 'board')}
-            class="hover:bg-element-matte border-element-accent/50 hover:border-highlight/60 flex w-full items-start gap-2.5 rounded-md border border-transparent p-2 text-left transition-colors hover:cursor-pointer"
+            class="hover:bg-element-matte border-element-accent/50 hover:border-highlight/60 flex w-full items-start gap-2.5 rounded-md border border-transparent p-2 text-left transition-colors"
+            classList={{ 'cursor-grab active:cursor-grabbing': props.drag.enabled, 'hover:cursor-pointer': !props.drag.enabled, 'opacity-40': dragging() }}
             style={{ 'border-left': `3px solid ${row().accent}` }}
-            title={`Open ${row().projectTitle} on the board`}
+            title={props.drag.enabled ? `Drag to a day to date it, or click to open ${row().projectTitle}` : `Open ${row().projectTitle} on the board`}
         >
             <span class="material-symbols-outlined mt-px shrink-0 text-[19px]" style={{ color: row().accent }}>
                 {row().kind === 'milestone' ? 'flag' : row().icon}
@@ -857,8 +971,8 @@ const DeadlineRow: Component<{ row: ProjectDeadline; overdue: boolean; onOpen: (
                     {priorityIcon(row().priority)}
                 </span>
             </Show>
-            <Show when={props.overdue}>
-                <span class="bg-danger/20 text-danger shrink-0 rounded px-1.5 py-0.5 text-xs font-bold">{fmtDue(row().dueAt)}</span>
+            <Show when={props.overdue && row().dueAt}>
+                <span class="bg-danger/20 text-danger shrink-0 rounded px-1.5 py-0.5 text-xs font-bold">{fmtDue(row().dueAt!)}</span>
             </Show>
         </button>
     )
@@ -872,7 +986,15 @@ const dayHeadings = (day: TimelineDay) => ({
     label: new Intl.DateTimeFormat(navigator.language, { month: 'short', day: 'numeric' }).format(new Date(day.at)),
 })
 
-const TimelineHorizontal: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
+// Long enough to read as a date, short enough to sit under a heading.
+const dayTitle = (day: TimelineDay) =>
+    new Intl.DateTimeFormat(navigator.language, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(day.at))
+
+const TimelineHorizontal: Component<{
+    deadlines: ProjectDeadline[]
+    drag: AgendaDrag
+    onOpen: (id: string, tab?: HubTab) => void
+}> = (props) => {
     const days = createMemo(() => timelineDays(props.deadlines))
     const ends = createMemo(() => timelineEnds(props.deadlines))
     return (
@@ -884,21 +1006,28 @@ const TimelineHorizontal: Component<{ deadlines: ProjectDeadline[]; onOpen: (id:
                 <div class="border-danger/60 flex w-64 shrink-0 flex-col rounded-lg border-t-2 pt-2">
                     <p class="text-danger mb-2 text-sm font-bold uppercase tracking-wide">Overdue</p>
                     <div class="flex flex-col gap-1.5">
-                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue onOpen={props.onOpen} />}</For>
+                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue drag={props.drag} onOpen={props.onOpen} />}</For>
                     </div>
                 </div>
             </Show>
             <For each={days()}>
                 {(day) => (
                     <div
+                        {...dropTarget(props.drag, day.at)}
+                        data-testid="agenda-day"
                         class="flex shrink-0 flex-col rounded-lg border-t-2 pt-2 transition-all"
                         classList={{
-                            'w-64': day.rows.length > 0,
-                            'w-20': day.rows.length === 0,
+                            // An empty day is a sliver until something is
+                            // being dragged, when it becomes a target worth
+                            // aiming at.
+                            'w-64': day.rows.length > 0 || !!props.drag.item(),
+                            'w-20': day.rows.length === 0 && !props.drag.item(),
                             'border-highlight': day.today,
                             'border-element-accent': !day.today,
-                            'opacity-50': day.rows.length === 0 && !day.today,
+                            'opacity-50': day.rows.length === 0 && !day.today && !props.drag.item(),
+                            'bg-highlight/10 ring-highlight ring-1': props.drag.over() === day.at,
                         }}
+                        title={props.drag.item() ? `Move to ${dayTitle(day)}` : undefined}
                     >
                         <p class="mb-2 flex items-baseline gap-1.5">
                             <span class="text-sm font-bold uppercase tracking-wide" classList={{ 'text-highlight': day.today, 'text-main': !day.today }}>
@@ -906,8 +1035,8 @@ const TimelineHorizontal: Component<{ deadlines: ProjectDeadline[]; onOpen: (id:
                             </span>
                             <span class="text-sub text-xs" classList={{ 'font-bold': day.weekend }}>{dayHeadings(day).label}</span>
                         </p>
-                        <div class="flex flex-col gap-1.5">
-                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} onOpen={props.onOpen} />}</For>
+                        <div class="flex flex-1 flex-col gap-1.5">
+                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
                         </div>
                     </div>
                 )}
@@ -916,7 +1045,7 @@ const TimelineHorizontal: Component<{ deadlines: ProjectDeadline[]; onOpen: (id:
                 <div class="border-element-accent flex w-64 shrink-0 flex-col rounded-lg border-t-2 pt-2">
                     <p class="text-sub mb-2 text-sm font-bold uppercase tracking-wide">Later</p>
                     <div class="flex flex-col gap-1.5">
-                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} onOpen={props.onOpen} />}</For>
+                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
                     </div>
                 </div>
             </Show>
@@ -924,7 +1053,11 @@ const TimelineHorizontal: Component<{ deadlines: ProjectDeadline[]; onOpen: (id:
     )
 }
 
-const TimelineVertical: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
+const TimelineVertical: Component<{
+    deadlines: ProjectDeadline[]
+    drag: AgendaDrag
+    onOpen: (id: string, tab?: HubTab) => void
+}> = (props) => {
     const days = createMemo(() => timelineDays(props.deadlines))
     const ends = createMemo(() => timelineEnds(props.deadlines))
     // An empty day keeps its place in the run but not its height: the rhythm
@@ -935,29 +1068,33 @@ const TimelineVertical: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: s
                 <div class="border-danger/60 flex gap-4 border-l-2 pb-4 pl-4">
                     <p class="text-danger w-24 shrink-0 text-sm font-bold uppercase tracking-wide">Overdue</p>
                     <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
-                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue onOpen={props.onOpen} />}</For>
+                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue drag={props.drag} onOpen={props.onOpen} />}</For>
                     </div>
                 </div>
             </Show>
             <For each={days()}>
                 {(day) => (
                     <div
-                        class="flex gap-4 border-l-2 pl-4"
+                        {...dropTarget(props.drag, day.at)}
+                        data-testid="agenda-day"
+                        class="flex gap-4 rounded-r-lg border-l-2 pl-4 transition-colors"
                         classList={{
                             'border-highlight': day.today,
                             'border-element-accent': !day.today,
                             'pb-4': day.rows.length > 0,
                             'pb-2': day.rows.length === 0,
+                            'bg-highlight/10': props.drag.over() === day.at,
                         }}
+                        title={props.drag.item() ? `Move to ${dayTitle(day)}` : undefined}
                     >
-                        <p class="w-24 shrink-0" classList={{ 'opacity-50': day.rows.length === 0 && !day.today }}>
+                        <p class="w-24 shrink-0" classList={{ 'opacity-50': day.rows.length === 0 && !day.today && !props.drag.item() }}>
                             <span class="block text-sm font-bold uppercase tracking-wide" classList={{ 'text-highlight': day.today, 'text-main': !day.today }}>
                                 {day.today ? 'Today' : dayHeadings(day).weekday}
                             </span>
                             <span class="text-sub text-xs" classList={{ 'font-bold': day.weekend }}>{dayHeadings(day).label}</span>
                         </p>
                         <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
-                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} onOpen={props.onOpen} />}</For>
+                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
                         </div>
                     </div>
                 )}
@@ -966,7 +1103,7 @@ const TimelineVertical: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: s
                 <div class="border-element-accent flex gap-4 border-l-2 pl-4 pt-2">
                     <p class="text-sub w-24 shrink-0 text-sm font-bold uppercase tracking-wide">Later</p>
                     <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
-                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} onOpen={props.onOpen} />}</For>
+                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
                     </div>
                 </div>
             </Show>
@@ -975,9 +1112,15 @@ const TimelineVertical: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: s
 }
 
 // The timeline off: the same deadlines under Overdue, Today, Tomorrow, This
-// week and Later, two abreast where there is room.
-const AgendaList: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
+// week and Later, two abreast where there is room. Nothing is dragged here,
+// because a bucket is a range of days and a drop would have to guess which.
+const AgendaList: Component<{
+    deadlines: ProjectDeadline[]
+    drag: AgendaDrag
+    onOpen: (id: string, tab?: HubTab) => void
+}> = (props) => {
     const buckets = createMemo(() => bucketByDue(props.deadlines, (d) => d.dueAt))
+    const still: AgendaDrag = { ...props.drag, enabled: false }
     return (
         <div data-testid="agenda-list" class="flex flex-col gap-6">
             <For each={buckets()}>
@@ -997,7 +1140,7 @@ const AgendaList: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: string,
                         </h4>
                         <div class="grid grid-cols-1 gap-x-6 gap-y-1 lg:grid-cols-2 2xl:grid-cols-3">
                             <For each={bucket.rows}>
-                                {(row) => <DeadlineRow row={row} overdue={bucket.key === 'overdue'} onOpen={props.onOpen} />}
+                                {(row) => <DeadlineRow row={row} overdue={bucket.key === 'overdue'} drag={still} onOpen={props.onOpen} />}
                             </For>
                         </div>
                     </div>
@@ -1007,9 +1150,66 @@ const AgendaList: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: string,
     )
 }
 
-const Overview: Component<{ projects: Project[]; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
+// Work with no date on it. It stays under the timeline rather than off in a
+// panel of its own, because the point of it is the short distance between a
+// card here and the day it belongs on; sticky, so that distance stays short
+// however far down the run has been scrolled. Dropping something here takes
+// its date off again.
+const UnscheduledTray: Component<{
+    rows: ProjectWorkItem[]
+    drag: AgendaDrag
+    onOpen: (id: string, tab?: HubTab) => void
+}> = (props) => (
+    <div
+        {...dropTarget(props.drag, 'none')}
+        data-testid="agenda-unscheduled"
+        class="bg-element border-element-accent/60 sticky bottom-0 z-10 mt-5 rounded-b-lg border-t pt-3 transition-colors"
+        classList={{ 'bg-highlight/10': props.drag.over() === 'none' }}
+    >
+        <div class="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <p class="text-main text-sm font-bold uppercase tracking-wide">
+                Not scheduled <span class="text-sub/60 font-mono">{props.rows.length}</span>
+            </p>
+            <Show when={props.drag.enabled}>
+                <p class="text-sub/70 text-xs">Drag one onto a day to date it. Drag a dated one back here to take its date off.</p>
+            </Show>
+        </div>
+        <Show
+            when={props.rows.length > 0}
+            fallback={<p class="text-sub/50 pb-2 text-sm italic">Everything outstanding has a date on it.</p>}
+        >
+            <div class="grid max-h-48 grid-cols-1 gap-1.5 overflow-y-auto pb-2 sm:grid-cols-2 2xl:grid-cols-3">
+                <For each={props.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
+            </div>
+        </Show>
+    </div>
+)
+
+const Overview: Component<{
+    projects: Project[]
+    canManage: boolean
+    onSchedule: (item: ProjectWorkItem, at: number | null) => void
+    onOpen: (id: string, tab?: HubTab) => void
+}> = (props) => {
     const liveProjects = createMemo(() => props.projects.filter((p) => !p.archived))
     const deadlines = createMemo(() => projectDeadlines(props.projects))
+    const unscheduled = createMemo(() => unscheduledWork(props.projects))
+    const [dragItem, setDragItem] = createSignal<ProjectWorkItem | null>(null)
+    const [dragOver, setDragOver] = createSignal<number | 'none' | null>(null)
+    const drag: AgendaDrag = {
+        get enabled() {
+            return props.canManage
+        },
+        item: dragItem,
+        start: (item) => setDragItem(item),
+        end: () => {
+            setDragItem(null)
+            setDragOver(null)
+        },
+        over: dragOver,
+        setOver: setDragOver,
+        schedule: (item, at) => props.onSchedule(item, at),
+    }
     const overdue = createMemo(() => deadlines().filter((d) => dueMs(d.dueAt) < startOfToday()))
     const dueThisWeek = createMemo(() => {
         const weekEnd = startOfToday() + 7 * 86400000
@@ -1128,16 +1328,17 @@ const Overview: Component<{ projects: Project[]; onOpen: (id: string, tab?: HubT
                         }
                     >
                         <Show
-                            when={deadlines().length > 0}
+                            when={deadlines().length > 0 || (timeline() && unscheduled().length > 0)}
                             fallback={<p class="text-sub/60 italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
                         >
-                            <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} onOpen={props.onOpen} />}>
+                            <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />}>
                                 <Show
                                     when={vertical()}
-                                    fallback={<TimelineHorizontal deadlines={deadlines()} onOpen={props.onOpen} />}
+                                    fallback={<TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />}
                                 >
-                                    <TimelineVertical deadlines={deadlines()} onOpen={props.onOpen} />
+                                    <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />
                                 </Show>
+                                <UnscheduledTray rows={unscheduled()} drag={drag} onOpen={props.onOpen} />
                             </Show>
                         </Show>
                     </OverviewCard>

@@ -64,8 +64,17 @@ a fortnight, with what has already passed and what falls beyond the run held at
 either end. It runs across or down, per the button on the card, and the setting
 behind it (Settings, Modals, Projects) turns it back into a list grouped under
 Overdue, Today and This week. An empty day still takes its place in the run,
-because the gaps are half of what a timeline says.
+because the gaps are half of what a timeline says. A deadline is dated by
+dragging it onto a day, and undated by dragging it back to the tray of
+unscheduled work under the run.
 _Avoid_: calendar, gantt, schedule
+
+**Unscheduled**:
+Outstanding cards and milestones with no due date, held in a tray under the
+timeline rather than in a panel of their own, because the point of it is the
+short distance between a card there and the day it belongs on. Work, not
+backlog: everything in it is live, it simply has no date yet.
+_Avoid_: backlog, inbox, undated pile
 
 **Deadline**:
 A card or a milestone with a due date on it. Deadlines belong to the project

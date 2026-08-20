@@ -42,10 +42,11 @@ async function seed(page: Page, title: string): Promise<void> {
     const milestone = await post<{ id: string }>(page, `/api/v1/projects/${project.id}/milestones`, { title: `${title} phase one` })
     const cards = await post<{ id: string }[]>(page, `/api/v1/projects/${project.id}/cards`, {
         milestone_id: milestone.id,
-        titles: [`${title} overdue`, `${title} today`, `${title} next week`, `${title} much later`],
+        // The last one keeps no date: the tray has to have something in it.
+        titles: [`${title} overdue`, `${title} today`, `${title} next week`, `${title} much later`, `${title} undated`],
     })
     const dates = [-3, 0, 5, 40]
-    for (let i = 0; i < cards.length; i++) await patch(page, `/api/v1/project-cards/${cards[i].id}`, { due_at: day(dates[i]) })
+    for (let i = 0; i < dates.length; i++) await patch(page, `/api/v1/project-cards/${cards[i].id}`, { due_at: day(dates[i]) })
 }
 
 for (const shell of [
@@ -114,3 +115,46 @@ for (const shell of [
         })
     })
 }
+
+// Dragging is the whole point of drawing the fortnight: a date is changed by
+// moving the thing to the day it belongs on. Desktop only, because this is
+// HTML5 drag and drop, the same mechanism the board's cards use.
+test.describe('scheduling by drag', () => {
+    test.use({ viewport: { width: 1440, height: 900 } })
+
+    test('a day takes a drop, and the tray gives its date back', async ({ page }) => {
+        await signIn(page)
+        const title = 'Dragged'
+        await seed(page, title)
+
+        await page.goto('/')
+        await page.getByRole('button', { name: 'Projects' }).click()
+        const tray = page.getByTestId('agenda-unscheduled')
+        const today = page.getByTestId('agenda-day').first()
+
+        // Undated to begin with, so it starts in the tray.
+        await expect(tray.getByRole('button', { name: new RegExp(`${title} undated`) })).toBeVisible()
+
+        await page.dragAndDrop(
+            `[data-testid="agenda-unscheduled"] >> text=${title} undated`,
+            '[data-testid="agenda-day"] >> nth=0',
+        )
+        await expect(today.getByRole('button', { name: new RegExp(`${title} undated`) })).toBeVisible()
+        await expect(tray.getByRole('button', { name: new RegExp(`${title} undated`) })).toHaveCount(0)
+
+        // The date is on the server, not only on the screen.
+        await page.reload()
+        await page.getByRole('button', { name: 'Projects' }).click()
+        await expect(page.getByTestId('agenda-day').first().getByRole('button', { name: new RegExp(`${title} undated`) })).toBeVisible()
+
+        // And back to the tray takes the date off again.
+        await page.dragAndDrop(
+            `[data-testid="agenda-day"] >> nth=0 >> text=${title} undated`,
+            '[data-testid="agenda-unscheduled"]',
+        )
+        await expect(page.getByTestId('agenda-unscheduled').getByRole('button', { name: new RegExp(`${title} undated`) })).toBeVisible()
+        await page.reload()
+        await page.getByRole('button', { name: 'Projects' }).click()
+        await expect(page.getByTestId('agenda-unscheduled').getByRole('button', { name: new RegExp(`${title} undated`) })).toBeVisible()
+    })
+})

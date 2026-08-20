@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import type { Project, ProjectCard, ProjectMilestone } from './api'
-import { bucketByDue, projectDeadlines, timelineDays, timelineEnds, TIMELINE_DAYS, type ProjectDeadline } from './projectAgenda'
+import {
+    bucketByDue,
+    projectDeadlines,
+    timelineDays,
+    timelineEnds,
+    unscheduledWork,
+    TIMELINE_DAYS,
+    type ProjectDeadline,
+} from './projectAgenda'
 
 const iso = (daysFromToday: number) => {
     const date = new Date()
@@ -165,5 +173,33 @@ describe('the timeline', () => {
         // The last day drawn is a column, not "later".
         expect(timelineEnds([deadline('edge', TIMELINE_DAYS - 1)]).later).toEqual([])
         expect(timelineDays([deadline('edge', TIMELINE_DAYS - 1)])[TIMELINE_DAYS - 1].rows.map((r) => r.id)).toEqual(['edge'])
+    })
+})
+
+describe('unscheduledWork', () => {
+    it('lists the outstanding work that has no date, and nothing that has one', () => {
+        const rows = unscheduledWork([
+            project({
+                milestones: [milestone('dated', iso(3)), milestone('undated')],
+                cards: [
+                    card('c-dated', { due_at: iso(1) }),
+                    card('c-undated'),
+                    card('c-done', { done: true }),
+                    card('c-dismissed', { dismissed: true }),
+                ],
+            }),
+        ])
+        expect(rows.map((r) => r.id)).toEqual(['c-undated', 'undated'])
+        expect(rows.every((r) => !r.dueAt)).toBe(true)
+    })
+
+    it('leaves archived projects alone, the way the agenda does', () => {
+        expect(unscheduledWork([project({ archived: true, cards: [card('c1')] })])).toEqual([])
+    })
+
+    it('drops a milestone whose cards are all finished, and keeps an empty one', () => {
+        const finished = unscheduledWork([project({ milestones: [milestone('m1')], cards: [card('c1', { done: true })] })])
+        expect(finished).toEqual([])
+        expect(unscheduledWork([project({ milestones: [milestone('m1')] })]).map((r) => r.id)).toEqual(['m1'])
     })
 })
