@@ -8,6 +8,7 @@ import luau from 'highlightjs-luau'
 import gdscript from '@exercism/highlightjs-gdscript'
 import 'highlight.js/styles/atom-one-dark.css'
 import { openLightbox } from '../lightbox'
+import { inlineFormatting, inlineFormattingHtml } from '../markdownFormatting'
 
 // An image-only block is a <p> whose meaningful content is just image(s), the
 // unit galleries are built from. Text or an <hr> (a `---` separator) breaks a
@@ -110,6 +111,41 @@ export function hardBreaks(container: HTMLElement): void {
     }
 }
 
+// A keyboard has no em dash key, so the double hyphen is how one gets typed,
+// and markdown has no opinion about it: `a -- b` renders as the two hyphens the
+// author could not avoid typing. Both the spaced form and the joined
+// `word--word` form become the dash; three or more hyphens are left alone,
+// since that is a thematic break, a table rule, or someone drawing a line.
+//
+// Done on the rendered tree rather than on the source for the same reason
+// hardBreaks is: a source rewrite cannot tell prose from a code block. Here the
+// skip is free, because code has its own elements to be recognized by.
+// Idempotent, since the pass leaves no `--` behind for a second run to find,
+// which matters because render() runs on every content change.
+const SPACED_DOUBLE_HYPHEN = /(\s)--(?=\s)/g
+const JOINED_DOUBLE_HYPHEN = /(\w)--(?=\w)/g
+// Escaped, not literal: CI rejects the character itself anywhere in the tree.
+const EM_DASH = '\u2014'
+
+export function emDashes(container: HTMLElement): void {
+    for (const block of Array.from(container.querySelectorAll(TEXT_BLOCKS))) {
+        if (block.closest('pre, code')) continue
+        // Every text node under the block, not just its direct children: a
+        // dash typed inside emphasis or a link is still a dash.
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT)
+        for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+            // Code spans keep what the author typed, wherever they sit.
+            if (text.parentElement?.closest('pre, code')) continue
+            const value = text.textContent ?? ''
+            if (!value.includes('--')) continue
+            const dashed = value
+                .replace(SPACED_DOUBLE_HYPHEN, `$1${EM_DASH}`)
+                .replace(JOINED_DOUBLE_HYPHEN, `$1${EM_DASH}`)
+            if (dashed !== value) text.textContent = dashed
+        }
+    }
+}
+
 // Give every table its own horizontal scroll box. A table is sized by its
 // content and has no way to shrink, so a wide one escapes the moment card and
 // scrolls the entire Moments column sideways; scrolling it in place keeps the
@@ -153,8 +189,8 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
     const render = () => {
         if (!containerRef) return
         const raw = micromark(props.content || '', {
-            extensions: [gfm()],
-            htmlExtensions: [gfmHtml()],
+            extensions: [gfm(), inlineFormatting()],
+            htmlExtensions: [gfmHtml(), inlineFormattingHtml()],
         })
         // rehype-highlight operates on HAST; we feed it the parsed HTML and
         // take back a serialized string. This keeps the v1 pipeline shape
@@ -168,6 +204,7 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
         // Before the gallery pass, which already expects to meet a <br> in an
         // image-only block (see isImageBlock).
         hardBreaks(containerRef)
+        emDashes(containerRef)
         groupGalleries(containerRef)
         wrapTables(containerRef)
     }

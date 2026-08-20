@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { micromark } from 'micromark'
 import { gfm, gfmHtml } from 'micromark-extension-gfm'
-import { hardBreaks } from './MarkdownText'
+import { emDashes, hardBreaks } from './MarkdownText'
 
 // Everything in this app is typed into a textarea, where Shift+Enter ends a
 // line. Markdown reads a single newline as a soft break and renders it as a
@@ -13,6 +13,14 @@ function render(markdown: string): HTMLElement {
     hardBreaks(container)
     return container
 }
+
+const dashed = (markdown: string): HTMLElement => {
+    const container = render(markdown)
+    emDashes(container)
+    return container
+}
+
+const DASH = '\u2014'
 
 describe('hardBreaks', () => {
     it('breaks a line the author ended inside a paragraph', () => {
@@ -67,6 +75,48 @@ describe('hardBreaks', () => {
         const container = render('one\ntwo')
         const once = container.innerHTML
         hardBreaks(container)
+        expect(container.innerHTML).toBe(once)
+    })
+})
+
+// A keyboard has no key for a dash, so authors type two hyphens and expect one.
+describe('emDashes', () => {
+    it('turns a spaced double hyphen into a dash', () => {
+        expect(dashed('one -- two').innerHTML).toBe(`<p>one ${DASH} two</p>`)
+    })
+
+    it('turns a joined double hyphen into a dash', () => {
+        expect(dashed('one--two').innerHTML).toBe(`<p>one${DASH}two</p>`)
+    })
+
+    it('leaves a run of three or more hyphens alone', () => {
+        // Three is a thematic break, a table rule, or a drawn line, and four is
+        // whatever the author meant by four.
+        expect(dashed('one --- two').innerHTML).toBe('<p>one --- two</p>')
+        expect(dashed('one----two').innerHTML).toBe('<p>one----two</p>')
+    })
+
+    it('leaves a hyphen that is not doubled alone', () => {
+        expect(dashed('well-known').innerHTML).toBe('<p>well-known</p>')
+    })
+
+    it('leaves inline code alone', () => {
+        expect(dashed('`ls --all` and -- prose').innerHTML).toBe(`<p><code>ls --all</code> and ${DASH} prose</p>`)
+    })
+
+    it('leaves a fenced code block alone', () => {
+        const container = dashed('```\nrm -- file\n```')
+        expect(container.querySelector('code')?.textContent).toBe('rm -- file\n')
+    })
+
+    it('reaches a dash typed inside emphasis', () => {
+        expect(dashed('*one -- two*').innerHTML).toBe(`<p><em>one ${DASH} two</em></p>`)
+    })
+
+    it('is idempotent, because render() reruns on every content change', () => {
+        const container = dashed('one -- two, three--four')
+        const once = container.innerHTML
+        emDashes(container)
         expect(container.innerHTML).toBe(once)
     })
 })

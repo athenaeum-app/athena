@@ -23,6 +23,11 @@
         "highlightjs-luau": "^1.0.2",
         "micromark": "^4.0.2",
         "micromark-extension-gfm": "^3.0.0",
+        "micromark-util-character": "^2.1.1",
+        "micromark-util-chunked": "^2.0.1",
+        "micromark-util-classify-character": "^2.0.1",
+        "micromark-util-resolve-all": "^2.0.1",
+        "micromark-util-types": "^2.0.2",
         "rehype": "^13.0.2",
         "rehype-highlight": "^7.0.2",
         "solid-js": "^1.9.5"

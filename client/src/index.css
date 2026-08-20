@@ -713,3 +713,56 @@ input[type='checkbox']:not(.native-checkbox):focus-visible {
 .md-table-wrap > table {
     margin: 0;
 }
+
+/* Inline rich formatting: ==mark==, ++underline++ and [text]{color=name}, from
+   the micromark extension in markdownFormatting.ts. The parser only ever emits
+   these class names (the colour name is checked against a fixed palette before
+   it is written), so nothing here is reachable from author-controlled text.
+
+   The palette is stated as a hue per name and then mixed toward the theme's own
+   body colour rather than used neat. A fixed mid-tone reads on a dark theme and
+   washes out on a light one; mixing toward --color-main pulls each hue darker
+   on a light theme and lighter on a dark one, so all eleven themes and any
+   custom one get a colour that stays legible without enumerating them. */
+:root {
+    --md-color-red: var(--color-red-500);
+    --md-color-orange: var(--color-orange-500);
+    /* One step darker than the rest: yellow is the one hue whose 500 is already
+       close to white, so on a light theme it needs the extra depth to read. */
+    --md-color-yellow: var(--color-yellow-600);
+    --md-color-green: var(--color-green-500);
+    --md-color-blue: var(--color-blue-500);
+    --md-color-purple: var(--color-purple-500);
+}
+
+.prose .md-mark {
+    /* A tint of the theme's highlight, not the browser's yellow-on-black
+       default, which is unreadable the moment the surface under it is dark. */
+    background-color: color-mix(in srgb, var(--color-highlight-strongest) 30%, transparent);
+    color: inherit;
+    border-radius: 0.25rem;
+    padding: 0.05em 0.2em;
+}
+
+.prose .md-underline {
+    text-decoration: underline;
+    text-decoration-thickness: from-font;
+    text-underline-offset: 0.15em;
+}
+
+.prose .md-color {
+    color: color-mix(in srgb, var(--md-ink) 70%, var(--color-main));
+}
+
+/* Emphasis and links inside a coloured span are coloured by the span, not by
+   their own prose rule: the author asked for this run to be one colour. */
+.prose .md-color :where(strong, em, del, code, a) {
+    color: inherit;
+}
+
+.prose .md-color-red { --md-ink: var(--md-color-red); }
+.prose .md-color-orange { --md-ink: var(--md-color-orange); }
+.prose .md-color-yellow { --md-ink: var(--md-color-yellow); }
+.prose .md-color-green { --md-ink: var(--md-color-green); }
+.prose .md-color-blue { --md-ink: var(--md-color-blue); }
+.prose .md-color-purple { --md-ink: var(--md-color-purple); }
