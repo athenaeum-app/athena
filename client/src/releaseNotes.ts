@@ -137,6 +137,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'The Projects overview lays its deadlines along a timeline of days, a column each, so a busy week looks busy and a quiet one looks quiet. The button on the card turns it from across to down, and Settings > Modals > Projects turns it back into a plain grouped list.',
         'The overview is set a size larger throughout, and its agenda now has the full width of the panel.',
     ],
+    '2.26.0': [
+        'A deadline on the Projects overview can be dragged from one day to another to change its due date, with a mouse. A touch screen still sets dates on the card itself.',
+        'Cards and milestones with no date now sit in a tray under the timeline: drag one onto a day to date it, or drag a dated one back to take its date off.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
