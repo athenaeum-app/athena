@@ -133,6 +133,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.24.1': [
         "The Projects overview is laid out the way a project's own overview is, and a due date on either agenda now opens the board the card or milestone lives on rather than the project brief.",
     ],
+    '2.25.0': [
+        'The Projects overview lays its deadlines along a timeline of days, a column each, so a busy week looks busy and a quiet one looks quiet. The button on the card turns it from across to down, and Settings > Modals > Projects turns it back into a plain grouped list.',
+        'The overview is set a size larger throughout, and its agenda now has the full width of the panel.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
