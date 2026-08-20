@@ -26,6 +26,17 @@ describe('parse, inline link previews off', () => {
     it('interleaves a document token with the other kinds in document order', () => {
         expect(shape('::doc:abc123:: then ::project:def456::', false)).toEqual(['doc', 'md:then', 'project'])
     })
+
+    it('embeds a legacy moment, whose v1 id is not a uuid', () => {
+        // The importer carried v1 ids over as they were, so what the picker
+        // offers is not all hex, and a token holding one of those ids used to
+        // render as raw text the author never typed.
+        expect(shape('see [[moment_awjohd219uyqw9dq2]] here', false)).toEqual(['md:see', 'moment', 'md:here'])
+    })
+
+    it('leaves a bracketed word too short to be an id as written', () => {
+        expect(shape('a [[note]] b', false)).toEqual(['md:a [[note]] b'])
+    })
 })
 
 describe('parse, inline link previews on', () => {
@@ -146,6 +157,10 @@ describe('stripEmbedTokens', () => {
         expect(stripEmbedTokens('a ::todo:abc123:: ::canvas:abc123:: ::project:abc123:: ::doc:abc123:: [[abc123]] b')).toBe(
             'a      b',
         )
+    })
+
+    it('drops a legacy moment token too', () => {
+        expect(stripEmbedTokens('a [[moment_awjohd219uyqw9dq2]] b')).toBe('a  b')
     })
 })
 

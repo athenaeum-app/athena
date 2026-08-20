@@ -47,15 +47,22 @@ export type Part =
     | { type: 'embed'; kind: EmbedKind; id: string }
     | { type: 'links'; urls: string[] }
 
+// What an id inside a token may look like. Not a uuid pattern: a legacy moment
+// keeps the id v1 gave it, which the importer carried over verbatim, so ids
+// like `moment_awjohd219uyqw9dq2` sit in the same table as the uuids and the
+// picker offers them like any other moment. Word characters and dashes only,
+// which is what stops a `[[` in prose from running off into the sentence.
+const ID = '[A-Za-z0-9_-]{6,}'
+
 // Matches a todo/canvas/project/doc token OR a [[moment]] reference. Capture
 // groups: 1 = the kind, 2 = its id; 3 = moment id (for the [[id]] form).
-const TOKEN = /::(todo|canvas|project|doc):([0-9a-fA-F-]{6,})::|\[\[([0-9a-fA-F-]{6,})\]\]/g
+const TOKEN = new RegExp(`::(todo|canvas|project|doc):(${ID})::|\\[\\[(${ID})\\]\\]`, 'g')
 
 // The same shape with the kind left open, for text that only needs the tokens
 // gone rather than rendered. Deliberately looser than TOKEN: a kind this build
 // does not draw a card for is still a token, and leaving its raw text in a
 // preview or a quoted reply is worse than dropping it.
-const ANY_TOKEN = /::\w+:[0-9a-fA-F-]{6,}::|\[\[[0-9a-fA-F-]{6,}\]\]/g
+const ANY_TOKEN = new RegExp(`::\\w+:${ID}::|\\[\\[${ID}\\]\\]`, 'g')
 
 // Drop every embed token from a piece of content. Exported because three
 // places need markdown with no live embeds in it: the swiper preview card, a
