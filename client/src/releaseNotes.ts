@@ -145,6 +145,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'The Projects overview fits the window now: the agenda scrolls inside its own box instead of pushing the rest of the screen below the fold.',
         'Dragging on the timeline no longer widens every empty day. Only the day under the pointer opens, and the run scrolls by itself when you hold near either end.',
     ],
+    '2.26.2': [
+        'The Projects overview scrolls again, with room for each part: unscheduled work is a card of its own under the timeline, and the panels below it are large enough to read. The agenda no longer shows a scrollbar that scrolls nothing.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
