@@ -136,3 +136,39 @@ describe('auto-scroll on open', () => {
         expect(scrollEl.scrollTop).toBe(800) // clamp(scrollHeight=1300) -> 1300 - 500
     })
 })
+
+// Chat search runs on the server (api.listChat's `q`), because the panel only
+// holds the pages it has scrolled through: a filter over those would only ever
+// find what is already on screen.
+describe('search', () => {
+    it('asks the server for the query and lists what comes back', async () => {
+        vi.mocked(api.getMe).mockResolvedValue({ id: 'u1', username: 'owner', is_owner: true, roles: [], permissions: 0 })
+        const hit = {
+            id: 'old1',
+            author_id: 'u1',
+            content: 'the kettle needs descaling',
+            is_legacy: false,
+            created_at: new Date('2020-01-01').toISOString(),
+            updated_at: new Date('2020-01-01').toISOString(),
+        }
+        vi.mocked(api.listChat).mockImplementation(async (params: { q?: string } = {}) => (params.q ? [hit] : []))
+
+        render(() => (
+            <UIProvider>
+                <AuthProvider>
+                    <ChatPanel />
+                </AuthProvider>
+            </UIProvider>
+        ))
+
+        await waitFor(() => expect(screen.getByTestId('chat-search-open')).toBeInTheDocument())
+        screen.getByTestId('chat-search-open').click()
+
+        const box = (await screen.findByTestId('chat-search')) as HTMLInputElement
+        box.value = 'kettle'
+        box.dispatchEvent(new Event('input', { bubbles: true }))
+
+        await waitFor(() => expect(screen.getByText('the kettle needs descaling')).toBeInTheDocument(), { timeout: 3000 })
+        expect(vi.mocked(api.listChat)).toHaveBeenCalledWith(expect.objectContaining({ q: 'kettle' }))
+    })
+})

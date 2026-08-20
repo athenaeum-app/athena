@@ -3,6 +3,7 @@ package domain
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/athenaeum-app/athena/server/internal/db"
@@ -84,7 +85,10 @@ func ListChatMessages(cursor *ChatCursor, limit int) ([]models.ChatMessage, erro
 		return nil, fmt.Errorf("list chat messages: %w", err)
 	}
 	defer rows.Close()
+	return scanChatMessages(rows)
+}
 
+func scanChatMessages(rows *sql.Rows) ([]models.ChatMessage, error) {
 	out := []models.ChatMessage{}
 	for rows.Next() {
 		var message models.ChatMessage
@@ -98,6 +102,52 @@ func ListChatMessages(cursor *ChatCursor, limit int) ([]models.ChatMessage, erro
 		out = append(out, message)
 	}
 	return out, rows.Err()
+}
+
+// SearchChatMessages returns a page of non-deleted chat messages whose content
+// holds the given text, newest first, with the same cursor contract as
+// ListChatMessages.
+//
+// A substring match, not the FTS5 index moments use. Chat is written in
+// fragments (a URL, an id, half a word someone is asking about) and searched
+// for exactly those, which a tokenized index cannot find in the middle of a
+// term; there is also no chat_fts table to maintain, and one message is small
+// enough that a scan of the table costs less than keeping one in sync.
+//
+// The wildcards are escaped so a literal % or _ in the query stays literal.
+func SearchChatMessages(query string, cursor *ChatCursor, limit int) ([]models.ChatMessage, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	needle := strings.TrimSpace(query)
+	if needle == "" {
+		return []models.ChatMessage{}, nil
+	}
+
+	selectSQL := `SELECT id, author_id, display_name, content, is_legacy, deleted_at, created_at, updated_at
+	      FROM chat_messages
+	      WHERE deleted_at IS NULL AND content LIKE ? ESCAPE '\'`
+	args := []any{"%" + escapeLike(needle) + "%"}
+	if cursor != nil {
+		selectSQL += ` AND (created_at < ? OR (created_at = ? AND id < ?))`
+		args = append(args, cursor.CreatedAt, cursor.CreatedAt, cursor.ID)
+	}
+	selectSQL += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := db.DB.Query(selectSQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("search chat messages: %w", err)
+	}
+	defer rows.Close()
+	return scanChatMessages(rows)
+}
+
+// escapeLike neutralises the LIKE wildcards, so searching for "100%" finds the
+// messages that say "100%" rather than every message at all.
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return r.Replace(s)
 }
 
 // UpdateChatMessage edits the content of a message and bumps updated_at.

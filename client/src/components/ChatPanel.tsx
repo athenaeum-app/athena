@@ -1,6 +1,8 @@
-import { createSignal, createMemo, For, onMount, onCleanup, Show, type Component } from 'solid-js'
+import { createSignal, createMemo, createEffect, on, For, onMount, onCleanup, Show, type Component } from 'solid-js'
 import { api, type ChatMessage } from '../api'
 import { loadUsers, userName } from '../users'
+import { recentChat, watchChatFeed, refreshChatFeed, mutateChatFeed, CHAT_PAGE_SIZE } from '../chatFeed'
+import { keybinds, matchEvent } from '../keybinds'
 import { formatTime } from '../format'
 import { useAuth } from '../auth'
 import { hasPermission } from '../permissions'
@@ -27,6 +29,11 @@ interface ChatPanelProps {
     onOpenDoc?: (id: string, projectId: string) => void
     // When provided, a close button appears in the header (modal use).
     onClose?: () => void
+    // Whether this panel claims the global Focus search shortcut for its own
+    // search box. On for the modal, which is the surface you are looking at
+    // when you press it; off for the docked widget, where the shortcut still
+    // belongs to the feed behind it.
+    hotkeys?: boolean
     // Extra classes for the root (frame/rounding differs per host).
     class?: string
 }
@@ -34,10 +41,6 @@ interface ChatPanelProps {
 // Messages within this window from the same author are grouped under a single
 // header, so a burst of same-minute messages no longer repeats the name/time.
 const GROUP_WINDOW_MS = 5 * 60 * 1000
-
-// How many messages we fetch per page: both the initial newest page and each
-// older page pulled in as you scroll up. Server clamps `limit` to 500.
-const CHAT_PAGE_SIZE = 50
 
 interface GroupedMessage {
     msg: ChatMessage
@@ -88,6 +91,17 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
     const [hasMoreOlder, setHasMoreOlder] = createSignal(false)
     const [editingId, setEditingId] = createSignal<string | null>(null)
     const [editDraft, setEditDraft] = createSignal('')
+    // Search over the whole history, server-side (see api.listChat's `q`).
+    // Open is separate from the query so the box can be focused and empty:
+    // that is the state the shortcut puts you in.
+    const [searchOpen, setSearchOpen] = createSignal(false)
+    const [query, setQuery] = createSignal('')
+    const [results, setResults] = createSignal<ChatMessage[]>([])
+    const [searching, setSearching] = createSignal(false)
+    // The message a result jumped to, briefly highlighted so the eye can find
+    // it in the scrollback it landed in.
+    const [flashId, setFlashId] = createSignal<string | null>(null)
+    let searchInput: HTMLInputElement | undefined
 
     let scrollRef: HTMLDivElement | undefined
     let listRef: HTMLDivElement | undefined
@@ -142,14 +156,15 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
     const loadMessages = async () => {
         setLoading(true)
         try {
-            const msgs = await api.listChat({ limit: CHAT_PAGE_SIZE })
+            // The shared feed is what everyone else is already reading, so the
+            // panel opens on the same window rather than fetching a second copy
+            // of it.
+            await refreshChatFeed()
+            const msgs = recentChat()
             setHasMoreOlder(msgs.length === CHAT_PAGE_SIZE)
-            // API returns newest-first; the UI shows oldest→newest.
-            setMessages(msgs.reverse())
+            setMessages(msgs)
             stickToBottom = true
             requestAnimationFrame(scrollToBottom)
-        } catch (err) {
-            console.error('Failed to load chat:', err)
         } finally {
             setLoading(false)
         }
@@ -227,6 +242,14 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
         if (stick) requestAnimationFrame(scrollToBottom)
     }
 
+    // An optimistic change belongs to the scrollback and to the shared newest
+    // window alike, so the docked preview shows a send, an edit or a delete on
+    // the same frame this panel does rather than on its next poll.
+    const applyLocal = (fn: (msgs: ChatMessage[]) => ChatMessage[]) => {
+        setMessages(fn)
+        mutateChatFeed(fn)
+    }
+
     // Full render pipeline + unified editor: send through the shared chat
     // editor, append optimistically, reconcile on reply.
     const sendMessage = async (content: string) => {
@@ -234,7 +257,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
         if (!text) return
         try {
             const msg = await api.sendChat(text)
-            setMessages((prev) => [...prev, msg])
+            applyLocal((prev) => [...prev, msg])
             // Sending is an unambiguous "I want to be at the latest".
             stickToBottom = true
             scrollToBottom()
@@ -255,13 +278,14 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
         setEditingId(null)
         if (!text || text === msg.content) return
         const prev = messages()
-        setMessages((ms) => ms.map((m) => (m.id === msg.id ? { ...m, content: text, updated_at: new Date().toISOString() } : m)))
+        applyLocal((ms) => ms.map((m) => (m.id === msg.id ? { ...m, content: text, updated_at: new Date().toISOString() } : m)))
         try {
             const updated = await api.updateChat(msg.id, text)
-            setMessages((ms) => ms.map((m) => (m.id === updated.id ? updated : m)))
+            applyLocal((ms) => ms.map((m) => (m.id === updated.id ? updated : m)))
         } catch (err) {
             console.error('Failed to edit message:', err)
             setMessages(prev)
+            void refreshChatFeed()
             ui.toast('Could not edit message.', 'error')
         }
     }
@@ -270,12 +294,13 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
         const ok = await ui.confirm({ title: 'Delete message?', message: 'This message will be removed for everyone.', confirmLabel: 'Delete', danger: true })
         if (!ok) return
         const prev = messages()
-        setMessages((ms) => ms.filter((m) => m.id !== msg.id))
+        applyLocal((ms) => ms.filter((m) => m.id !== msg.id))
         try {
             await api.deleteChat(msg.id)
         } catch (err) {
             console.error('Failed to delete message:', err)
             setMessages(prev)
+            void refreshChatFeed()
             ui.toast('Could not delete message.', 'error')
         }
     }
@@ -293,13 +318,107 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
             onCleanup(() => observer.disconnect())
         }
 
-        const interval = setInterval(async () => {
+        // The poll itself is the shared feed's; this panel only says it is
+        // watching, and reconciles each window it publishes (below).
+        onCleanup(watchChatFeed())
+    })
+
+    // deferred: the first window is the one loadMessages already put on
+    // screen, and merging it again would fight that initial scroll.
+    createEffect(on(recentChat, (msgs) => mergeRecent(msgs), { defer: true }))
+
+    // --- search ---
+
+    // One page of hits is as far as the panel goes: chat search is for finding
+    // a message you remember, and a query that matches more than fifty is a
+    // query to narrow rather than a list to page through.
+    const SEARCH_LIMIT = 50
+    // How many older pages a jump will pull in before giving up. A hit from
+    // months back sits thousands of messages behind the newest window, and
+    // paging all of it in costs more than the answer is worth.
+    const JUMP_MAX_PAGES = 20
+
+    let searchTimer: ReturnType<typeof setTimeout> | undefined
+    const runSearch = (text: string) => {
+        setQuery(text)
+        if (searchTimer) clearTimeout(searchTimer)
+        const wanted = text.trim()
+        if (!wanted) {
+            setResults([])
+            setSearching(false)
+            return
+        }
+        setSearching(true)
+        // Typed one letter at a time, so wait for a pause rather than asking
+        // the server about every prefix on the way to the word.
+        searchTimer = setTimeout(async () => {
             try {
-                const msgs = await api.listChat({ limit: CHAT_PAGE_SIZE })
-                mergeRecent(msgs.reverse())
-            } catch {}
-        }, 5000)
-        onCleanup(() => clearInterval(interval))
+                const hits = await api.listChat({ q: wanted, limit: SEARCH_LIMIT })
+                // A slower earlier request must not land on top of a later
+                // one: only the answer to what is in the box now counts.
+                if (wanted !== query().trim()) return
+                setResults(hits)
+            } catch (err) {
+                console.error('Failed to search chat:', err)
+                if (wanted === query().trim()) setResults([])
+            } finally {
+                if (wanted === query().trim()) setSearching(false)
+            }
+        }, 250)
+    }
+
+    const openSearch = () => {
+        setSearchOpen(true)
+        queueMicrotask(() => {
+            searchInput?.focus()
+            searchInput?.select()
+        })
+    }
+    const closeSearch = () => {
+        if (searchTimer) clearTimeout(searchTimer)
+        setSearchOpen(false)
+        setQuery('')
+        setResults([])
+        setSearching(false)
+    }
+    onCleanup(() => {
+        if (searchTimer) clearTimeout(searchTimer)
+    })
+
+    // Walk older pages until the message is on the list, then put it under the
+    // reader's eye. The scrollback is the whole point of the jump: a result on
+    // its own says what was said, not what it was said about.
+    const jumpTo = async (target: ChatMessage) => {
+        closeSearch()
+        let pages = 0
+        while (!messages().some((m) => m.id === target.id) && hasMoreOlder() && pages++ < JUMP_MAX_PAGES) {
+            await loadOlder()
+        }
+        if (!messages().some((m) => m.id === target.id)) {
+            ui.toast('That message is too far back in the history to jump to.', 'error')
+            return
+        }
+        stickToBottom = false
+        setFlashId(target.id)
+        requestAnimationFrame(() => {
+            listRef?.querySelector(`[data-message-id="${target.id}"]`)?.scrollIntoView({ block: 'center' })
+        })
+        setTimeout(() => setFlashId((id) => (id === target.id ? null : id)), 2500)
+    }
+
+    // Focus search belongs to whichever surface is in front, which in the
+    // modal is this panel rather than the feed behind it. Capture phase: the
+    // global handler listens on window too, and the first one to see the key
+    // wins it.
+    onMount(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (!props.hotkeys || !matchEvent(e, keybinds().focusSearch)) return
+            e.preventDefault()
+            e.stopPropagation()
+            openSearch()
+        }
+        window.addEventListener('keydown', onKey, true)
+        onCleanup(() => window.removeEventListener('keydown', onKey, true))
     })
 
     const authorLabel = (msg: ChatMessage) => (msg.author_id ? userName(msg.author_id) : msg.display_name || 'Unknown')
@@ -343,21 +462,67 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
 
     return (
         <div data-testid="chat-panel" class={`flex min-h-0 flex-col ${props.class ?? ''}`}>
-            {/* Header */}
-            <div class="bg-element border-element-accent flex items-center justify-between border-b p-3">
-                <div class="flex items-center gap-2">
-                    <span class="material-symbols-outlined text-highlight text-xl">message</span>
-                    <h2 class="text-main font-serif text-lg tracking-wide">Chat</h2>
-                </div>
+            {/* Header. Search is an icon until it is wanted and an input once
+                it is, so the header stays a header rather than a toolbar. */}
+            <div class="bg-element border-element-accent flex items-center gap-2 border-b p-3">
+                <span class="material-symbols-outlined text-highlight text-xl">message</span>
+                <h2 class="text-main font-serif text-lg tracking-wide">Chat</h2>
+                <Show
+                    when={searchOpen()}
+                    fallback={
+                        <button
+                            onClick={openSearch}
+                            data-testid="chat-search-open"
+                            class="text-sub hover:text-main ml-auto shrink-0 transition-colors hover:cursor-pointer"
+                            title="Search chat"
+                            aria-label="Search chat"
+                        >
+                            <span class="material-symbols-outlined text-xl">search</span>
+                        </button>
+                    }
+                >
+                    <div class="relative ml-auto min-w-0 flex-1 sm:max-w-64">
+                        <span class="material-symbols-outlined text-sub pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-base">search</span>
+                        <input
+                            ref={searchInput}
+                            type="text"
+                            value={query()}
+                            onInput={(e) => runSearch(e.currentTarget.value)}
+                            onKeyDown={(e) => {
+                                if (e.key !== 'Escape') return
+                                // Closes the search, not the chat: the global
+                                // handler skips a key a component has taken.
+                                e.preventDefault()
+                                e.stopPropagation()
+                                closeSearch()
+                            }}
+                            placeholder="Search chat…"
+                            data-testid="chat-search"
+                            aria-label="Search chat"
+                            class="bg-element-matte text-main border-element-accent focus:border-highlight w-full rounded-md border py-1 pl-8 pr-7 text-sm focus:outline-none"
+                        />
+                        <button
+                            onClick={closeSearch}
+                            class="text-sub hover:text-main absolute right-1.5 top-1/2 -translate-y-1/2 transition-colors hover:cursor-pointer"
+                            title="Close search"
+                            aria-label="Close search"
+                        >
+                            <span class="material-symbols-outlined text-base">close</span>
+                        </button>
+                    </div>
+                </Show>
                 <Show when={props.onClose}>
-                    <button onClick={() => props.onClose?.()} class="text-sub hover:text-plain transition-colors" aria-label="Close chat">
+                    <button onClick={() => props.onClose?.()} class="text-sub hover:text-plain shrink-0 transition-colors" aria-label="Close chat">
                         <span class="material-symbols-outlined">close</span>
                     </button>
                 </Show>
             </div>
 
-            {/* Messages */}
-            <div ref={scrollRef} onScroll={onScroll} data-testid="chat-scroll" class="min-h-0 flex-1 overflow-y-auto p-4">
+            {/* Messages, with search results laid over them rather than in
+                place of them: unmounting the scrollback would lose the scroll
+                position, and with it the resize observer pinned to the list. */}
+            <div class="relative min-h-0 flex-1">
+            <div ref={scrollRef} onScroll={onScroll} data-testid="chat-scroll" class="h-full overflow-y-auto p-4">
               <div ref={listRef}>
                 <Show when={loading()}>
                     <p class="text-sub text-center text-sm">Loading…</p>
@@ -386,7 +551,18 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                             ui.actionSheet({ title: 'Message', actions })
                         })
                         return (
-                            <div {...lp.handlers} classList={{ 'mt-4': showHeader, 'mt-0.5': !showHeader }} class="group relative">
+                            <div
+                                {...lp.handlers}
+                                data-message-id={msg.id}
+                                classList={{
+                                    'mt-4': showHeader,
+                                    'mt-0.5': !showHeader,
+                                    // Fades out on its own, so a jump lands on something the eye
+                                    // can pick out without leaving the scrollback marked up.
+                                    'bg-highlight/15 rounded-md': flashId() === msg.id,
+                                }}
+                                class="group relative transition-colors duration-700"
+                            >
                                 <Show when={showHeader}>
                                     <div class="flex items-baseline gap-2">
                                         <span class="text-highlight-strong text-xs font-bold">{authorLabel(msg)}</span>
@@ -494,6 +670,41 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                     }}
                 </For>
               </div>
+            </div>
+
+            <Show when={searchOpen() && query().trim()}>
+                <div data-testid="chat-search-results" class="bg-element-matte absolute inset-0 overflow-y-auto p-3">
+                    <Show when={!searching()} fallback={<p class="text-sub text-center text-sm">Searching…</p>}>
+                        <Show when={results().length > 0} fallback={<p class="text-sub/60 text-center text-sm italic">No messages match that.</p>}>
+                            <p class="text-sub/70 mb-2 text-[11px] font-bold uppercase tracking-widest">
+                                {results().length}
+                                {results().length === SEARCH_LIMIT ? '+' : ''} {results().length === 1 ? 'match' : 'matches'}
+                            </p>
+                            <div class="flex flex-col gap-1">
+                                <For each={results()}>
+                                    {(msg) => (
+                                        <button
+                                            onClick={() => void jumpTo(msg)}
+                                            class="border-element-accent hover:border-highlight w-full rounded-md border p-2 text-left transition-colors hover:cursor-pointer"
+                                        >
+                                            <div class="flex items-baseline gap-2">
+                                                <span class="text-highlight-strong text-xs font-bold">{authorLabel(msg)}</span>
+                                                <span class="text-sub text-[11px]">{formatTime(msg.created_at)}</span>
+                                            </div>
+                                            {/* Plain text, not the render pipeline: a result is a
+                                                line to recognise, and the message itself is one
+                                                click away. */}
+                                            <p class="text-main line-clamp-3 whitespace-pre-wrap text-sm">
+                                                {stripEmbedTokens(msg.content).trim() || msg.content}
+                                            </p>
+                                        </button>
+                                    )}
+                                </For>
+                            </div>
+                        </Show>
+                    </Show>
+                </div>
+            </Show>
             </div>
 
             {/* Composer: unified editor, chat chrome. Absent without

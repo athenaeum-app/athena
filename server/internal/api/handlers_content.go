@@ -536,7 +536,16 @@ func (s *Server) handleListChat(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r, 50)
 	cursor := parseChatCursor(r)
 
-	messages, err := domain.ListChatMessages(cursor, limit)
+	// `q` turns the same endpoint into a search over the whole history: the
+	// chat panel only holds the pages it has scrolled through, so filtering
+	// client-side would only ever find what is already on screen.
+	var messages []models.ChatMessage
+	var err error
+	if query := r.URL.Query().Get("q"); strings.TrimSpace(query) != "" {
+		messages, err = domain.SearchChatMessages(query, cursor, limit)
+	} else {
+		messages, err = domain.ListChatMessages(cursor, limit)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list chat messages")
 		return

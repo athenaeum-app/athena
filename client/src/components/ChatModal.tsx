@@ -26,6 +26,9 @@ export const ChatModal: Component<ChatModalProps> = (props) => {
                     onOpenProject={props.onOpenProject}
                     onOpenDoc={props.onOpenDoc}
                     onClose={props.onClose}
+                    // Focus search reaches the chat's own search box while
+                    // this is the surface in front of the reader.
+                    hotkeys
                     class="bg-element-matte border-element-accent h-full overflow-hidden rounded-xl border shadow-2xl"
                 />
             </div>

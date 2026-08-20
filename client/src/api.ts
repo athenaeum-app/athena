@@ -390,11 +390,15 @@ export const api = {
         request<BackupSettings>('/api/v1/backups/settings', { method: 'PUT', body: JSON.stringify(settings) }),
 
     // Chat
-    listChat: (params: { limit?: number; cursor_ts?: string; cursor_id?: string } = {}) => {
+    // `q` searches the whole history instead of paging it: the panel only holds
+    // the pages it has scrolled through, so a filter over those would only ever
+    // find what is already on screen.
+    listChat: (params: { limit?: number; cursor_ts?: string; cursor_id?: string; q?: string } = {}) => {
         const searchParams = new URLSearchParams()
         if (params.limit) searchParams.set('limit', String(params.limit))
         if (params.cursor_ts) searchParams.set('cursor_ts', params.cursor_ts)
         if (params.cursor_id) searchParams.set('cursor_id', params.cursor_id)
+        if (params.q) searchParams.set('q', params.q)
         const queryString = searchParams.toString()
         return request<ChatMessage[]>(`/api/v1/chat${queryString ? '?' + queryString : ''}`)
     },

@@ -1464,7 +1464,8 @@ paths:
       summary: List chat messages
       description: |
         Returns a page of chat messages, paginated by
-        `(cursor_ts, cursor_id)`. Requires the `VIEW_CHAT` permission.
+        `(cursor_ts, cursor_id)`. With `q`, returns the page of messages whose
+        content holds that text instead. Requires the `VIEW_CHAT` permission.
       security:
         - cookieAuth: []
       parameters:
@@ -1492,6 +1493,15 @@ paths:
           schema:
             type: string
           description: ID of the last message on the previous page.
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Search text. Messages whose content holds it, case-insensitively,
+            anywhere in the message; `%` and `_` are matched literally. Blank
+            or whitespace-only returns nothing rather than everything.
       responses:
         '200':
           description: List of chat messages (newest first).
