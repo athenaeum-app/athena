@@ -102,9 +102,10 @@ _Avoid_: link node (that is the URL node), card, embed node.
 ## Embeds
 
 **Embed**:
-An inline reference to another entity (a Moment, Todo list, Canvas or Project),
-written as a token inside a Moment's or chat message's body and rendered as a
-Preview in read mode. Four kinds exist; each renders and behaves differently.
+An inline reference to another entity (a Moment, Todo list, Canvas, Project or
+Document), written as a token inside a Moment's or chat message's body and
+rendered as a Preview in read mode. Five kinds exist; each renders and behaves
+differently.
 A Canvas text node runs the same pipeline, so the same tokens work there.
 _Avoid_: link, mention, transclusion, reference (as a proper noun). A moment
 Embed is still an Embed even though its token looks like a wiki-link.
@@ -135,6 +136,11 @@ An Embed of a Project. Renders as a _compact_ Preview: a completion meter in the
 project's accent, an excerpt of the overview, and the open/done counts. Clicking
 opens the project's Hub.
 
+**Document embed**:
+An Embed of a project Document (see `CONTEXT.md` for the Projects language).
+Renders as a _compact_ Preview (title + excerpt); clicking opens the document in
+its project's Hub. Token: `::doc:id::`.
+
 **Focused reader**:
 The read-only expanded view of a single Moment (large, centered, full body +
 attachments + link previews, with an Edit button). The expanded view a Moment
@@ -154,6 +160,16 @@ The focused image viewer opened by clicking any content image: fit/zoom/pan,
 filename caption, download, and arrow/swipe navigation across every image in that
 Moment.
 _Avoid_: image modal, viewer, preview.
+
+## Formatting
+
+**Inline formatting**:
+Author-applied emphasis beyond standard markdown, written in the source as
+`==text==` (highlight), `++text++` (underline), and `[text]{color=name}` with
+six preset names (red, orange, yellow, green, blue, purple). Rendered as
+theme-aware styling by the moment pipeline, so it works anywhere a moment's
+body renders and stays plain text everywhere else.
+_Avoid_: rich text, WYSIWYG, markup (as a proper noun).
 
 ## Identity and access
 
