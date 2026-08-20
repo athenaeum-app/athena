@@ -179,6 +179,57 @@ func TestSearchMoments_FTS(t *testing.T) {
 	}
 }
 
+// The composer's picker (ADR-0019) searches while the word is still being
+// typed, so a partial word has to find the moment.
+func TestSearchMoments_PrefixAndPunctuation(t *testing.T) {
+	setupDB(t)
+	a, _ := CreateArchive("Journal")
+	CreateMoment(a.ID, "", "Grocery list", "milk and eggs", nil)
+	CreateMoment(a.ID, "", "Trip notes", "don't forget the flight", nil)
+
+	hits, err := SearchMoments("groc", nil, nil, 50, nil)
+	if err != nil {
+		t.Fatalf("prefix search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Title != "Grocery list" {
+		t.Errorf("expected the prefix to find Grocery list, got %+v", hits)
+	}
+
+	// An apostrophe is FTS5 syntax, so raw input here used to fail the query.
+	hits, err = SearchMoments("don't", nil, nil, 50, nil)
+	if err != nil {
+		t.Fatalf("punctuated search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Title != "Trip notes" {
+		t.Errorf("expected the apostrophe to be searched, not parsed, got %+v", hits)
+	}
+
+	// Nothing searchable in the input is not an error, and must not reach MATCH.
+	hits, err = SearchMoments("***", nil, nil, 50, nil)
+	if err != nil {
+		t.Fatalf("empty search: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("a query with no terms should match nothing, got %d", len(hits))
+	}
+}
+
+func TestFTSQuery(t *testing.T) {
+	cases := map[string]string{
+		"Tokyo":        `"Tokyo"*`,
+		"milk eggs":    `"milk"* "eggs"*`,
+		"don't":        `"don"* "t"*`,
+		`say "hi" (x)`: `"say"* "hi"* "x"*`,
+		"  ":           "",
+		"()":           "",
+	}
+	for raw, want := range cases {
+		if got := FTSQuery(raw); got != want {
+			t.Errorf("FTSQuery(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
 func TestSearchMoments_ExcludesDeleted(t *testing.T) {
 	setupDB(t)
 	a, _ := CreateArchive("Journal")

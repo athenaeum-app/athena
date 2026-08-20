@@ -163,12 +163,15 @@ func TagFacets(archiveID *string, search string, selectedTagIDs []string, filter
 	// moments table to `moment` so one filter prefix serves both.
 	var base string
 	args := []any{}
-	if search != "" {
+	// Through the same builder SearchMoments uses, or the counts would answer a
+	// different question from the feed they are counting.
+	match := FTSQuery(search)
+	if match != "" {
 		base = `SELECT moment.id
 		        FROM moments_fts fts
 		        JOIN moments moment ON moment.rowid = fts.rowid
 		        WHERE moments_fts MATCH ? AND moment.deleted_at IS NULL`
-		args = append(args, search)
+		args = append(args, match)
 	} else {
 		base = `SELECT moment.id FROM moments moment WHERE moment.deleted_at IS NULL`
 	}

@@ -163,18 +163,47 @@ func ListMoments(archiveID *string, cursor *MomentCursor, limit int, filter *Mom
 	return scanMoments(rows)
 }
 
+// FTSQuery turns what someone typed into an FTS5 MATCH expression.
+//
+// Raw input cannot go to MATCH directly: FTS5 reads quotes, parentheses,
+// asterisks, NEAR and OR as syntax, so an apostrophe in "don't" is a query
+// error rather than a search, and the whole request fails with it. Every run of
+// word characters is therefore re-quoted as a literal term, and everything else
+// is dropped.
+//
+// Each term is a prefix term. Both callers are search-as-you-type (the feed's
+// search box and the composer's picker), where whole-word matching means
+// "Tokyo" finds nothing until the final letter lands.
+//
+// An empty result means the input held nothing searchable, and the caller must
+// not run the query: FTS5 rejects an empty MATCH.
+func FTSQuery(raw string) string {
+	terms := strings.FieldsFunc(raw, func(r rune) bool {
+		return !(r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r > 127)
+	})
+	quoted := make([]string, 0, len(terms))
+	for _, term := range terms {
+		quoted = append(quoted, `"`+term+`"*`)
+	}
+	return strings.Join(quoted, " ")
+}
+
 // SearchMoments runs an FTS5 query against moments_fts, joins back to
 // moments, optionally filters by archive, and applies cursor pagination.
 func SearchMoments(query string, archiveID *string, cursor *MomentCursor, limit int, filter *MomentFilter) ([]models.Moment, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
+	match := FTSQuery(query)
+	if match == "" {
+		return []models.Moment{}, nil
+	}
 
 	selectSQL := `SELECT moment.id, moment.archive_id, moment.author_id, moment.title, moment.content, moment.timestamp, moment.is_legacy, moment.pinned, moment.deleted_at, moment.created_at, moment.updated_at
 	      FROM moments_fts fts
 	      JOIN moments moment ON moment.rowid = fts.rowid
 	      WHERE moments_fts MATCH ? AND moment.deleted_at IS NULL`
-	args := []any{query}
+	args := []any{match}
 	if archiveID != nil {
 		selectSQL += ` AND moment.archive_id = ?`
 		args = append(args, *archiveID)
