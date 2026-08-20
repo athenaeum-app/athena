@@ -65,13 +65,13 @@ test.describe('embed picker', () => {
         await page.keyboard.press('ArrowDown')
         await page.keyboard.press('ArrowUp')
         await page.keyboard.press('Enter')
-        await expect(page.getByRole('heading', { name: 'Reference a moment' })).toBeVisible()
+        await expect(page.getByRole('heading', { name: 'Link a moment' })).toBeVisible()
 
         // The search box has focus without being clicked, so arrows reach it.
         const search = page.getByPlaceholder('Search…')
         await expect(search).toBeFocused()
 
-        // The picker fetches its list in onMount, and the heading above renders
+        // The picker searches when it opens, and the heading above renders
         // before that lands. Until it does the list is empty, so Enter has
         // nothing to pick and silently does nothing. Waiting for a row is what
         // makes this deterministic; without it the test is a coin flip on

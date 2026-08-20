@@ -6,17 +6,30 @@ import { rankTags } from '../tagRank'
 import { keybinds, matchEvent } from '../keybinds'
 import { Modal, PickerDialog } from './Modal'
 import { useIsDesktop } from '../media'
+import { INLINE_COLORS, MARK_SYNTAX, UNDERLINE_SYNTAX, colorSyntax } from '../markdownFormatting'
+import {
+    EMBED_KINDS,
+    createEmbedSearch,
+    embedKindSpec,
+    embedToken,
+    parseEmbedTrigger,
+    type EmbedCandidate,
+    type EmbedKind,
+    type EmbedTrigger,
+} from '../embedSearch'
 
 // Unified editor. One component drives moment create, moment edit and
 // chat compose, replacing the old SmartEditor (inline create) and MomentEditor
 // (modal edit) and their duplicated upload / insert / autocomplete helpers.
 //
 // Features shared across all three chromes:
-//   - selection-aware markdown toolbar (bold / italic / strike / link)
-//   - `[[` moment-reference autocomplete (lightweight, from momentIndex)
-//   - `/` slash menu -> Moment / Todo / Canvas / Project -> searchable picker ->
-//     inserts [[id]] / ::todo:id:: / ::canvas:id:: / ::project:id:: (the same
-//     tokens MomentBody renders)
+//   - selection-aware markdown toolbar (bold / italic / strike / highlight /
+//     underline / colour / link)
+//   - `[[` opens the one embed picker (ADR-0019): one search across every kind,
+//     grouped and badged, narrowed by a `[[todo:` style prefix, inserting the
+//     kind's canonical token
+//   - `/` slash menu -> Moment / Todo / Canvas / Project -> the same search in a
+//     dialog, pinned to that one kind
 //   - paste / drag-and-drop asset uploads
 //   - configurable save keybind (Ctrl+S) plus Ctrl+Enter, handled locally so it
 //     works while the textarea is focused
@@ -45,6 +58,10 @@ export interface EditorProps {
     // ranking off partial data.
     tagGraph?: TagGraph | null
     defaultArchive?: string | null
+    // Moments the host already has on screen. Only a fallback now: the picker
+    // searches the server's full-text index, and this is what answers while
+    // that request is in flight or if it fails. A host with nothing to hand can
+    // leave it out.
     momentIndex?: { id: string; title: string }[]
     // Persist. tagIds/archiveId are empty for chat.
     onSubmit: (title: string, content: string, tagIds: string[], archiveId: string) => Promise<void>
@@ -139,8 +156,6 @@ function writeArchiveChoice(archiveId: string): void {
     }
 }
 
-type SlashKind = 'moment' | 'todo' | 'canvas' | 'project'
-
 // How many ranked tag suggestions the composer offers at once. The point of the
 // list is to replace typing, so it wants to show the whole vocabulary of a
 // normal library rather than a teaser: at six it fitted two rows of three and
@@ -154,12 +169,18 @@ const TAG_SUGGESTION_LIMIT = 40
 // visible. Past this the textarea scrolls internally, as it always did.
 const GROW_CAP = 'max-h-[60vh]'
 
-const SLASH_ITEMS: { kind: SlashKind; icon: string; label: string; hint: string }[] = [
-    { kind: 'moment', icon: 'description', label: 'Moment', hint: 'link a moment' },
-    { kind: 'todo', icon: 'checklist', label: 'To-do list', hint: 'embed a list' },
-    { kind: 'canvas', icon: 'dashboard', label: 'Canvas', hint: 'embed a canvas' },
-    { kind: 'project', icon: 'space_dashboard', label: 'Project', hint: 'embed a project' },
-]
+// Straight off the kind registry, so a kind added there appears here too.
+const SLASH_ITEMS = EMBED_KINDS.map((spec) => ({
+    kind: spec.kind,
+    icon: spec.icon,
+    label: spec.label,
+    hint: spec.hint,
+}))
+
+// How many hits of each kind the inline `[[` menu shows. It sits over the text
+// being written, so the whole list has to stay glanceable; the slash menu's
+// dialog is the surface for browsing a kind in full.
+const EMBED_MENU_LIMIT = 5
 
 export const Editor: Component<EditorProps> = (props) => {
     const showFields = () => props.chrome !== 'chat'
@@ -232,15 +253,17 @@ export const Editor: Component<EditorProps> = (props) => {
     const [dragging, setDragging] = createSignal(false)
     const [uploading, setUploading] = createSignal(0)
 
-    // `[[` moment autocomplete.
-    const [refQuery, setRefQuery] = createSignal<string | null>(null)
-    const [refStart, setRefStart] = createSignal(0)
+    // `[[` embed picker: the trigger currently being typed, if any.
+    const [embedTrigger, setEmbedTrigger] = createSignal<EmbedTrigger | null>(null)
     const [refIndex, setRefIndex] = createSignal(0)
+
+    // The toolbar's colour swatches, open or closed.
+    const [colorPicker, setColorPicker] = createSignal(false)
 
     // `/` slash menu.
     const [slash, setSlash] = createSignal<{ query: string; start: number; index: number } | null>(null)
     // Searchable embed picker opened from the slash menu.
-    const [picker, setPicker] = createSignal<{ kind: SlashKind; insertAt: number; removeLen: number } | null>(null)
+    const [picker, setPicker] = createSignal<{ kind: EmbedKind; insertAt: number; removeLen: number } | null>(null)
 
     let contentRef: HTMLTextAreaElement | undefined
     let fileInputRef: HTMLInputElement | undefined
@@ -369,32 +392,47 @@ export const Editor: Component<EditorProps> = (props) => {
 
     onMount(() => props.onReady?.({ insertBlock }))
 
-    const tokenFor = (kind: SlashKind, id: string) => (kind === 'moment' ? `[[${id}]]` : `::${kind}:${id}::`)
+    // ---- `[[` embed picker ----
 
-    // ---- `[[` autocomplete ----
-
-    const refMatches = createMemo(() => {
-        const q = refQuery()
-        const idx = props.momentIndex
-        if (q === null || !idx || idx.length === 0) return []
-        const needle = q.toLowerCase()
-        return idx.filter((m) => m.title.toLowerCase().includes(needle)).slice(0, 6)
+    const embedSearch = createEmbedSearch({
+        request: () => {
+            const trigger = embedTrigger()
+            return trigger ? { kind: trigger.kind, query: trigger.query } : null
+        },
+        fallbackMoments: () => props.momentIndex,
+        limitPerKind: EMBED_MENU_LIMIT,
     })
+
+    const refMatches = embedSearch.results
 
     createEffect(() => {
         refMatches()
         setRefIndex(0)
     })
 
-    const insertReference = (item: { id: string }) => {
+    // Grouped for display, but the highlight walks the flat list, so each group
+    // needs to know where it starts in it.
+    const refGroups = createMemo(() => {
+        let offset = 0
+        return embedSearch.groups().map((group) => {
+            const at = offset
+            offset += group.items.length
+            return { ...group, offset: at }
+        })
+    })
+
+    // The query text is a search key, not content: what lands in the body is
+    // the picked entity's canonical token and nothing else.
+    const insertReference = (item: EmbedCandidate) => {
         const textarea = contentRef
-        if (!textarea) return
+        const trigger = embedTrigger()
+        if (!textarea || !trigger) return
         const val = content()
         const cursor = textarea.selectionStart
-        const inserted = `[[${item.id}]]`
-        const from = refStart()
+        const inserted = embedToken(item.kind, item.id)
+        const from = trigger.start
         setContent(val.slice(0, from) + inserted + val.slice(cursor))
-        setRefQuery(null)
+        setEmbedTrigger(null)
         const pos = from + inserted.length
         restoreSelection(pos, pos)
     }
@@ -424,7 +462,7 @@ export const Editor: Component<EditorProps> = (props) => {
         setSlash((s) => (s && s.index !== 0 ? { ...s, index: 0 } : s))
     })
 
-    const chooseSlash = (kind: SlashKind) => {
+    const chooseSlash = (kind: EmbedKind) => {
         const state = slash()
         setSlash(null)
         if (!state) return
@@ -437,10 +475,10 @@ export const Editor: Component<EditorProps> = (props) => {
         const p = picker()
         setPicker(null)
         setSlash(null)
-        setRefQuery(null)
+        setEmbedTrigger(null)
         if (!p) return
         // Replace the `/query` trigger with the token in a single edit.
-        const token = tokenFor(p.kind, id)
+        const token = embedToken(p.kind, id)
         const val = content()
         setContent(val.slice(0, p.insertAt) + token + val.slice(p.insertAt + p.removeLen))
         const pos = p.insertAt + token.length
@@ -463,17 +501,25 @@ export const Editor: Component<EditorProps> = (props) => {
     const handleContentInput = (e: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
         const ta = e.currentTarget
         setContent(ta.value)
+        // Typing is the clearest sign the swatches are no longer wanted; they
+        // keep focus in the textarea, so there is no blur to close them on.
+        setColorPicker(false)
         const cur = ta.selectionStart
         const before = ta.value.slice(0, cur)
 
-        const refM = before.match(/\[\[([^\]\n]*)$/)
-        if (refM && props.momentIndex && props.momentIndex.length > 0) {
-            setRefQuery(refM[1])
-            setRefStart(cur - refM[0].length)
+        // `[[` is the one door: it opens whether or not the host handed over a
+        // moment index, because the search behind it is the server's.
+        const trigger = parseEmbedTrigger(before)
+        if (trigger) {
+            setEmbedTrigger((prev) =>
+                prev && prev.kind === trigger.kind && prev.query === trigger.query && prev.start === trigger.start
+                    ? prev
+                    : trigger,
+            )
             setSlash(null)
             return
         }
-        setRefQuery(null)
+        setEmbedTrigger(null)
 
         const slashM = before.match(/(?:^|\s)\/(\w*)$/)
         if (slashM) {
@@ -494,7 +540,10 @@ export const Editor: Component<EditorProps> = (props) => {
     // the composer moves under it: the chat scrollback grows, the page
     // scrolls, the window resizes.
     const [anchor, setAnchor] = createSignal<DOMRect | null>(null)
-    const menuOpen = () => (slash() && slashMatches().length > 0) || (refQuery() !== null && refMatches().length > 0)
+    // The `[[` menu stays up while the search is still out, so the box does not
+    // blink out from under a slow request and back in with the answer.
+    const embedMenuOpen = () => embedTrigger() !== null && (refMatches().length > 0 || embedSearch.loading())
+    const menuOpen = () => (slash() && slashMatches().length > 0) || embedMenuOpen()
 
     const measureAnchor = () => {
         if (contentRef) setAnchor(contentRef.getBoundingClientRect())
@@ -529,10 +578,17 @@ export const Editor: Component<EditorProps> = (props) => {
         const width = Math.min(a.width, 384) // matches the old max-w-sm
         const spaceBelow = window.innerHeight - a.bottom
         const flipUp = spaceBelow < 220 && a.top > spaceBelow
+        // Bounded by the room on that side, not by a fixed class. The `[[` menu
+        // holds several kinds at once, and on a phone a menu tall enough to
+        // show them all ran off the top of the screen, taking its own heading
+        // with it. Past this the menu scrolls, which is why both of them are
+        // overflow-y-auto.
+        const room = (flipUp ? a.top : spaceBelow) - 8
         return {
             position: 'fixed',
             left: `${a.left}px`,
             width: `${width}px`,
+            'max-height': `${Math.max(140, Math.min(320, room))}px`,
             ...(flipUp
                 ? { bottom: `${window.innerHeight - a.top + 4}px` }
                 : { top: `${a.bottom + 4}px` }),
@@ -546,7 +602,7 @@ export const Editor: Component<EditorProps> = (props) => {
     // gestures. Without it the dropdown stays visually stuck open until
     // something else happens to clear the state (e.g. posting the moment).
     const handleContentBlur = () => {
-        setRefQuery(null)
+        setEmbedTrigger(null)
         setSlash(null)
     }
 
@@ -580,9 +636,16 @@ export const Editor: Component<EditorProps> = (props) => {
             }
         }
 
-        // `[[` autocomplete navigation.
+        // `[[` picker navigation. Escape is handled whenever the menu is up,
+        // including while the search is still out: waiting for results before
+        // the key does anything is how a menu gets stuck open.
         const matches = refMatches()
-        if (refQuery() !== null && matches.length > 0) {
+        if (embedMenuOpen() && e.key === 'Escape') {
+            e.preventDefault()
+            setEmbedTrigger(null)
+            return
+        }
+        if (embedTrigger() && matches.length > 0) {
             if (e.key === 'ArrowDown') {
                 e.preventDefault()
                 setRefIndex((p) => (p + 1) % matches.length)
@@ -596,11 +659,6 @@ export const Editor: Component<EditorProps> = (props) => {
             if (e.key === 'Enter' || e.key === 'Tab') {
                 e.preventDefault()
                 insertReference(matches[refIndex()])
-                return
-            }
-            if (e.key === 'Escape') {
-                e.preventDefault()
-                setRefQuery(null)
                 return
             }
         }
@@ -842,7 +900,7 @@ export const Editor: Component<EditorProps> = (props) => {
                 setContent('')
                 setSelectedTags([])
                 setTagInput('')
-                setRefQuery(null)
+                setEmbedTrigger(null)
                 setSlash(null)
             }
         } catch (err) {
@@ -868,14 +926,59 @@ export const Editor: Component<EditorProps> = (props) => {
         </button>
     )
 
+    // The preset text colours, as a row of swatches under the toolbar button.
+    // Absolute so opening it does not shove the writing area down the page,
+    // and the swatch keeps focus in the textarea the way every other toolbar
+    // control does, so the selection it is about to wrap survives the click.
+    const ColorPicker = () => (
+        <div class="relative flex items-center">
+            <ToolbarButton icon="format_color_text" title="Text color" onClick={() => setColorPicker((v) => !v)} />
+            <Show when={colorPicker()}>
+                <div class="bg-element-matte border-element-accent absolute top-full left-0 z-30 mt-1 flex gap-1.5 rounded-lg border p-1.5 shadow-2xl">
+                    <For each={INLINE_COLORS}>
+                        {(color) => (
+                            <button
+                                type="button"
+                                title={color}
+                                aria-label={`Color the selection ${color}`}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                    setColorPicker(false)
+                                    const syntax = colorSyntax(color)
+                                    wrapSelection(syntax.prefix, syntax.suffix)
+                                }}
+                                class="border-element-accent h-5 w-5 shrink-0 rounded-full border transition-transform hover:scale-110 hover:cursor-pointer"
+                                style={{ 'background-color': `var(--md-color-${color})` }}
+                            />
+                        )}
+                    </For>
+                </div>
+            </Show>
+        </div>
+    )
+
     const Toolbar = () => (
-        <div class="border-element-accent flex items-center gap-1 border-b pb-2">
+        // Wraps: this is nine controls now, and the composer is as narrow as a
+        // phone in the mobile shell.
+        <div class="border-element-accent flex flex-wrap items-center gap-1 border-b pb-2">
             <ToolbarButton icon="format_bold" title="Bold (Ctrl+B)" onClick={() => wrapSelection('**', '**')} />
             <ToolbarButton icon="format_italic" title="Italic (Ctrl+I)" onClick={() => wrapSelection('*', '*')} />
             <ToolbarButton icon="format_strikethrough" title="Strikethrough" onClick={() => wrapSelection('~~', '~~')} />
             <div class="bg-element-accent mx-1 h-4 w-px" />
+            <ToolbarButton
+                icon="ink_highlighter"
+                title="Highlight"
+                onClick={() => wrapSelection(MARK_SYNTAX.prefix, MARK_SYNTAX.suffix)}
+            />
+            <ToolbarButton
+                icon="format_underlined"
+                title="Underline"
+                onClick={() => wrapSelection(UNDERLINE_SYNTAX.prefix, UNDERLINE_SYNTAX.suffix)}
+            />
+            {ColorPicker()}
+            <div class="bg-element-accent mx-1 h-4 w-px" />
             <ToolbarButton icon="link" title="Link (Ctrl+K)" onClick={insertLink} />
-            <ToolbarButton icon="add_box" title="Embed a moment / to-do / canvas (or type /)" onClick={openSlashMenu} />
+            <ToolbarButton icon="add_box" title="Embed a moment / to-do / canvas / project (or type [[ )" onClick={openSlashMenu} />
             <div class="bg-element-accent mx-1 h-4 w-px" />
             <ToolbarButton icon="attach_file" title="Attach files" onClick={() => fileInputRef?.click()} />
             {HiddenFileInput()}
@@ -917,28 +1020,49 @@ export const Editor: Component<EditorProps> = (props) => {
                 class={`bg-transparent text-main w-full resize-none rounded-md px-3 py-2 text-sm focus:outline-none ${p.fill ? 'min-h-0 flex-1' : ''} ${growsWithText() ? `min-h-44 ${GROW_CAP}` : ''}`}
             />
 
-            {/* `[[` moment autocomplete */}
-            <Show when={refQuery() !== null && refMatches().length > 0}>
+            {/* `[[` embed picker: every kind at once, grouped and badged */}
+            <Show when={embedMenuOpen()}>
                 <Portal>
                     <div
                         style={menuStyle()}
                         data-editor-menu
-                        class="bg-element-matte border-element-accent z-[70] flex flex-col rounded-xl border p-1 shadow-2xl"
+                        data-testid="embed-menu"
+                        class="bg-element-matte border-element-accent z-[70] flex flex-col overflow-y-auto rounded-xl border p-1 shadow-2xl"
                     >
-                        <span class="text-sub/60 px-2 py-1 text-xs font-bold tracking-widest uppercase">Link to Moment</span>
-                        <For each={refMatches()}>
-                            {(match, index) => (
-                                <button
-                                    type="button"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => insertReference(match)}
-                                    class={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold transition-all ${refIndex() === index() ? 'bg-highlight-strongest text-white' : 'text-sub hover:bg-element-accent'}`}
-                                >
-                                    <span class="material-symbols-outlined text-base opacity-60">description</span>
-                                    {match.title || 'Untitled'}
-                                </button>
+                        <span class="text-sub/60 px-2 py-1 text-xs font-bold tracking-widest uppercase">
+                            {embedTrigger()?.kind
+                                ? `Insert ${embedKindSpec(embedTrigger()!.kind!).label}`
+                                : 'Insert embed'}
+                        </span>
+                        <For each={refGroups()}>
+                            {(group) => (
+                                <>
+                                    {/* The badge: one heading per kind, so a hit
+                                        never leaves you guessing what it is. */}
+                                    <span class="text-sub/60 flex items-center gap-1.5 px-2 pt-2 pb-1 text-[0.65rem] font-bold tracking-widest uppercase">
+                                        <span class="material-symbols-outlined text-sm opacity-70">{group.icon}</span>
+                                        <span>{group.label}</span>
+                                    </span>
+                                    <For each={group.items}>
+                                        {(match, index) => (
+                                            <button
+                                                type="button"
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => insertReference(match)}
+                                                onMouseMove={() => setRefIndex(group.offset + index())}
+                                                class={`flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-bold transition-all ${refIndex() === group.offset + index() ? 'bg-highlight-strongest text-white' : 'text-sub hover:bg-element-accent'}`}
+                                            >
+                                                <span class="material-symbols-outlined text-base opacity-60">{group.icon}</span>
+                                                <span class="min-w-0 flex-1 truncate">{match.title || 'Untitled'}</span>
+                                            </button>
+                                        )}
+                                    </For>
+                                </>
                             )}
                         </For>
+                        <Show when={embedSearch.loading() && refMatches().length === 0}>
+                            <span class="text-sub/60 px-3 py-2 text-sm italic">Searching…</span>
+                        </Show>
                     </div>
                 </Portal>
             </Show>
@@ -949,7 +1073,7 @@ export const Editor: Component<EditorProps> = (props) => {
                     <div
                         style={menuStyle()}
                         data-editor-menu
-                        class="bg-element-matte border-element-accent z-[70] flex flex-col rounded-xl border p-1 shadow-2xl"
+                        class="bg-element-matte border-element-accent z-[70] flex flex-col overflow-y-auto rounded-xl border p-1 shadow-2xl"
                     >
                         <span class="text-sub/60 px-2 py-1 text-xs font-bold tracking-widest uppercase">Insert embed</span>
                         <For each={slashMatches()}>
@@ -1098,7 +1222,14 @@ export const Editor: Component<EditorProps> = (props) => {
 
     const embedPicker = () => (
         <Show when={picker()}>
-            {(p) => <EmbedPicker kind={p().kind} onPick={onPickEmbed} onClose={() => setPicker(null)} />}
+            {(p) => (
+                <EmbedPicker
+                    kind={p().kind}
+                    fallbackMoments={props.momentIndex}
+                    onPick={onPickEmbed}
+                    onClose={() => setPicker(null)}
+                />
+            )}
         </Show>
     )
 
@@ -1117,7 +1248,7 @@ export const Editor: Component<EditorProps> = (props) => {
                     autofocus: true,
                     placeholder:
                         props.placeholder ||
-                        'Write… drag or paste files to attach, [[ to link a moment, / to embed',
+                        'Write… drag or paste files to attach, [[ to embed anything, / to pick a kind',
                 })}
                 <Show when={error()}>
                     <p class="text-danger text-xs">{error()}</p>
@@ -1213,7 +1344,8 @@ export const Editor: Component<EditorProps> = (props) => {
             {ContentArea({
                 rows: isModal() ? 12 : 8,
                 fill: isModal(),
-                placeholder: 'Write your thoughts… drag or paste files to attach, [[ to link a moment, / to embed',
+                placeholder:
+                    'Write your thoughts… drag or paste files to attach, [[ to embed anything, / to pick a kind',
             })}
             {TagField()}
             <Show when={error()}>
@@ -1278,53 +1410,25 @@ export const Editor: Component<EditorProps> = (props) => {
     )
 }
 
-// Searchable picker for a slash-menu embed. Self-fetches by kind so callers
-// don't have to thread todo/canvas indexes through props.
-const EmbedPicker: Component<{ kind: SlashKind; onPick: (id: string) => void; onClose: () => void }> = (props) => {
+// The slash menu's dialog. Same search core as `[[` (ADR-0019), pinned to one
+// kind, so there is one implementation of per-kind searching rather than two.
+const EmbedPicker: Component<{
+    kind: EmbedKind
+    fallbackMoments?: { id: string; title: string }[]
+    onPick: (id: string) => void
+    onClose: () => void
+}> = (props) => {
     const [query, setQuery] = createSignal('')
-    const [items, setItems] = createSignal<{ id: string; title: string; sub?: string }[]>([])
-    const [loading, setLoading] = createSignal(true)
-
-    onMount(async () => {
-        try {
-            if (props.kind === 'moment') {
-                const data = (await api.listMoments({ limit: 100 })) ?? []
-                setItems(data.map((m) => ({ id: m.id, title: m.title || 'Untitled', sub: m.content })))
-            } else if (props.kind === 'todo') {
-                const data = (await api.listTodos()) ?? []
-                setItems(data.map((l) => ({ id: l.id, title: l.title || 'Untitled list', sub: `${(l.items || []).length} items` })))
-            } else if (props.kind === 'project') {
-                const data = (await api.listProjects()) ?? []
-                setItems(
-                    data
-                        .filter((p) => !p.archived)
-                        .map((p) => ({ id: p.id, title: p.title || 'Untitled project', sub: `${(p.cards || []).filter((c) => !c.dismissed).length} cards` })),
-                )
-            } else {
-                const data = (await api.listCanvases()) ?? []
-                setItems(data.map((c) => ({ id: c.id, title: c.title || 'Untitled canvas' })))
-            }
-        } catch {
-            setItems([])
-        } finally {
-            setLoading(false)
-        }
+    const search = createEmbedSearch({
+        request: () => ({ kind: props.kind, query: query() }),
+        fallbackMoments: () => props.fallbackMoments,
+        // A dialog is where you browse a kind in full, so no menu-sized cap.
+        limitPerKind: 200,
     })
 
-    const filtered = () => {
-        const q = query().trim().toLowerCase()
-        if (!q) return items()
-        return items().filter((i) => i.title.toLowerCase().includes(q) || (i.sub || '').toLowerCase().includes(q))
-    }
-
-    const label =
-        props.kind === 'moment'
-            ? 'Reference a moment'
-            : props.kind === 'todo'
-              ? 'Embed a to-do list'
-              : props.kind === 'project'
-                ? 'Embed a project'
-                : 'Embed a canvas'
+    const filtered = search.results
+    const loading = () => search.loading() && filtered().length === 0
+    const label = () => embedKindSpec(props.kind).dialogTitle
 
     // Keyboard navigation: arrows move the highlight, Enter picks it, Escape
     // closes. Focus lives in the search input, so the handler sits there.
@@ -1357,7 +1461,7 @@ const EmbedPicker: Component<{ kind: SlashKind; onPick: (id: string) => void; on
     }
 
     return (
-        <PickerDialog title={label} onClose={props.onClose}>
+        <PickerDialog title={label()} onClose={props.onClose}>
                 <input
                     // Focused explicitly, not via the autofocus attribute:
                     // autofocus only applies to elements present at page load,
