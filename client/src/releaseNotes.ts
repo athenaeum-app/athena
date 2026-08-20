@@ -124,6 +124,12 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.23.1': [
         'A moment brought over from the old server now shows as a card when you reference it, instead of its raw id.',
     ],
+    '2.24.0': [
+        'Chat can be searched from a box beside its title, over the whole history rather than the part on screen. Ctrl+F opens it while chat is in front, and a result takes you to the message in its conversation.',
+        'The Tasks agenda now also lists project cards and milestones that have a due date, so one screen answers what is due.',
+        'Projects opens on a new Overview: everything due soonest across every project, portfolio-wide counts, combined momentum, and which projects are overdue or have stopped moving. The grid of projects is now the Catalog tab.',
+        'The chat preview in the menu no longer lags a few seconds behind the conversation itself.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
