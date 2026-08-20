@@ -148,6 +148,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.26.2': [
         'The Projects overview scrolls again, with room for each part: unscheduled work is a card of its own under the timeline, and the panels below it are large enough to read. The agenda no longer shows a scrollbar that scrolls nothing.',
     ],
+    '2.27.0': [
+        'The Projects overview carries more below the agenda, and at a size worth reading: every project on a line in the order they come due, the open work split by priority, the milestone each project is working towards, the labels across it all, a taller momentum chart, and longer lists of what needs attention and what was finished.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:

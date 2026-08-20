@@ -1,6 +1,6 @@
 {
     "name": "athenaeum",
-    "version": "2.26.2",
+    "version": "2.27.0",
     "description": "Athena monorepo root: one-stop task runner for the Go server, Solid PWA client, and Electron launcher.",
     "license": "AGPL-3.0-only",
     "private": true,
