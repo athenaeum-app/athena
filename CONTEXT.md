@@ -58,6 +58,15 @@ tab carries the same name for one project's brief, so where both are in play,
 say portfolio overview and project overview.
 _Avoid_: dashboard, home, summary
 
+**Timeline**:
+How the Overview's agenda draws its deadlines by default: a column per day for
+a fortnight, with what has already passed and what falls beyond the run held at
+either end. It runs across or down, per the button on the card, and the setting
+behind it (Settings, Modals, Projects) turns it back into a list grouped under
+Overdue, Today and This week. An empty day still takes its place in the run,
+because the gaps are half of what a timeline says.
+_Avoid_: calendar, gantt, schedule
+
 **Deadline**:
 A card or a milestone with a due date on it. Deadlines belong to the project
 and are read in one place, so the Overview's agenda and the Tasks module's

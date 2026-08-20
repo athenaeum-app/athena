@@ -30,11 +30,11 @@ import {
     type DocumentHeading,
     type DocumentThread,
 } from '../projectDocuments'
-import { bucketByDue, projectDeadlines } from '../projectAgenda'
+import { bucketByDue, projectDeadlines, timelineDays, timelineEnds, type ProjectDeadline, type TimelineDay } from '../projectAgenda'
 import { loadUsers, userName } from '../users'
 import { Editor } from './Editor'
 import { BookcaseDrift } from './BookcaseDrift'
-import { prefs, MODAL_WIDTH_CLASS } from '../prefs'
+import { prefs, setPref, MODAL_WIDTH_CLASS } from '../prefs'
 import { desktop } from '../desktop'
 import { Modal } from './Modal'
 
@@ -772,11 +772,25 @@ const Portfolio: Component<{
 // a serif heading, an optional note to its right, and the content under it.
 // Boxed rows inside a boxed card inside a boxed tile read as clutter, so the
 // box stops here and the rows below are plain until they are hovered.
-const OverviewCard: Component<{ title: string; note?: JSX.Element; pad?: string; class?: string; children: JSX.Element }> = (props) => (
+// A panel on the overview, cut to the same pattern as a project's own:
+// a serif heading, an optional note to its right, and the content under it.
+// Boxed rows inside a boxed card inside a boxed tile read as clutter, so the
+// box stops here and the rows below are plain until they are hovered.
+const OverviewCard: Component<{
+    title: string
+    note?: JSX.Element
+    actions?: JSX.Element
+    pad?: string
+    class?: string
+    children: JSX.Element
+}> = (props) => (
     <div class={`bg-element border-element-accent/60 min-w-0 rounded-lg border ${props.pad ?? 'p-5'} ${props.class ?? ''}`}>
-        <div class="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <h3 class="text-main font-serif text-xl font-semibold">{props.title}</h3>
-            <Show when={props.note}>{props.note}</Show>
+        <div class="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+            <h3 class="text-main font-serif text-2xl font-semibold">{props.title}</h3>
+            <div class="flex items-center gap-3">
+                <Show when={props.note}>{props.note}</Show>
+                <Show when={props.actions}>{props.actions}</Show>
+            </div>
         </div>
         {props.children}
     </div>
@@ -805,10 +819,197 @@ const PortfolioSpine: Component<{ projects: Project[] }> = (props) => (
     </div>
 )
 
+// ---- the agenda ----
+
+// One deadline, wherever the agenda is drawn: in a day's column, in a day's
+// row, or in the plain list. Plain until hovered, with the project's colour
+// down its left edge so a column of several projects is still readable.
+const DeadlineRow: Component<{ row: ProjectDeadline; overdue: boolean; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
+    const row = () => props.row
+    return (
+        <button
+            onClick={() => props.onOpen(row().projectId, 'board')}
+            class="hover:bg-element-matte border-element-accent/50 hover:border-highlight/60 flex w-full items-start gap-2.5 rounded-md border border-transparent p-2 text-left transition-colors hover:cursor-pointer"
+            style={{ 'border-left': `3px solid ${row().accent}` }}
+            title={`Open ${row().projectTitle} on the board`}
+        >
+            <span class="material-symbols-outlined mt-px shrink-0 text-[19px]" style={{ color: row().accent }}>
+                {row().kind === 'milestone' ? 'flag' : row().icon}
+            </span>
+            <div class="min-w-0 flex-1">
+                <p class="text-main text-base leading-snug">{row().title}</p>
+                <p class="text-sub/80 truncate text-xs">
+                    {row().projectTitle}
+                    <Show
+                        when={row().kind === 'milestone'}
+                        fallback={<Show when={row().milestoneTitle}>{` · ${row().milestoneTitle}`}</Show>}
+                    >
+                        {` · milestone · ${row().done}/${row().total} done`}
+                    </Show>
+                </p>
+            </div>
+            <Show when={priorityIcon(row().priority)}>
+                <span
+                    class="material-symbols-outlined mt-px shrink-0 text-[17px]"
+                    style={{ color: priorityColor(row().priority) }}
+                    title={`${PRIORITIES.find((p) => p.v === row().priority)?.label} priority`}
+                >
+                    {priorityIcon(row().priority)}
+                </span>
+            </Show>
+            <Show when={props.overdue}>
+                <span class="bg-danger/20 text-danger shrink-0 rounded px-1.5 py-0.5 text-xs font-bold">{fmtDue(row().dueAt)}</span>
+            </Show>
+        </button>
+    )
+}
+
+// The day columns, with their headings formatted here rather than in the
+// module: a date reads in the reader's own locale, and the grouping is worth
+// testing without a locale in the way.
+const dayHeadings = (day: TimelineDay) => ({
+    weekday: new Intl.DateTimeFormat(navigator.language, { weekday: 'short' }).format(new Date(day.at)),
+    label: new Intl.DateTimeFormat(navigator.language, { month: 'short', day: 'numeric' }).format(new Date(day.at)),
+})
+
+const TimelineHorizontal: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
+    const days = createMemo(() => timelineDays(props.deadlines))
+    const ends = createMemo(() => timelineEnds(props.deadlines))
+    return (
+        // Scrolls sideways rather than compressing: a fortnight of columns
+        // never fits a panel, and a column too narrow to read a card in is
+        // worse than one that has to be scrolled to.
+        <div data-testid="agenda-timeline" class="-mx-1 flex gap-2 overflow-x-auto px-1 pb-3">
+            <Show when={ends().overdue.length > 0}>
+                <div class="border-danger/60 flex w-64 shrink-0 flex-col rounded-lg border-t-2 pt-2">
+                    <p class="text-danger mb-2 text-sm font-bold uppercase tracking-wide">Overdue</p>
+                    <div class="flex flex-col gap-1.5">
+                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue onOpen={props.onOpen} />}</For>
+                    </div>
+                </div>
+            </Show>
+            <For each={days()}>
+                {(day) => (
+                    <div
+                        class="flex shrink-0 flex-col rounded-lg border-t-2 pt-2 transition-all"
+                        classList={{
+                            'w-64': day.rows.length > 0,
+                            'w-20': day.rows.length === 0,
+                            'border-highlight': day.today,
+                            'border-element-accent': !day.today,
+                            'opacity-50': day.rows.length === 0 && !day.today,
+                        }}
+                    >
+                        <p class="mb-2 flex items-baseline gap-1.5">
+                            <span class="text-sm font-bold uppercase tracking-wide" classList={{ 'text-highlight': day.today, 'text-main': !day.today }}>
+                                {day.today ? 'Today' : dayHeadings(day).weekday}
+                            </span>
+                            <span class="text-sub text-xs" classList={{ 'font-bold': day.weekend }}>{dayHeadings(day).label}</span>
+                        </p>
+                        <div class="flex flex-col gap-1.5">
+                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} onOpen={props.onOpen} />}</For>
+                        </div>
+                    </div>
+                )}
+            </For>
+            <Show when={ends().later.length > 0}>
+                <div class="border-element-accent flex w-64 shrink-0 flex-col rounded-lg border-t-2 pt-2">
+                    <p class="text-sub mb-2 text-sm font-bold uppercase tracking-wide">Later</p>
+                    <div class="flex flex-col gap-1.5">
+                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} onOpen={props.onOpen} />}</For>
+                    </div>
+                </div>
+            </Show>
+        </div>
+    )
+}
+
+const TimelineVertical: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
+    const days = createMemo(() => timelineDays(props.deadlines))
+    const ends = createMemo(() => timelineEnds(props.deadlines))
+    // An empty day keeps its place in the run but not its height: the rhythm
+    // of the dates is what makes a gap read as a gap.
+    return (
+        <div data-testid="agenda-timeline" class="flex flex-col">
+            <Show when={ends().overdue.length > 0}>
+                <div class="border-danger/60 flex gap-4 border-l-2 pb-4 pl-4">
+                    <p class="text-danger w-24 shrink-0 text-sm font-bold uppercase tracking-wide">Overdue</p>
+                    <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
+                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue onOpen={props.onOpen} />}</For>
+                    </div>
+                </div>
+            </Show>
+            <For each={days()}>
+                {(day) => (
+                    <div
+                        class="flex gap-4 border-l-2 pl-4"
+                        classList={{
+                            'border-highlight': day.today,
+                            'border-element-accent': !day.today,
+                            'pb-4': day.rows.length > 0,
+                            'pb-2': day.rows.length === 0,
+                        }}
+                    >
+                        <p class="w-24 shrink-0" classList={{ 'opacity-50': day.rows.length === 0 && !day.today }}>
+                            <span class="block text-sm font-bold uppercase tracking-wide" classList={{ 'text-highlight': day.today, 'text-main': !day.today }}>
+                                {day.today ? 'Today' : dayHeadings(day).weekday}
+                            </span>
+                            <span class="text-sub text-xs" classList={{ 'font-bold': day.weekend }}>{dayHeadings(day).label}</span>
+                        </p>
+                        <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
+                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} onOpen={props.onOpen} />}</For>
+                        </div>
+                    </div>
+                )}
+            </For>
+            <Show when={ends().later.length > 0}>
+                <div class="border-element-accent flex gap-4 border-l-2 pl-4 pt-2">
+                    <p class="text-sub w-24 shrink-0 text-sm font-bold uppercase tracking-wide">Later</p>
+                    <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
+                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} onOpen={props.onOpen} />}</For>
+                    </div>
+                </div>
+            </Show>
+        </div>
+    )
+}
+
+// The timeline off: the same deadlines under Overdue, Today, Tomorrow, This
+// week and Later, two abreast where there is room.
+const AgendaList: Component<{ deadlines: ProjectDeadline[]; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
+    const buckets = createMemo(() => bucketByDue(props.deadlines, (d) => d.dueAt))
+    return (
+        <div data-testid="agenda-list" class="flex flex-col gap-6">
+            <For each={buckets()}>
+                {(bucket) => (
+                    <div>
+                        <h4 class="border-element-accent/60 mb-2 flex items-center gap-2 border-b pb-1.5 text-sm font-bold uppercase tracking-wide">
+                            <span
+                                classList={{
+                                    'text-danger': bucket.key === 'overdue',
+                                    'text-highlight': bucket.key === 'today',
+                                    'text-sub': bucket.key !== 'overdue' && bucket.key !== 'today',
+                                }}
+                            >
+                                {bucket.label}
+                            </span>
+                            <span class="text-sub/60 font-mono text-xs">{bucket.rows.length}</span>
+                        </h4>
+                        <div class="grid grid-cols-1 gap-x-6 gap-y-1 lg:grid-cols-2 2xl:grid-cols-3">
+                            <For each={bucket.rows}>
+                                {(row) => <DeadlineRow row={row} overdue={bucket.key === 'overdue'} onOpen={props.onOpen} />}
+                            </For>
+                        </div>
+                    </div>
+                )}
+            </For>
+        </div>
+    )
+}
+
 const Overview: Component<{ projects: Project[]; onOpen: (id: string, tab?: HubTab) => void }> = (props) => {
     const liveProjects = createMemo(() => props.projects.filter((p) => !p.archived))
     const deadlines = createMemo(() => projectDeadlines(props.projects))
-    const buckets = createMemo(() => bucketByDue(deadlines(), (d) => d.dueAt))
     const overdue = createMemo(() => deadlines().filter((d) => dueMs(d.dueAt) < startOfToday()))
     const dueThisWeek = createMemo(() => {
         const weekEnd = startOfToday() + 7 * 86400000
@@ -840,6 +1041,8 @@ const Overview: Component<{ projects: Project[]; onOpen: (id: string, tab?: HubT
             .sort((a, b) => (b.card.completed_at ?? '').localeCompare(a.card.completed_at ?? ''))
             .slice(0, 6),
     )
+    const timeline = () => prefs().projectsAgendaTimeline
+    const vertical = () => prefs().projectsAgendaVertical
 
     return (
         <div data-testid="projects-overview" class="animate-fade-in min-h-0 flex-1 overflow-y-auto">
@@ -849,7 +1052,7 @@ const Overview: Component<{ projects: Project[]; onOpen: (id: string, tab?: HubT
                     <div class="p-5">
                         <div class="bg-element border-element-accent flex flex-col items-center gap-2 rounded-lg border border-dashed py-20">
                             <span class="material-symbols-outlined text-sub/40 text-4xl">insights</span>
-                            <p class="text-sub/60 text-sm italic">No live projects yet. Start one in the Catalog.</p>
+                            <p class="text-sub/60 italic">No live projects yet. Start one in the Catalog.</p>
                         </div>
                     </div>
                 }
@@ -860,17 +1063,17 @@ const Overview: Component<{ projects: Project[]; onOpen: (id: string, tab?: HubT
                     is what made this screen feel like a dashboard. */}
                 <div class="px-4 py-5 sm:px-8 sm:py-6">
                     <div class="flex items-center gap-2">
-                        <span class="material-symbols-outlined text-highlight text-lg">insights</span>
-                        <span class="text-sub font-mono text-xs font-bold tracking-widest">PORTFOLIO</span>
+                        <span class="material-symbols-outlined text-highlight text-xl">insights</span>
+                        <span class="text-sub font-mono text-sm font-bold tracking-widest">PORTFOLIO</span>
                         <Show when={overdue().length > 0}>
-                            <span class="bg-danger/20 text-danger rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                            <span class="bg-danger/20 text-danger rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide">
                                 {overdue().length} overdue
                             </span>
                         </Show>
                     </div>
                     <div class="mt-1 flex flex-wrap items-end justify-between gap-x-10 gap-y-3">
                         <h2 class="text-main font-serif text-4xl font-bold">Every project</h2>
-                        <p class="text-sub pb-1 text-sm">
+                        <p class="text-sub pb-1 text-base">
                             <span class="text-main font-mono font-bold">{liveProjects().length}</span> live
                             · <span class="text-main font-mono font-bold">{completion()}%</span> complete
                             · <span class="text-main font-mono font-bold">{openCards().length}</span> open
@@ -883,156 +1086,121 @@ const Overview: Component<{ projects: Project[]; onOpen: (id: string, tab?: HubT
                         <PortfolioSpine projects={liveProjects()} />
                     </div>
 
-                    <div class="mt-8 grid grid-cols-1 items-start gap-x-12 gap-y-10 xl:grid-cols-[minmax(0,1fr)_19rem]">
-                        <div class="min-w-0">
-                            <OverviewCard
-                                title="Agenda"
-                                pad="p-5 sm:p-7"
-                                note={
-                                    <span class="text-sub text-xs">
-                                        <span class="text-main font-mono font-bold">{deadlines().length}</span> dated across{' '}
-                                        <span class="text-main font-mono font-bold">{new Set(deadlines().map((d) => d.projectId)).size}</span>{' '}
-                                        {new Set(deadlines().map((d) => d.projectId)).size === 1 ? 'project' : 'projects'}
-                                    </span>
-                                }
-                            >
-                                <Show
-                                    when={buckets().length > 0}
-                                    fallback={<p class="text-sub/60 text-sm italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
-                                >
-                                    <div class="flex flex-col gap-6">
-                                        <For each={buckets()}>
-                                            {(bucket) => (
-                                                <div>
-                                                    <h4 class="border-element-accent/60 mb-2 flex items-center gap-2 border-b pb-1.5 text-xs font-bold uppercase tracking-wide">
-                                                        <span
-                                                            classList={{
-                                                                'text-danger': bucket.key === 'overdue',
-                                                                'text-highlight': bucket.key === 'today',
-                                                                'text-sub': bucket.key !== 'overdue' && bucket.key !== 'today',
-                                                            }}
-                                                        >
-                                                            {bucket.label}
-                                                        </span>
-                                                        <span class="text-sub/60 font-mono">{bucket.rows.length}</span>
-                                                    </h4>
-                                                    {/* Two columns where there is room: the agenda is the
-                                                        widest thing on the screen and a single file of
-                                                        short rows wastes most of it. */}
-                                                    <div class="grid grid-cols-1 gap-x-6 lg:grid-cols-2">
-                                                        <For each={bucket.rows}>
-                                                            {(row) => (
-                                                                <button
-                                                                    onClick={() => props.onOpen(row.projectId, 'board')}
-                                                                    class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:cursor-pointer"
-                                                                    title={`Open ${row.projectTitle} on the board`}
-                                                                >
-                                                                    <span class="material-symbols-outlined shrink-0 text-[17px]" style={{ color: row.accent }}>
-                                                                        {row.kind === 'milestone' ? 'flag' : row.icon}
-                                                                    </span>
-                                                                    <div class="min-w-0 flex-1">
-                                                                        <p class="text-main truncate text-sm">{row.title}</p>
-                                                                        <p class="text-sub/70 truncate text-[11px]">
-                                                                            {row.projectTitle}
-                                                                            <Show
-                                                                                when={row.kind === 'milestone'}
-                                                                                fallback={<Show when={row.milestoneTitle}>{` · ${row.milestoneTitle}`}</Show>}
-                                                                            >
-                                                                                {` · milestone · ${row.done}/${row.total} done`}
-                                                                            </Show>
-                                                                        </p>
-                                                                    </div>
-                                                                    <Show when={priorityIcon(row.priority)}>
-                                                                        <span
-                                                                            class="material-symbols-outlined shrink-0 text-[15px]"
-                                                                            style={{ color: priorityColor(row.priority) }}
-                                                                            title={`${PRIORITIES.find((p) => p.v === row.priority)?.label} priority`}
-                                                                        >
-                                                                            {priorityIcon(row.priority)}
-                                                                        </span>
-                                                                    </Show>
-                                                                    <span
-                                                                        class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold"
-                                                                        classList={{
-                                                                            'bg-danger/20 text-danger': bucket.key === 'overdue',
-                                                                            'bg-element-accent text-sub': bucket.key !== 'overdue',
-                                                                        }}
-                                                                    >
-                                                                        {fmtDue(row.dueAt)}
-                                                                    </span>
-                                                                </button>
-                                                            )}
-                                                        </For>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </For>
-                                    </div>
-                                </Show>
-                            </OverviewCard>
-
-                            <OverviewCard
-                                title="Momentum"
-                                class="mt-8"
-                                pad="p-5 sm:p-7"
-                                note={<span class="text-sub text-xs">cards finished per day · 14d</span>}
-                            >
-                                <MomentumBars days={allMomentum()} height={110} barClass="min-w-0 flex-1" />
-                                <div class="text-sub/60 mt-1 flex justify-between text-[10px]">
-                                    <span>2 weeks ago</span>
-                                    <span class="text-main font-mono">
-                                        {allMomentum().reduce((a, b) => a + b, 0)} finished · best day {Math.max(0, ...allMomentum())}
-                                    </span>
-                                    <span>today</span>
+                    {/* The agenda takes the full width: a fortnight of days
+                        needs every pixel, and the three panels under it read
+                        fine side by side. */}
+                    <OverviewCard
+                        title="Agenda"
+                        class="mt-8"
+                        pad="p-5 sm:p-7"
+                        note={
+                            <span class="text-sub text-sm">
+                                <span class="text-main font-mono font-bold">{deadlines().length}</span> dated across{' '}
+                                <span class="text-main font-mono font-bold">{new Set(deadlines().map((d) => d.projectId)).size}</span>{' '}
+                                {new Set(deadlines().map((d) => d.projectId)).size === 1 ? 'project' : 'projects'}
+                            </span>
+                        }
+                        actions={
+                            <Show when={timeline()}>
+                                <div class="border-element-accent flex overflow-hidden rounded-md border">
+                                    <For
+                                        each={[
+                                            { v: false, icon: 'view_column', label: 'Timeline across' },
+                                            { v: true, icon: 'view_agenda', label: 'Timeline down' },
+                                        ]}
+                                    >
+                                        {(o) => (
+                                            <button
+                                                onClick={() => setPref('projectsAgendaVertical', o.v)}
+                                                class="flex items-center px-2 py-1 transition-colors hover:cursor-pointer"
+                                                classList={{
+                                                    'bg-highlight-strongest text-white': vertical() === o.v,
+                                                    'text-sub hover:text-main': vertical() !== o.v,
+                                                }}
+                                                title={o.label}
+                                            >
+                                                <span class="material-symbols-outlined text-base">{o.icon}</span>
+                                            </button>
+                                        )}
+                                    </For>
                                 </div>
-                            </OverviewCard>
-                        </div>
+                            </Show>
+                        }
+                    >
+                        <Show
+                            when={deadlines().length > 0}
+                            fallback={<p class="text-sub/60 italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
+                        >
+                            <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} onOpen={props.onOpen} />}>
+                                <Show
+                                    when={vertical()}
+                                    fallback={<TimelineHorizontal deadlines={deadlines()} onOpen={props.onOpen} />}
+                                >
+                                    <TimelineVertical deadlines={deadlines()} onOpen={props.onOpen} />
+                                </Show>
+                            </Show>
+                        </Show>
+                    </OverviewCard>
 
-                        <div class="min-w-0">
-                            <OverviewCard title="Needs attention">
-                                <Show when={attention().length > 0} fallback={<p class="text-sub/50 text-sm italic">Nothing overdue or stalled. Every project is moving.</p>}>
+                    <div class="mt-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-2 xl:grid-cols-3">
+                        <OverviewCard title="Momentum" note={<span class="text-sub text-sm">finished per day · 14d</span>}>
+                            <MomentumBars days={allMomentum()} height={110} barClass="min-w-0 flex-1" />
+                            <div class="text-sub/60 mt-1.5 flex justify-between text-xs">
+                                <span>2 weeks ago</span>
+                                <span class="text-main font-mono">
+                                    {allMomentum().reduce((a, b) => a + b, 0)} finished · best day {Math.max(0, ...allMomentum())}
+                                </span>
+                                <span>today</span>
+                            </div>
+                        </OverviewCard>
+
+                        <OverviewCard title="Needs attention">
+                            <Show when={attention().length > 0} fallback={<p class="text-sub/50 italic">Nothing overdue or stalled. Every project is moving.</p>}>
+                                <div class="flex flex-col gap-1">
                                     <For each={attention()}>
                                         {(row) => (
                                             <button
                                                 onClick={() => props.onOpen(row.project.id)}
-                                                class="hover:bg-element-matte/40 -mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:cursor-pointer"
+                                                class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:cursor-pointer"
                                                 title={`Open ${row.project.title}`}
                                             >
-                                                <span class="material-symbols-outlined shrink-0 text-[17px]" style={{ color: row.project.accent }}>
+                                                <span class="material-symbols-outlined shrink-0 text-[19px]" style={{ color: row.project.accent }}>
                                                     {row.project.icon}
                                                 </span>
                                                 <div class="min-w-0 flex-1">
-                                                    <p class="text-main truncate text-sm">{row.project.title}</p>
-                                                    <p class="text-sub/70 truncate text-[11px]">{row.reason}</p>
+                                                    <p class="text-main truncate text-base">{row.project.title}</p>
+                                                    <p class="text-sub/80 truncate text-xs">{row.reason}</p>
                                                 </div>
                                             </button>
                                         )}
                                     </For>
-                                </Show>
-                            </OverviewCard>
+                                </div>
+                            </Show>
+                        </OverviewCard>
 
-                            <OverviewCard title="Recently finished" class="mt-6">
-                                <Show when={recentlyFinished().length > 0} fallback={<p class="text-sub/50 text-sm italic">Nothing finished yet.</p>}>
+                        <OverviewCard title="Recently finished">
+                            <Show when={recentlyFinished().length > 0} fallback={<p class="text-sub/50 italic">Nothing finished yet.</p>}>
+                                <div class="flex flex-col gap-1">
                                     <For each={recentlyFinished()}>
                                         {(row) => (
                                             <button
                                                 onClick={() => props.onOpen(row.project.id, 'board')}
-                                                class="hover:bg-element-matte/40 -mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:cursor-pointer"
+                                                class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:cursor-pointer"
                                                 title={`Open ${row.project.title} on the board`}
                                             >
-                                                <span class="material-symbols-outlined shrink-0 text-[15px]" style={{ color: row.project.accent }}>check_circle</span>
+                                                <span class="material-symbols-outlined shrink-0 text-[17px]" style={{ color: row.project.accent }}>check_circle</span>
                                                 <div class="min-w-0 flex-1">
-                                                    <p class="text-sub truncate text-sm line-through">{row.card.title}</p>
-                                                    <p class="text-sub/70 truncate text-[11px]">
+                                                    <p class="text-sub truncate text-base line-through">{row.card.title}</p>
+                                                    <p class="text-sub/80 truncate text-xs">
                                                         {row.project.title} · {fmtWhen(row.card.completed_at!)}
                                                     </p>
                                                 </div>
                                             </button>
                                         )}
                                     </For>
-                                </Show>
-                            </OverviewCard>
-                        </div>
+                                </div>
+                            </Show>
+                        </OverviewCard>
                     </div>
                 </div>
             </Show>

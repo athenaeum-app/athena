@@ -126,3 +126,51 @@ export function bucketByDue<T>(rows: T[], dueOf: (row: T) => string | undefined)
     }
     return buckets.filter((b) => b.rows.length > 0)
 }
+
+// ---- the timeline ----
+
+// How many days the overview's timeline draws a column for, starting today.
+// A fortnight is as far as a run of individual days stays worth reading:
+// past that the gaps say nothing, so what is left is gathered into "Later".
+export const TIMELINE_DAYS = 14
+
+export interface TimelineDay {
+    // Local midnight, which is what dueMs compares against.
+    at: number
+    today: boolean
+    weekend: boolean
+    rows: ProjectDeadline[]
+}
+
+// Walks the calendar a day at a time rather than adding 24 hours: a day is
+// not always 86400 seconds long, and an hour lost to daylight saving would
+// slide every column after it onto the wrong date.
+export function timelineDays(deadlines: ProjectDeadline[], span = TIMELINE_DAYS): TimelineDay[] {
+    const cursor = new Date(startOfToday())
+    const days: TimelineDay[] = []
+    for (let i = 0; i < span; i++) {
+        const at = cursor.getTime()
+        const weekday = cursor.getDay()
+        days.push({
+            at,
+            today: i === 0,
+            weekend: weekday === 0 || weekday === 6,
+            rows: deadlines.filter((d) => dueMs(d.dueAt) === at),
+        })
+        cursor.setDate(cursor.getDate() + 1)
+    }
+    return days
+}
+
+// The two ends of that run: what a column cannot show because it has already
+// passed, and what falls beyond the last day drawn.
+export function timelineEnds(deadlines: ProjectDeadline[], span = TIMELINE_DAYS): { overdue: ProjectDeadline[]; later: ProjectDeadline[] } {
+    const today = startOfToday()
+    const after = new Date(today)
+    after.setDate(after.getDate() + span)
+    const end = after.getTime()
+    return {
+        overdue: deadlines.filter((d) => dueMs(d.dueAt) < today),
+        later: deadlines.filter((d) => dueMs(d.dueAt) >= end),
+    }
+}

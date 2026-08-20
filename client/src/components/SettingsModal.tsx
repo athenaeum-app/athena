@@ -1120,6 +1120,22 @@ const ProjectsSection: Component = () => (
                     class="accent-highlight-strongest h-5 w-5 cursor-pointer"
                 />
             </label>
+            <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
+                <div>
+                    <span class="text-main text-sm font-bold block">Overview agenda as a timeline</span>
+                    <span class="text-sub text-xs">
+                        The Projects overview lays its deadlines out along a run of days, one column per day, so the
+                        gaps between them are visible. Turn this off for a plain list grouped under Overdue, Today and
+                        This week. The button on the card itself swaps the timeline between across and down.
+                    </span>
+                </div>
+                <input
+                    type="checkbox"
+                    checked={prefs().projectsAgendaTimeline}
+                    onChange={(e) => setPref('projectsAgendaTimeline', e.currentTarget.checked)}
+                    class="accent-highlight-strongest h-5 w-5 cursor-pointer"
+                />
+            </label>
             <div class="bg-element border-element-accent rounded-lg border p-4">
                 <span class="text-main text-sm font-bold block">Notes on a board card</span>
                 <span class="text-sub text-xs">

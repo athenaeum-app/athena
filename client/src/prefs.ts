@@ -172,6 +172,14 @@ export interface Prefs {
     // titles. Defaults to the excerpt: a column you can read without opening
     // anything is the reason the hint exists.
     projectCardNoteHint: 'preview' | 'label'
+    // Draw the portfolio overview's agenda as a timeline of individual days
+    // rather than as a list grouped into overdue/today/this week. On by
+    // default: a run of days is easier to read a deadline off than a heading
+    // is, because the gaps are visible as gaps.
+    projectsAgendaTimeline: boolean
+    // Which way that timeline runs. Horizontal by default, a column per day;
+    // vertical stacks the days down the page for a narrow window.
+    projectsAgendaVertical: boolean
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -205,6 +213,8 @@ export const DEFAULT_PREFS: Prefs = {
     bookcaseProjects: true,
     projectsWindowed: true,
     projectCardNoteHint: 'preview',
+    projectsAgendaTimeline: true,
+    projectsAgendaVertical: false,
     todoWidth: 'large',
     projectCardWidth: 'medium',
     canvasWidth: 'wide',

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Project, ProjectCard, ProjectMilestone } from './api'
-import { bucketByDue, projectDeadlines } from './projectAgenda'
+import { bucketByDue, projectDeadlines, timelineDays, timelineEnds, TIMELINE_DAYS, type ProjectDeadline } from './projectAgenda'
 
 const iso = (daysFromToday: number) => {
     const date = new Date()
@@ -114,5 +114,56 @@ describe('bucketByDue', () => {
         expect(buckets.map((b) => b.rows.map((r) => r.id))).toEqual([['late'], ['now'], ['soon'], ['week'], ['far']])
 
         expect(bucketByDue([{ id: 'now', due: iso(0) }], (r) => r.due).map((b) => b.key)).toEqual(['today'])
+    })
+})
+
+describe('the timeline', () => {
+    const deadline = (id: string, daysFromToday: number): ProjectDeadline => ({
+        id,
+        kind: 'card',
+        title: id,
+        dueAt: iso(daysFromToday),
+        priority: 0,
+        projectId: 'p1',
+        projectTitle: 'Project',
+        accent: '#fff',
+        icon: 'menu_book',
+    })
+
+    it('draws a column per day from today, holding the deadlines that fall on it', () => {
+        const days = timelineDays([deadline('today', 0), deadline('also-today', 0), deadline('third-day', 2)])
+        expect(days).toHaveLength(TIMELINE_DAYS)
+        expect(days[0].today).toBe(true)
+        expect(days.slice(1).every((d) => !d.today)).toBe(true)
+        expect(days[0].rows.map((r) => r.id)).toEqual(['today', 'also-today'])
+        expect(days[1].rows).toEqual([])
+        expect(days[2].rows.map((r) => r.id)).toEqual(['third-day'])
+    })
+
+    it('walks the calendar rather than adding 24 hours, so every column is a real date', () => {
+        const days = timelineDays([])
+        for (let i = 1; i < days.length; i++) {
+            const previous = new Date(days[i - 1].at)
+            previous.setDate(previous.getDate() + 1)
+            expect(days[i].at).toBe(previous.getTime())
+            expect(new Date(days[i].at).getHours()).toBe(0)
+        }
+    })
+
+    it('marks the weekend, which is the shape a fortnight is read by', () => {
+        const weekends = timelineDays([]).filter((d) => d.weekend)
+        expect(weekends).toHaveLength(4)
+        expect(weekends.every((d) => [0, 6].includes(new Date(d.at).getDay()))).toBe(true)
+    })
+
+    it('keeps what no column can show at the two ends', () => {
+        const rows = [deadline('late', -3), deadline('now', 0), deadline('far', TIMELINE_DAYS + 5)]
+        const ends = timelineEnds(rows)
+        expect(ends.overdue.map((r) => r.id)).toEqual(['late'])
+        expect(ends.later.map((r) => r.id)).toEqual(['far'])
+
+        // The last day drawn is a column, not "later".
+        expect(timelineEnds([deadline('edge', TIMELINE_DAYS - 1)]).later).toEqual([])
+        expect(timelineDays([deadline('edge', TIMELINE_DAYS - 1)])[TIMELINE_DAYS - 1].rows.map((r) => r.id)).toEqual(['edge'])
     })
 })
