@@ -114,6 +114,13 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'A card on a project board now shows the first lines of its note, so a column can be read without opening every card.',
         'Prefer it tidier? Settings can swap that preview for a plain "Contains notes" in the card corner.',
     ],
+    '2.23.0': [
+        'Projects now have Documents: folders of long-form writing that live with the project, each with an outline, a word count, saved versions you can restore, and comments pinned to a paragraph.',
+        'Typing [[ in any composer now searches everything you can point at in one list: moments, to-do lists, canvases, projects and documents. Start it [[doc: or [[todo: to narrow the search to one kind.',
+        'Text can now be highlighted with ==marks==, underlined with ++plus signs++, and coloured with [text]{color=blue}. Two hyphens between words become a long dash.',
+        'Searching for a word with an apostrophe in it no longer fails.',
+        'An embed written inside a code block now stays as you typed it instead of turning into a card.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
