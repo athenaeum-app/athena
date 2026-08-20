@@ -89,6 +89,13 @@ for (const shell of [
             await expect(page.getByTitle('Timeline down')).toHaveClass(/bg-highlight-strongest/)
             await page.getByTitle('Timeline across').click()
 
+            // The screen fits the window on a desktop: the agenda scrolls
+            // inside its own box rather than pushing the panels off the end.
+            if (!shell.mobile) {
+                const fit = await page.getByTestId('projects-overview').evaluate((el: HTMLElement) => el.scrollHeight <= el.clientHeight)
+                expect(fit).toBe(true)
+            }
+
             // A deadline still opens the board it lives on, timeline or not.
             await page.getByRole('button', { name: new RegExp(`${title} today`) }).click()
             await expect(page.getByRole('button', { name: 'Graveyard' })).toBeVisible()
