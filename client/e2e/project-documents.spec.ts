@@ -36,6 +36,8 @@ async function openDocuments(page: Page, project: string, mobile: boolean): Prom
     if (mobile) await page.getByRole('button', { name: 'More' }).click()
     await page.getByRole('button', { name: 'Projects' }).click()
     await expect(page.getByTestId('projects-panel')).toBeVisible()
+    // The portfolio opens on the Overview; the covers are the Catalog.
+    await page.getByTitle('Catalog view').click()
     await page.getByText(project).first().click()
     await page.getByTitle('Documents view').click()
     await expect(page.getByTestId('documents-tab')).toBeVisible()

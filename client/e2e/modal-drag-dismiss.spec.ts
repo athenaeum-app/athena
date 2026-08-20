@@ -58,6 +58,7 @@ test.describe('drag out of a dialog', () => {
 
         await page.goto('/')
         await page.getByRole('button', { name: 'Projects', exact: true }).first().click()
+        await page.getByTitle('Catalog view').click()
         await page.getByText('Drag Harness').click()
         await page.getByTitle('Board view').click()
 

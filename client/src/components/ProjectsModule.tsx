@@ -1,4 +1,4 @@
-import { createSignal, createEffect, on, untrack, For, Show, onMount, onCleanup, type Component } from 'solid-js'
+import { createSignal, createMemo, createEffect, on, untrack, For, Show, onMount, onCleanup, type Component, type JSX } from 'solid-js'
 import { createStore, produce, reconcile } from 'solid-js/store'
 import {
     APIError,
@@ -30,6 +30,7 @@ import {
     type DocumentHeading,
     type DocumentThread,
 } from '../projectDocuments'
+import { bucketByDue, projectDeadlines } from '../projectAgenda'
 import { loadUsers, userName } from '../users'
 import { Editor } from './Editor'
 import { BookcaseDrift } from './BookcaseDrift'
@@ -290,8 +291,8 @@ const HealthWord: Component<{ p: Project }> = (props) => (
     </span>
 )
 
-const MomentumBars: Component<{ p: Project; height?: number; barClass?: string; color?: string }> = (props) => {
-    const days = () => momentum(props.p)
+const MomentumBars: Component<{ days: number[]; height?: number; barClass?: string; color?: string }> = (props) => {
+    const days = () => props.days
     const max = () => Math.max(1, ...days())
     return (
         <div class="border-element-accent flex items-end gap-1 border-b pb-px" style={{ height: `${props.height || 28}px` }} title="Cards finished per day, last 14 days">
@@ -355,7 +356,7 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
     const [loading, setLoading] = createSignal(true)
     const [loadError, setLoadError] = createSignal(false)
     const [openId, setOpenId] = createSignal<string | null>(null)
-    const [pview, setPview] = createSignal<'active' | 'archived'>('active')
+    const [pview, setPview] = createSignal<PortfolioView>('overview')
     // Which document a ::doc:id:: embed asked for, and whose project it is in.
     // Held here rather than in the Hub because a document embed can point at a
     // document in a project that is not the open one.
@@ -545,17 +546,23 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
 
 // ---- portfolio ----
 
+// The overview leads: the question you open the module with is what is due and
+// where everything stands, and the grid answers it one project at a time.
+// "Catalog" for that grid, because a tab labelled "Projects" inside the
+// Projects module named the module rather than the view.
 const PORTFOLIO_TABS = [
-    { key: 'active', label: 'Projects', icon: 'space_dashboard' },
+    { key: 'overview', label: 'Overview', icon: 'insights' },
+    { key: 'active', label: 'Catalog', icon: 'space_dashboard' },
     { key: 'archived', label: 'Archived', icon: 'inventory_2' },
 ] as const
+type PortfolioView = (typeof PORTFOLIO_TABS)[number]['key']
 
 const Portfolio: Component<{
     projects: Project[]
     loading: boolean
     loadError: boolean
-    view: 'active' | 'archived'
-    setView: (v: 'active' | 'archived') => void
+    view: PortfolioView
+    setView: (v: PortfolioView) => void
     canManage: boolean
     onRetry: () => void
     onOpen: (id: string) => void
@@ -576,18 +583,20 @@ const Portfolio: Component<{
                 </button>
                 <span class="material-symbols-outlined text-highlight text-xl">space_dashboard</span>
                 <h1 class="text-main font-serif text-2xl font-semibold">Projects</h1>
-                <div class="border-element-accent flex overflow-hidden rounded-md border sm:ml-4">
+                <div class="border-element-accent flex max-w-full overflow-x-auto rounded-md border sm:ml-4">
                     <For each={PORTFOLIO_TABS}>
                         {(t) => (
                             <button
                                 onClick={() => props.setView(t.key)}
-                                class="flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors hover:cursor-pointer"
+                                class="flex shrink-0 items-center gap-1 px-2.5 py-1.5 text-xs transition-colors hover:cursor-pointer"
                                 classList={{ 'bg-highlight-strongest text-white': props.view === t.key, 'text-sub hover:text-main': props.view !== t.key }}
                                 title={`${t.label} view`}
                             >
                                 <span class="material-symbols-outlined text-sm">{t.icon}</span>
                                 {t.label}
-                                <span class="opacity-60">{props.projects.filter((p) => (t.key === 'archived' ? p.archived : !p.archived)).length}</span>
+                                <Show when={t.key !== 'overview'}>
+                                    <span class="opacity-60">{props.projects.filter((p) => (t.key === 'archived' ? p.archived : !p.archived)).length}</span>
+                                </Show>
                             </button>
                         )}
                     </For>
@@ -611,6 +620,7 @@ const Portfolio: Component<{
                         </div>
                     }
                 >
+                    <Show when={props.view !== 'overview'} fallback={<Overview projects={props.projects} onOpen={props.onOpen} />}>
                     <div class="animate-fade-in min-h-0 flex-1 overflow-y-auto p-5">
                         <Show
                             when={shown().length > 0 || (props.view === 'active' && props.canManage)}
@@ -670,7 +680,7 @@ const Portfolio: Component<{
                                                 </div>
                                                 <div class="shrink-0">
                                                     <p class="text-sub/70 mb-1 text-right text-xs font-medium">Momentum · 14d</p>
-                                                    <MomentumBars p={p} height={32} color={p.accent} />
+                                                    <MomentumBars days={momentum(p)} height={32} color={p.accent} />
                                                 </div>
                                             </div>
                                             <div class="border-element-accent/60 text-sub flex items-center gap-4 border-t pt-2.5 text-xs">
@@ -729,7 +739,223 @@ const Portfolio: Component<{
                             </div>
                         </Show>
                     </div>
+                    </Show>
                 </Show>
+            </Show>
+        </div>
+    )
+}
+
+// ---- overview ----
+// Every live project at once: what is due across all of them, how much is
+// moving, and which ones have stopped. The Catalog answers "how is this
+// project doing" one card at a time; nothing answered "what is due first" until
+// this, which is the question you have when you own more than two projects.
+//
+// Deadlines come from the same projectAgenda module the Tasks agenda reads, so
+// both screens agree on what counts as due.
+
+const OverviewCard: Component<{ title: string; icon: string; class?: string; children: JSX.Element }> = (props) => (
+    <div class={`bg-element border-element-accent flex min-w-0 flex-col rounded-lg border ${props.class ?? ''}`}>
+        <p class="text-sub border-element-accent flex items-center gap-1.5 border-b px-3 py-2 text-[11px] font-bold uppercase tracking-widest">
+            <span class="material-symbols-outlined text-sm">{props.icon}</span>
+            {props.title}
+        </p>
+        <div class="min-w-0 p-3">{props.children}</div>
+    </div>
+)
+
+const StatTile: Component<{ label: string; value: string | number; hint?: string; danger?: boolean }> = (props) => (
+    <div class="bg-element border-element-accent min-w-0 rounded-lg border px-3 py-2">
+        <p class="font-mono text-xl font-bold" classList={{ 'text-danger': props.danger, 'text-main': !props.danger }}>
+            {props.value}
+        </p>
+        <p class="text-sub truncate text-[11px] font-medium">{props.label}</p>
+        <Show when={props.hint}>
+            <p class="text-sub/60 truncate text-[10px]">{props.hint}</p>
+        </Show>
+    </div>
+)
+
+const Overview: Component<{ projects: Project[]; onOpen: (id: string) => void }> = (props) => {
+    const liveProjects = createMemo(() => props.projects.filter((p) => !p.archived))
+    const deadlines = createMemo(() => projectDeadlines(props.projects))
+    const buckets = createMemo(() => bucketByDue(deadlines(), (d) => d.dueAt))
+    const overdue = createMemo(() => deadlines().filter((d) => dueMs(d.dueAt) < startOfToday()))
+    const dueThisWeek = createMemo(() => {
+        const weekEnd = startOfToday() + 7 * 86400000
+        return deadlines().filter((d) => dueMs(d.dueAt) >= startOfToday() && dueMs(d.dueAt) <= weekEnd)
+    })
+    const openCards = createMemo(() => liveProjects().flatMap((p) => flatLive(p).filter((c) => !c.done)))
+    const doneCards = createMemo(() => liveProjects().flatMap((p) => flatLive(p).filter((c) => c.done)))
+    const completion = createMemo(() => {
+        const total = openCards().length + doneCards().length
+        return total === 0 ? 0 : Math.round((doneCards().length / total) * 100)
+    })
+    // The fourteen-day momentum of every project summed into one series, so a
+    // quiet fortnight across the whole portfolio is visible as one shape.
+    const allMomentum = createMemo(() => {
+        const days = Array(14).fill(0) as number[]
+        for (const p of liveProjects()) momentum(p).forEach((n, i) => (days[i] += n))
+        return days
+    })
+    // Stalled: work outstanding, nothing finished in the fourteen days the
+    // momentum graph covers. Overdue is louder, so it is said first.
+    const attention = createMemo(() =>
+        liveProjects()
+            .filter((p) => health(p).danger || (flatLive(p).some((c) => !c.done) && momentum(p).every((n) => n === 0)))
+            .map((p) => ({ project: p, reason: health(p).danger ? 'Overdue milestone' : 'No cards finished in 14 days' })),
+    )
+    const recentlyFinished = createMemo(() =>
+        liveProjects()
+            .flatMap((p) => flatLive(p).filter((c) => c.done && c.completed_at).map((c) => ({ card: c, project: p })))
+            .sort((a, b) => (b.card.completed_at ?? '').localeCompare(a.card.completed_at ?? ''))
+            .slice(0, 6),
+    )
+
+    return (
+        <div data-testid="projects-overview" class="animate-fade-in min-h-0 flex-1 overflow-y-auto p-5">
+            <Show
+                when={liveProjects().length > 0}
+                fallback={
+                    <div class="bg-element border-element-accent flex flex-col items-center gap-2 rounded-lg border border-dashed py-20">
+                        <span class="material-symbols-outlined text-sub/40 text-4xl">insights</span>
+                        <p class="text-sub/60 text-sm italic">No live projects yet. Start one in the Catalog.</p>
+                    </div>
+                }
+            >
+                <div class="mx-auto flex max-w-5xl flex-col gap-4">
+                    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                        <StatTile label="Live projects" value={liveProjects().length} />
+                        <StatTile label="Open cards" value={openCards().length} hint={`${doneCards().length} done`} />
+                        <StatTile label="Complete" value={`${completion()}%`} />
+                        <StatTile label="Overdue" value={overdue().length} danger={overdue().length > 0} />
+                        <StatTile label="Due in 7 days" value={dueThisWeek().length} />
+                        <StatTile label="High priority" value={openCards().filter((c) => c.priority === 3).length} />
+                    </div>
+
+                    <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+                        <OverviewCard title="Agenda" icon="event_upcoming" class="lg:row-span-2">
+                            <Show
+                                when={buckets().length > 0}
+                                fallback={<p class="text-sub/60 text-sm italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
+                            >
+                                <div class="flex flex-col gap-4">
+                                    <For each={buckets()}>
+                                        {(bucket) => (
+                                            <div>
+                                                <h3 class="mb-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
+                                                    <span
+                                                        classList={{
+                                                            'text-danger': bucket.key === 'overdue',
+                                                            'text-highlight': bucket.key === 'today',
+                                                            'text-sub': bucket.key !== 'overdue' && bucket.key !== 'today',
+                                                        }}
+                                                    >
+                                                        {bucket.label}
+                                                    </span>
+                                                    <span class="bg-element-accent text-sub rounded-full px-1.5 text-[10px]">{bucket.rows.length}</span>
+                                                </h3>
+                                                <div class="flex flex-col gap-1">
+                                                    <For each={bucket.rows}>
+                                                        {(row) => (
+                                                            <button
+                                                                onClick={() => props.onOpen(row.projectId)}
+                                                                class="bg-element-matte border-element-accent hover:border-highlight flex items-center gap-2.5 rounded-md border p-2 text-left transition-colors hover:cursor-pointer"
+                                                                style={{ 'border-left': `3px solid ${priorityColor(row.priority) || row.accent}` }}
+                                                                title={`Open ${row.projectTitle}`}
+                                                            >
+                                                                <span class="material-symbols-outlined shrink-0 text-base" style={{ color: row.accent }}>
+                                                                    {row.kind === 'milestone' ? 'flag' : row.icon}
+                                                                </span>
+                                                                <div class="min-w-0 flex-1">
+                                                                    <p class="text-main truncate text-sm">{row.title}</p>
+                                                                    <p class="text-sub/70 truncate text-[11px]">
+                                                                        {row.projectTitle}
+                                                                        <Show
+                                                                            when={row.kind === 'milestone'}
+                                                                            fallback={<Show when={row.milestoneTitle}>{` · ${row.milestoneTitle}`}</Show>}
+                                                                        >
+                                                                            {` · milestone · ${row.done}/${row.total} done`}
+                                                                        </Show>
+                                                                    </p>
+                                                                </div>
+                                                                <span
+                                                                    class="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
+                                                                    classList={{
+                                                                        'bg-danger/20 text-danger': bucket.key === 'overdue',
+                                                                        'bg-element-accent text-sub': bucket.key !== 'overdue',
+                                                                    }}
+                                                                >
+                                                                    {fmtDue(row.dueAt)}
+                                                                </span>
+                                                            </button>
+                                                        )}
+                                                    </For>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </For>
+                                </div>
+                            </Show>
+                        </OverviewCard>
+
+                        <OverviewCard title="Momentum · 14d" icon="show_chart">
+                            <MomentumBars days={allMomentum()} height={64} barClass="min-w-0 flex-1" />
+                            <p class="text-sub mt-2 text-xs">
+                                <span class="text-main font-mono font-bold">{allMomentum().reduce((a, b) => a + b, 0)}</span> cards finished across{' '}
+                                <span class="text-main font-mono font-bold">{liveProjects().length}</span>{' '}
+                                {liveProjects().length === 1 ? 'project' : 'projects'}
+                            </p>
+                        </OverviewCard>
+
+                        <OverviewCard title="Needs attention" icon="warning">
+                            <Show when={attention().length > 0} fallback={<p class="text-sub/60 text-sm italic">Nothing overdue or stalled. Every project is moving.</p>}>
+                                <div class="flex flex-col gap-1">
+                                    <For each={attention()}>
+                                        {(row) => (
+                                            <button
+                                                onClick={() => props.onOpen(row.project.id)}
+                                                class="bg-element-matte border-element-accent hover:border-highlight flex items-center gap-2.5 rounded-md border p-2 text-left transition-colors hover:cursor-pointer"
+                                            >
+                                                <span class="material-symbols-outlined shrink-0 text-base" style={{ color: row.project.accent }}>
+                                                    {row.project.icon}
+                                                </span>
+                                                <div class="min-w-0 flex-1">
+                                                    <p class="text-main truncate text-sm">{row.project.title}</p>
+                                                    <p class="text-sub/70 truncate text-[11px]">{row.reason}</p>
+                                                </div>
+                                                <HealthWord p={row.project} />
+                                            </button>
+                                        )}
+                                    </For>
+                                </div>
+                            </Show>
+                        </OverviewCard>
+
+                        <OverviewCard title="Recently finished" icon="task_alt" class="lg:col-span-2">
+                            <Show when={recentlyFinished().length > 0} fallback={<p class="text-sub/60 text-sm italic">Nothing finished yet.</p>}>
+                                <div class="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                                    <For each={recentlyFinished()}>
+                                        {(row) => (
+                                            <button
+                                                onClick={() => props.onOpen(row.project.id)}
+                                                class="bg-element-matte border-element-accent hover:border-highlight flex items-center gap-2.5 rounded-md border p-2 text-left transition-colors hover:cursor-pointer"
+                                            >
+                                                <span class="material-symbols-outlined text-highlight shrink-0 text-base">check_circle</span>
+                                                <div class="min-w-0 flex-1">
+                                                    <p class="text-main truncate text-sm">{row.card.title}</p>
+                                                    <p class="text-sub/70 truncate text-[11px]">{row.project.title}</p>
+                                                </div>
+                                                <span class="text-sub shrink-0 text-[11px]">{fmtWhen(row.card.completed_at!)}</span>
+                                            </button>
+                                        )}
+                                    </For>
+                                </div>
+                            </Show>
+                        </OverviewCard>
+                    </div>
+                </div>
             </Show>
         </div>
     )
@@ -1342,7 +1568,7 @@ const Hub: Component<{
                                     <div class="grid grid-cols-1 gap-x-12 gap-y-8 md:grid-cols-2">
                                         <div>
                                             <p class="text-sub mb-3 text-xs font-medium">Momentum · finished per day · 14d</p>
-                                            <MomentumBars p={props.project} height={110} barClass="min-w-0 flex-1" color={accent()} />
+                                            <MomentumBars days={momentum(props.project)} height={110} barClass="min-w-0 flex-1" color={accent()} />
                                             <div class="text-sub/60 mt-1 flex justify-between text-[10px]">
                                                 <span>2 weeks ago</span>
                                                 <span class="text-main font-mono">best day: {Math.max(0, ...momentum(props.project))}</span>

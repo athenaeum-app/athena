@@ -376,6 +376,8 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     // window over the library by default, which is what these shoot.
     await appearance('rose', 'slate-soft')
     await openModule('Projects')
+    // The portfolio opens on the Overview; the covers are the Catalog.
+    await page.getByTitle('Catalog view').click()
     await expect(page.getByText('The Bindery')).toBeVisible()
     await page.waitForTimeout(800)
     await page.screenshot({ path: resolve(SHOT_DIR, 'projects.png') })
@@ -383,6 +385,7 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     // Overview: the project's own document, with the progress signals beside it.
     await appearance('ocean', 'editorial')
     await openModule('Projects')
+    await page.getByTitle('Catalog view').click()
     await page.getByText('The Bindery').click()
     await expect(page.getByTitle('Board view')).toBeVisible()
     await page.waitForTimeout(800)
@@ -391,6 +394,7 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     // Board: milestones as columns, with what is finished, due and dismissed.
     await appearance('dark', 'aurora')
     await openModule('Projects')
+    await page.getByTitle('Catalog view').click()
     await page.getByText('The Bindery').click()
     await page.getByTitle('Board view').click()
     // Milestone titles are editable inputs on the board, so wait on a card.

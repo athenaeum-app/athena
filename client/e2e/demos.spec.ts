@@ -328,6 +328,7 @@ test('capture README demo GIFs', async ({ page }) => {
     const projects = frames('projects')
     await appearance('rose', 'slate-soft')
     await page.getByRole('button', { name: 'Projects', exact: true }).first().click()
+    await page.getByTitle('Catalog view').click()
     await expect(page.getByText('The Bindery')).toBeVisible()
     await page.waitForTimeout(700)
 

@@ -37,6 +37,7 @@ test.describe('escape closes one layer at a time', () => {
 
         await page.goto('/')
         await openModule(page, 'Projects')
+        await page.getByTitle('Catalog view').click()
         await page.getByText('Layered').first().click()
         await page.getByTitle('Board view').click()
         await page.getByText('A card').first().click()

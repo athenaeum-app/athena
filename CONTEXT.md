@@ -39,9 +39,33 @@ None, Low, Med, or High on a card. Shared vocabulary with the Tasks module;
 feeds sorting and the progress graphics.
 
 **Portfolio**:
-The Projects landing screen showing every live project's state at a glance,
-with archived projects in a collapsed shelf.
-_Avoid_: dashboard, overview
+The Projects landing screen, in three views: the Overview, the Catalog, and
+the archived shelf.
+_Avoid_: dashboard
+
+**Catalog**:
+The portfolio view holding every live project as a cover: completion, spine
+meter, milestones, momentum and counts, one card per project. This is the view
+the tab used to call "Projects", which named the module rather than the view.
+_Avoid_: grid, list, projects
+
+**Overview**:
+The portfolio view across all live projects at once: what is due soonest
+anywhere, portfolio-wide counts, combined momentum, the projects that are
+overdue or have stopped moving, and what was finished recently. The Catalog
+answers how one project is doing; this answers what to do next. The Hub's first
+tab carries the same name for one project's brief, so where both are in play,
+say portfolio overview and project overview.
+_Avoid_: dashboard, home, summary
+
+**Deadline**:
+A card or a milestone with a due date on it. Deadlines belong to the project
+and are read in one place, so the Overview's agenda and the Tasks module's
+agenda list the same things in the same order. A dated card is a task in every
+sense the reader cares about, which is why the Tasks agenda carries it beside
+its own items; a shelved project's deadlines are not, which is why archived
+projects have none.
+_Avoid_: due item, deliverable
 
 **Dismiss**:
 Shelving a card without deleting it. Undoable in a deep Ctrl+Z stack and
