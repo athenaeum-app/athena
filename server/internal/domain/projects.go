@@ -54,6 +54,10 @@ func ListProjects() ([]models.Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	documentsBy, err := getDocumentsForProjects(ids)
+	if err != nil {
+		return nil, err
+	}
 	for i := range projects {
 		// Missing map entries stay the non-nil empty slices scanProject seeded,
 		// so the JSON is [] rather than null (same guard as ListTodoLists).
@@ -62,6 +66,9 @@ func ListProjects() ([]models.Project, error) {
 		}
 		if c := cardsBy[projects[i].ID]; c != nil {
 			projects[i].Cards = c
+		}
+		if d := documentsBy[projects[i].ID]; d != nil {
+			projects[i].Documents = d
 		}
 	}
 	return projects, nil
@@ -84,11 +91,18 @@ func GetProject(id string) (*models.Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	documents, err := getDocumentsForProjects([]string{id})
+	if err != nil {
+		return nil, err
+	}
 	if milestones[id] != nil {
 		p.Milestones = milestones[id]
 	}
 	if cards[id] != nil {
 		p.Cards = cards[id]
+	}
+	if documents[id] != nil {
+		p.Documents = documents[id]
 	}
 	return p, nil
 }
@@ -106,6 +120,7 @@ func CreateProject(title string, authorID *string) (*models.Project, error) {
 		UpdatedAt:  now,
 		Milestones: []models.ProjectMilestone{},
 		Cards:      []models.ProjectCard{},
+		Documents:  []models.ProjectDocument{},
 	}
 	p.Accent = "#67b8c7"
 	p.Icon = "space_dashboard"
@@ -445,7 +460,11 @@ func DeleteProjectCard(id string) error {
 const projectColumns = `id, title, overview, accent, icon, author_id, position, archived, created_at, updated_at`
 
 func scanProject(s scannerT) (*models.Project, error) {
-	p := &models.Project{Milestones: []models.ProjectMilestone{}, Cards: []models.ProjectCard{}}
+	p := &models.Project{
+		Milestones: []models.ProjectMilestone{},
+		Cards:      []models.ProjectCard{},
+		Documents:  []models.ProjectDocument{},
+	}
 	if err := s.Scan(&p.ID, &p.Title, &p.Overview, &p.Accent, &p.Icon, &p.AuthorID, &p.Position, &p.Archived, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}

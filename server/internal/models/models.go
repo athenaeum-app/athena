@@ -289,6 +289,10 @@ type Project struct {
 	UpdatedAt  time.Time          `json:"updated_at"`
 	Milestones []ProjectMilestone `json:"milestones"`
 	Cards      []ProjectCard      `json:"cards"`
+	// The whole Documents tree, folders and documents alike, flat. The client
+	// assembles the tree from parent_id. Version snapshots are not nested
+	// here: bodies add up, and they have their own endpoints.
+	Documents []ProjectDocument `json:"documents"`
 }
 
 // ProjectMilestone is one board column and one roadmap node, optionally dated.
@@ -328,4 +332,88 @@ type ProjectCard struct {
 	AuthorID    *string    `json:"author_id,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+// The two kinds of row in a project's Documents tree: a folder is a container,
+// a document is the reference content itself.
+const (
+	ProjectDocumentKindFolder   = "folder"
+	ProjectDocumentKindDocument = "document"
+)
+
+// Document statuses. Locked refuses title and body edits until it is unlocked.
+const (
+	ProjectDocumentStatusDraft  = "draft"
+	ProjectDocumentStatusFinal  = "final"
+	ProjectDocumentStatusLocked = "locked"
+)
+
+// ProjectDocument is one node of a project's Documents tree: durable reference
+// content, or a folder holding more of it. Composed and rendered through the
+// moment pipeline but owned by the project, not by an archive, so it is never
+// done, carries no priority and cannot be dismissed (ADR-0020). It dies only
+// by a deliberate delete, which takes everything beneath it.
+type ProjectDocument struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+	// nil puts the row at the Documents tab's root.
+	ParentID *string `json:"parent_id,omitempty"`
+	Kind     string  `json:"kind"`
+	Title    string  `json:"title"`
+	// Markdown with embeds, same pipeline as a card body. Empty for folders.
+	Body     string  `json:"body"`
+	Status   string  `json:"status"`
+	Position float64 `json:"position"`
+	// Unresolved threads on this document, counted on every read so a tile can
+	// badge it without a request of its own. Derived, never stored: a restore
+	// payload carrying a stale number is ignored on the way back in.
+	OpenComments int       `json:"open_comments"`
+	AuthorID     *string   `json:"author_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// ProjectDocumentVersion is a snapshot of a document's title and body, taken
+// manually or automatically before a meaningful edit. Restoring one snapshots
+// the current state first, so a restore is itself undoable.
+//
+// Body is omitted when empty because the list endpoint deliberately leaves it
+// out: a version list is identity only, and shipping every historical body
+// with it would dwarf the document.
+type ProjectDocumentVersion struct {
+	ID         string    `json:"id"`
+	DocumentID string    `json:"document_id"`
+	Title      string    `json:"title"`
+	Body       string    `json:"body,omitempty"`
+	AuthorID   *string   `json:"author_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// ProjectDocumentComment is one remark hung off a block of a document, or a
+// reply to one. It anchors to a block rather than to a character range: the
+// whole body is rewritten on every save, so an offset pair would be stale the
+// moment a word was added above it.
+//
+// AnchorIndex and AnchorText are that anchor. The reader resolves the text
+// first and the index second, which is what lets a comment survive edits made
+// elsewhere in the document; when neither matches, the comment is shown as
+// orphaned rather than being moved onto whatever now sits at that index.
+//
+// Threads are one level deep. A reply carries a copy of its parent's anchor so
+// every row knows its block without a join, and Resolved is a property of the
+// thread, held on its first comment.
+type ProjectDocumentComment struct {
+	ID         string `json:"id"`
+	DocumentID string `json:"document_id"`
+	// nil starts a thread; set means a reply, always to a thread root.
+	ParentID    *string `json:"parent_id,omitempty"`
+	AnchorIndex int     `json:"anchor_index"`
+	AnchorText  string  `json:"anchor_text"`
+	// Plain text. Comments deliberately do not run the embed pipeline: a
+	// remark about a document is not another document.
+	Body      string    `json:"body"`
+	Resolved  bool      `json:"resolved"`
+	AuthorID  *string   `json:"author_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

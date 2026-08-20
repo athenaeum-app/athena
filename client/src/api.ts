@@ -267,6 +267,93 @@ export const api = {
     ) => request<ProjectCard>(`/api/v1/project-cards/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     deleteProjectCard: (id: string) => request(`/api/v1/project-cards/${id}`, { method: 'DELETE' }),
 
+    // Project documents. The whole tree arrives nested in the project payload,
+    // so there is no list call; versions carry bodies and are fetched one at a
+    // time.
+    createProjectDocument: (
+        projectId: string,
+        body: {
+            kind: ProjectDocumentKind
+            title: string
+            // Markdown, ignored for a folder.
+            body?: string
+            // Folder id, or omitted for the tab root.
+            parent_id?: string
+            // Omitted appends to the sibling group.
+            position?: number
+        },
+    ) =>
+        request<ProjectDocument>(`/api/v1/projects/${projectId}/documents`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+        }),
+    updateProjectDocument: (
+        id: string,
+        body: {
+            title?: string
+            body?: string
+            status?: ProjectDocumentStatus
+            // Folder id to move into, '' for the tab root, omit to leave it.
+            parent_id?: string
+            position?: number
+        },
+    ) => request<ProjectDocument>(`/api/v1/project-documents/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    // Deletes the row and everything under it, answering with the whole removed
+    // subtree, parents first. Keep it: that payload is what the undo stack
+    // hands back to restoreProjectDocuments to bring the rows back under their
+    // own ids.
+    deleteProjectDocument: (id: string) =>
+        request<{ documents: ProjectDocument[] }>(`/api/v1/project-documents/${id}`, { method: 'DELETE' }),
+    restoreProjectDocuments: (projectId: string, documents: ProjectDocument[]) =>
+        request<{ documents: ProjectDocument[] }>(`/api/v1/projects/${projectId}/documents/restore`, {
+            method: 'POST',
+            body: JSON.stringify({ documents }),
+        }),
+    // The manual "save version". Edits also snapshot themselves, but at most
+    // once an hour, so this is how a deliberate checkpoint is taken.
+    createProjectDocumentVersion: (documentId: string) =>
+        request<ProjectDocumentVersion>(`/api/v1/project-documents/${documentId}/versions`, { method: 'POST' }),
+    // Newest first, without bodies: the list is a history to pick from.
+    listProjectDocumentVersions: (documentId: string) =>
+        request<ProjectDocumentVersion[]>(`/api/v1/project-documents/${documentId}/versions`),
+    getProjectDocumentVersion: (id: string) =>
+        request<ProjectDocumentVersion>(`/api/v1/project-document-versions/${id}`),
+    // Snapshots the current state before overwriting it, so a restore is
+    // itself undoable.
+    restoreProjectDocumentVersion: (id: string) =>
+        request<ProjectDocument>(`/api/v1/project-document-versions/${id}/restore`, { method: 'POST' }),
+
+    // Comments on a document, threads and replies alike, oldest first. Fetched
+    // with the open document rather than with the project: a tab full of tiles
+    // pays only for the open_comments count that rides in the payload.
+    listProjectDocumentComments: (documentId: string) =>
+        request<ProjectDocumentComment[]>(`/api/v1/project-documents/${documentId}/comments`),
+    createProjectDocumentComment: (
+        documentId: string,
+        body: {
+            // Plain text.
+            body: string
+            // A thread root's id makes this a reply; omitted starts a thread.
+            parent_id?: string
+            // The block this is about. Ignored for a reply, which takes its
+            // thread's anchor.
+            anchor_index?: number
+            anchor_text?: string
+        },
+    ) =>
+        request<ProjectDocumentComment>(`/api/v1/project-documents/${documentId}/comments`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+        }),
+    updateProjectDocumentComment: (id: string, body: { body?: string; resolved?: boolean }) =>
+        request<ProjectDocumentComment>(`/api/v1/project-document-comments/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(body),
+        }),
+    // Answers with every row it took: deleting a thread root takes its replies.
+    deleteProjectDocumentComment: (id: string) =>
+        request<{ comments: ProjectDocumentComment[] }>(`/api/v1/project-document-comments/${id}`, { method: 'DELETE' }),
+
     // Canvas, server-synced and library-shared
     listCanvases: () => request<Canvas[]>('/api/v1/canvases'),
     getCanvas: (id: string) => request<Canvas>(`/api/v1/canvases/${id}`),
@@ -464,6 +551,10 @@ export interface Project {
     updated_at: string
     milestones: ProjectMilestone[]
     cards: ProjectCard[]
+    // The whole Documents tree, folders and documents alike, flat. Build the
+    // tree from parent_id. Version snapshots are not in here: bodies add up,
+    // and they have their own endpoints.
+    documents: ProjectDocument[]
 }
 
 // One board column and one roadmap node. Milestones sharing a track stack
@@ -499,6 +590,74 @@ export interface ProjectCard {
     author_id?: string
     created_at: string
     updated_at: string
+}
+
+// The two kinds of row in a project's Documents tree: a folder is a container,
+// a document is the reference content itself.
+export type ProjectDocumentKind = 'folder' | 'document'
+
+// Locked refuses title and body edits until it is unlocked; it is the badge for
+// "this decision is decided".
+export type ProjectDocumentStatus = 'draft' | 'final' | 'locked'
+
+// One node of a project's Documents tree: durable reference content, or a
+// folder holding more of it. Composed and rendered through the moment pipeline
+// but owned by the project, so it is never done, carries no priority and cannot
+// be dismissed. It dies only by a deliberate delete, which takes everything
+// beneath it.
+export interface ProjectDocument {
+    id: string
+    project_id: string
+    // Absent puts the row at the Documents tab's root.
+    parent_id?: string
+    kind: ProjectDocumentKind
+    title: string
+    // Markdown with embeds, same pipeline as a card body. Empty for folders.
+    body: string
+    status: ProjectDocumentStatus
+    position: number
+    // Unresolved threads on this document. Derived server-side and carried on
+    // every read, so a tile badges it without a request of its own.
+    open_comments: number
+    author_id?: string
+    created_at: string
+    updated_at: string
+}
+
+// One remark hung off a block of a document, or a reply to one. Threads are one
+// level deep and resolved is a property of the thread, held on its first
+// comment.
+//
+// anchor_index and anchor_text are the anchor: which block, and enough of its
+// text to recognize it again after the document has moved around it. The reader
+// resolves them with resolveDocumentAnchor in projectDocuments.ts; the server
+// stores the pair and never interprets it.
+export interface ProjectDocumentComment {
+    id: string
+    document_id: string
+    // Absent starts a thread; set means a reply, always to a thread root.
+    parent_id?: string
+    anchor_index: number
+    anchor_text: string
+    // Plain text. Comments deliberately do not run the embed pipeline: a
+    // remark about a document is not another document.
+    body: string
+    resolved: boolean
+    author_id?: string
+    created_at: string
+    updated_at: string
+}
+
+// A snapshot of a document's title and body, taken manually or automatically
+// before a meaningful edit. body is absent in list responses and present when
+// one version is fetched on its own.
+export interface ProjectDocumentVersion {
+    id: string
+    document_id: string
+    title: string
+    body?: string
+    author_id?: string
+    created_at: string
 }
 
 export type CanvasNodeKind =

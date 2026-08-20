@@ -1,8 +1,36 @@
-import { createSignal, createEffect, For, Show, onMount, onCleanup, type Component } from 'solid-js'
+import { createSignal, createEffect, on, untrack, For, Show, onMount, onCleanup, type Component } from 'solid-js'
 import { createStore, produce, reconcile } from 'solid-js/store'
-import { api, type Project, type ProjectMilestone, type ProjectCard } from '../api'
+import {
+    APIError,
+    api,
+    type Project,
+    type ProjectMilestone,
+    type ProjectCard,
+    type ProjectDocument,
+    type ProjectDocumentComment,
+    type ProjectDocumentStatus,
+    type ProjectDocumentVersion,
+} from '../api'
 import { useUI } from '../ui'
-import { MomentBody, excerpt } from './MomentBody'
+import { MomentBody, excerpt, clearProjectDocumentCache } from './MomentBody'
+import {
+    childDocuments,
+    documentBlocks,
+    documentOutline,
+    documentPath,
+    documentStatusBadge,
+    documentSubtree,
+    documentThreads,
+    documentWordCount,
+    folderCounts,
+    nextDocumentPosition,
+    openThreadCount,
+    readingMinutes,
+    type DocumentBlock,
+    type DocumentHeading,
+    type DocumentThread,
+} from '../projectDocuments'
+import { loadUsers, userName } from '../users'
 import { Editor } from './Editor'
 import { BookcaseDrift } from './BookcaseDrift'
 import { prefs, MODAL_WIDTH_CLASS } from '../prefs'
@@ -10,13 +38,16 @@ import { desktop } from '../desktop'
 import { Modal } from './Modal'
 
 // Projects module: a portfolio of long-horizon efforts. Each project is a
-// tabbed hub (overview document, milestone board, graveyard) with an identity
+// tabbed hub (brief, milestone board, documents, graveyard) with an identity
 // color and icon. Milestones are board columns; columns sharing a track stack
 // vertically and split the height. Cards dismiss (never silently delete) into
-// a graveyard with a deep Ctrl+Z stack. Overview and card bodies render
-// through the moment pipeline, so ::todo:id::, ::canvas:id::, ::project:id::
-// and [[moment]] embeds are live, and are written through the same Editor a
-// moment uses (slash menu, [[ autocomplete, paste-to-attach).
+// a graveyard with a deep Ctrl+Z stack. Documents are durable reference content
+// in an unbounded folder tree the project owns outright (ADR-0020); deleting
+// one is recursive and lands on the same undo stack. Brief, card and document
+// bodies render through the moment pipeline, so ::todo:id::, ::canvas:id::,
+// ::project:id::, ::doc:id:: and [[moment]] embeds are live, and are written
+// through the same Editor a moment uses (slash menu, [[ autocomplete,
+// paste-to-attach).
 //
 // Mutations are optimistic: state first, request after, refetch on failure.
 // Requires ManageProjects for writes; read-only otherwise.
@@ -27,6 +58,9 @@ interface ProjectsModuleProps {
     // A ::project:id:: embed elsewhere in the app asked for this project;
     // open straight onto it instead of the portfolio.
     initialProjectId?: string
+    // A ::doc:id:: embed asked for one document inside that project: land on
+    // the Documents tab with it open, rather than on the brief.
+    initialDocumentId?: string
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
@@ -42,6 +76,71 @@ const PRIORITIES = [
 ]
 const priorityColor = (v: number) => PRIORITIES.find((p) => p.v === v)?.color || ''
 const priorityIcon = (v: number) => PRIORITIES.find((p) => p.v === v)?.icon || ''
+
+// A document's status, in the order it travels: written, settled, frozen.
+// Locked refuses title and body edits server-side, so the reader has to leave
+// it deliberately before writing again.
+const DOCUMENT_STATUSES = [
+    { v: 'draft', label: 'Draft', icon: 'edit_note' },
+    { v: 'final', label: 'Final', icon: 'task_alt' },
+    { v: 'locked', label: 'Locked', icon: 'lock' },
+] as const
+
+// What a new document can start as. Client-side only: a template is a first
+// draft of a body, not a kind of document, so nothing about it survives the
+// creation. The plain path stays one tap and a template is one more.
+interface DocumentTemplate {
+    key: string
+    label: string
+    hint: string
+    icon: string
+    title: string
+    body: string
+}
+const DOCUMENT_TEMPLATES: DocumentTemplate[] = [
+    {
+        key: 'decision',
+        label: 'Decision record',
+        hint: 'Context, decision, consequences',
+        icon: 'gavel',
+        title: 'Decision record',
+        body: [
+            '## Context',
+            '',
+            'What is going on, and why this has to be decided now.',
+            '',
+            '## Decision',
+            '',
+            'What was decided, in a sentence, then the detail behind it.',
+            '',
+            '## Consequences',
+            '',
+            'What this makes easier, what it makes harder, and what has to change because of it.',
+            '',
+        ].join('\n'),
+    },
+    {
+        key: 'research',
+        label: 'Research note',
+        hint: 'Question, findings, sources',
+        icon: 'science',
+        title: 'Research note',
+        body: [
+            '## Question',
+            '',
+            'What is being answered, and for whom.',
+            '',
+            '## Findings',
+            '',
+            'What turned up, and how sure it is.',
+            '',
+            '## Sources',
+            '',
+            'Where it came from, so the next reader can check it.',
+            '',
+        ].join('\n'),
+    },
+]
 
 const ACCENTS = ['#67b8c7', '#c9a35c', '#9d8fd6', '#c98fae', '#8fbf8f', '#6fae93', '#bf8f8f', '#8f9fbf']
 const ICONS = ['space_dashboard', 'sports_esports', 'storefront', 'joystick', 'videocam', 'home', 'school', 'construction', 'brush', 'science', 'menu_book', 'flight']
@@ -76,6 +175,10 @@ const startOfToday = () => {
 }
 const dueMs = (iso?: string) => (iso ? new Date(iso).setHours(0, 0, 0, 0) : Infinity)
 const fmtDue = (iso: string) => new Intl.DateTimeFormat(navigator.language, { month: 'short', day: 'numeric' }).format(new Date(iso))
+// Documents are edited rather than scheduled, so their stamps carry the time of
+// day: "Mar 4" twice in a row says nothing about which draft is the later one.
+const fmtWhen = (iso: string) =>
+    new Intl.DateTimeFormat(navigator.language, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso))
 const isoToDateInput = (iso?: string) => {
     if (!iso) return ''
     const d = new Date(iso)
@@ -129,7 +232,7 @@ const momentum = (p: Project) => {
 
 // What a board card shows of its note, per prefs.projectCardNoteHint: the
 // flattened excerpt, or nothing when the reader asked for the plain label.
-// Two lines' worth; the card is a summary, and the modal holds the document.
+// Two lines' worth; the card is a summary, and the modal holds the body.
 const cardNote = (card: ProjectCard) => (prefs().projectCardNoteHint === 'preview' ? excerpt(card.body, 120) : '')
 
 // The first meaningful non-heading line of the overview, stripped of markup.
@@ -253,26 +356,34 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
     const [loadError, setLoadError] = createSignal(false)
     const [openId, setOpenId] = createSignal<string | null>(null)
     const [pview, setPview] = createSignal<'active' | 'archived'>('active')
+    // Which document a ::doc:id:: embed asked for, and whose project it is in.
+    // Held here rather than in the Hub because a document embed can point at a
+    // document in a project that is not the open one.
+    const [docRequest, setDocRequest] = createSignal<{ id: string; projectId: string } | null>(null)
+    const openDoc = (id: string, projectId: string) => {
+        setDocRequest({ id, projectId })
+        setOpenId(projectId)
+    }
     // An effect, not a mount-time read: a project embed clicked while the
     // module is already open (from the focused reader above it) retargets it.
     createEffect(() => {
         if (props.initialProjectId) setOpenId(props.initialProjectId)
     })
-    // For the editors' `[[` autocomplete; best-effort, the slash menu's picker
-    // self-fetches either way.
-    const [momentIndex, setMomentIndex] = createSignal<{ id: string; title: string }[]>([])
-    onMount(() => {
-        api.listMoments({ limit: 100 })
-            .then((data) => setMomentIndex((data ?? []).map((m) => ({ id: m.id, title: m.title || 'Untitled' }))))
-            .catch(() => {})
+    createEffect(() => {
+        if (props.initialDocumentId && props.initialProjectId) {
+            setDocRequest({ id: props.initialDocumentId, projectId: props.initialProjectId })
+        }
     })
-
     const load = async () => {
         setLoading(true)
         setLoadError(false)
         try {
             const data = await api.listProjects()
-            setProjects(reconcile((data ?? []).map((p) => ({ ...p, milestones: p.milestones ?? [], cards: p.cards ?? [] }))))
+            setProjects(
+                reconcile(
+                    (data ?? []).map((p) => ({ ...p, milestones: p.milestones ?? [], cards: p.cards ?? [], documents: p.documents ?? [] })),
+                ),
+            )
         } catch (err) {
             console.error('Failed to load projects:', err)
             setLoadError(true)
@@ -301,7 +412,11 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
     const newProject = async () => {
         try {
             const created = await api.createProject('New project')
-            setProjects(produce((arr) => arr.push({ ...created, milestones: created.milestones ?? [], cards: created.cards ?? [] })))
+            setProjects(
+                produce((arr) =>
+                    arr.push({ ...created, milestones: created.milestones ?? [], cards: created.cards ?? [], documents: created.documents ?? [] }),
+                ),
+            )
             setOpenId(created.id)
         } catch (err) {
             console.error('Failed to create project:', err)
@@ -404,6 +519,7 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
                     <Hub
                         project={p}
                         canManage={props.canManage}
+                        initialDocumentId={docRequest()?.projectId === p.id ? docRequest()!.id : undefined}
                         onBack={() => setOpenId(null)}
                         onClose={props.onClose}
                         onArchive={() => {
@@ -414,11 +530,11 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
                         mutate={(fn) => mutate(p.id, fn)}
                         patchProject={(optimistic, body) => patchProject(p.id, optimistic, body)}
                         reload={load}
-                        momentIndex={momentIndex()}
                         onOpenMoment={props.onOpenMoment}
                         onOpenTodo={props.onOpenTodo}
                         onOpenCanvas={props.onOpenCanvas}
                         onOpenProject={setOpenId}
+                        onOpenDoc={openDoc}
                     />
                 )}
             </Show>
@@ -624,6 +740,7 @@ const Portfolio: Component<{
 const HUB_TABS = [
     { key: 'overview', label: 'Overview', icon: 'description' },
     { key: 'board', label: 'Board', icon: 'view_kanban' },
+    { key: 'documents', label: 'Documents', icon: 'folder_open' },
     { key: 'graveyard', label: 'Graveyard', icon: 'history' },
 ] as const
 type HubTab = (typeof HUB_TABS)[number]['key']
@@ -631,17 +748,18 @@ type HubTab = (typeof HUB_TABS)[number]['key']
 const Hub: Component<{
     project: Project
     canManage: boolean
+    initialDocumentId?: string
     onBack: () => void
     onClose: () => void
     onArchive: () => void
     mutate: (fn: (p: Project) => void) => void
     patchProject: (optimistic: (p: Project) => void, body: Parameters<typeof api.updateProject>[1]) => void
     reload: () => Promise<void>
-    momentIndex: { id: string; title: string }[]
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
 }> = (props) => {
     const ui = useUI()
     const [tab, setTab] = createSignal<HubTab>('overview')
@@ -666,6 +784,15 @@ const Hub: Component<{
         setUndoStack(stack.slice(0, -1))
         if (!undoStack().length) setToastVisible(false)
     }
+    // One entry, one toast window. Every undoable action in the hub goes
+    // through here so a dismissed card and a deleted folder queue in the same
+    // stack and Ctrl+Z walks back through both.
+    const pushUndo = (label: string, apply: () => void) => {
+        setUndoStack([...undoStack(), { label, apply }])
+        clearTimeout(undoTimer)
+        setToastVisible(true)
+        undoTimer = setTimeout(() => setToastVisible(false), 6000)
+    }
     onMount(() => {
         const onKey = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && undoStack().length) {
@@ -677,7 +804,7 @@ const Hub: Component<{
         onCleanup(() => window.removeEventListener('keydown', onKey))
     })
 
-    // --- overview document ---
+    // --- the brief ---
     // The editor streams every keystroke; the store takes it immediately (so
     // the preview and portfolio snippet follow along) and the PATCH waits for
     // a pause in the typing. Leaving the editor, or the tab, flushes.
@@ -688,8 +815,8 @@ const Hub: Component<{
         if (!ovDirty) return
         ovDirty = false
         api.updateProject(props.project.id, { overview: props.project.overview }).catch((err) => {
-            console.error('Failed to save the document:', err)
-            ui.toast('Could not save the document.', 'error')
+            console.error('Failed to save the brief:', err)
+            ui.toast('Could not save the brief.', 'error')
             void props.reload()
         })
     }
@@ -704,6 +831,153 @@ const Hub: Component<{
         setOvEditing(false)
     }
     onCleanup(ovFlush)
+
+    // --- documents ---
+    // Which folder the grid is showing (null is the tab root) and which
+    // document is open on top of it. Both live here rather than in the tab so
+    // a ::doc:id:: embed can land on one, and so walking to the board and back
+    // returns to where the reader was.
+    const [docFolderId, setDocFolderId] = createSignal<string | null>(null)
+    const [docOpenId, setDocOpenId] = createSignal<string | null>(null)
+    const documents = () => props.project.documents || []
+
+    createEffect(() => {
+        const wanted = props.initialDocumentId
+        if (!wanted) return
+        setTab('documents')
+        setDocOpenId(wanted)
+        // untracked: the grid should not jump back to the document's folder
+        // every time anything in the tree changes.
+        setDocFolderId(untrack(() => documents().find((d) => d.id === wanted)?.parent_id ?? null))
+    })
+
+    const withDoc = (id: string, fn: (d: ProjectDocument) => void) =>
+        props.mutate((p) => {
+            const d = p.documents.find((x) => x.id === id)
+            if (d) fn(d)
+        })
+
+    // A locked document refuses title and body edits server-side. The status
+    // control makes that state visible and the editor read-only, so a 409 here
+    // means the lock landed from another session: say so and put the stored
+    // text back.
+    const docError = (err: unknown, fallback: string) => {
+        console.error(fallback, err)
+        ui.toast(err instanceof APIError && err.status === 409 ? 'That document is locked. Unlock it to edit.' : fallback, 'error')
+        void props.reload()
+    }
+
+    const patchDoc = (id: string, optimistic: (d: ProjectDocument) => void, body: Parameters<typeof api.updateProjectDocument>[1]) => {
+        withDoc(id, optimistic)
+        clearProjectDocumentCache()
+        api.updateProjectDocument(id, body)
+            .then((updated) => withDoc(id, (d) => Object.assign(d, updated)))
+            .catch((err) => docError(err, 'Could not update the document.'))
+    }
+
+    // Which tile is showing its rename field. One at a time, so the grid never
+    // has two open inputs competing for the Enter key.
+    const [docRenameId, setDocRenameId] = createSignal<string | null>(null)
+
+    const newDocumentRow = async (kind: 'folder' | 'document', template?: DocumentTemplate) => {
+        const parent = docFolderId()
+        try {
+            const created = await api.createProjectDocument(props.project.id, {
+                kind,
+                title: template ? template.title : kind === 'folder' ? 'New folder' : 'New document',
+                body: template?.body,
+                parent_id: parent ?? undefined,
+                position: nextDocumentPosition(childDocuments(documents(), parent)),
+            })
+            props.mutate((p) => p.documents.push(created))
+            clearProjectDocumentCache()
+            // A document opens to be written in; a folder only needs a name, so
+            // it opens its rename field instead.
+            if (kind === 'document') setDocOpenId(created.id)
+            else setDocRenameId(created.id)
+        } catch (err) {
+            console.error('Failed to create a document:', err)
+            ui.toast(kind === 'folder' ? 'Could not add the folder.' : 'Could not add the document.', 'error')
+        }
+    }
+
+    // The open document's body, saved on the same mechanics as the brief: the
+    // store takes every keystroke so the outline and word count follow along,
+    // and the PATCH waits for a pause. Leaving the editor, closing the
+    // document, or leaving the hub flushes.
+    let docBodyTimer: ReturnType<typeof setTimeout> | undefined
+    let docBodyPending: { id: string; body: string } | null = null
+    const docBodyFlush = () => {
+        clearTimeout(docBodyTimer)
+        const pending = docBodyPending
+        if (!pending) return
+        docBodyPending = null
+        clearProjectDocumentCache()
+        api.updateProjectDocument(pending.id, { body: pending.body })
+            .then((updated) => withDoc(pending.id, (d) => Object.assign(d, updated)))
+            .catch((err) => docError(err, 'Could not save the document.'))
+    }
+    const docBodyChange = (id: string, value: string) => {
+        withDoc(id, (d) => (d.body = value))
+        docBodyPending = { id, body: value }
+        clearTimeout(docBodyTimer)
+        docBodyTimer = setTimeout(docBodyFlush, 800)
+    }
+    createEffect(on(docOpenId, (_id, prev) => prev !== undefined && docBodyFlush()))
+    onCleanup(docBodyFlush)
+
+    // Delete is hard and recursive (ADR-0020). The server answers with the
+    // whole removed subtree under its original ids, which is exactly what the
+    // restore endpoint takes back, so the undo entry is that payload.
+    const deleteDocumentRow = async (row: ProjectDocument) => {
+        const inside = documentSubtree(documents(), row.id).length - 1
+        const ok = await ui.confirm({
+            title: row.kind === 'folder' ? 'Delete folder?' : 'Delete document?',
+            message:
+                row.kind === 'folder'
+                    ? inside === 0
+                        ? `"${row.title}" is empty. It goes for good.`
+                        : `Delete folder and ${inside} item${inside === 1 ? '' : 's'} inside?`
+                    : `"${row.title}" goes, and its saved versions with it.`,
+            confirmLabel: 'Delete',
+            danger: true,
+        })
+        if (!ok) return
+        try {
+            const removed = (await api.deleteProjectDocument(row.id)).documents ?? []
+            const gone = new Set(removed.map((d) => d.id))
+            // A save still waiting for a row that has just been deleted would
+            // 404 and report a failure for an edit the delete already threw
+            // away.
+            if (docBodyPending && gone.has(docBodyPending.id)) docBodyPending = null
+            props.mutate((p) => {
+                p.documents = p.documents.filter((d) => !gone.has(d.id))
+            })
+            clearProjectDocumentCache()
+            const openId = docOpenId()
+            if (openId && gone.has(openId)) setDocOpenId(null)
+            const folderId = docFolderId()
+            if (folderId && gone.has(folderId)) setDocFolderId(row.parent_id ?? null)
+            pushUndo(`Deleted "${row.title}"`, () => {
+                api.restoreProjectDocuments(props.project.id, removed)
+                    .then((res) =>
+                        props.mutate((p) => {
+                            const have = new Set(p.documents.map((d) => d.id))
+                            p.documents.push(...(res.documents ?? removed).filter((d) => !have.has(d.id)))
+                        }),
+                    )
+                    .catch((err) => {
+                        console.error('Failed to restore documents:', err)
+                        ui.toast('Could not restore what was deleted.', 'error')
+                        void props.reload()
+                    })
+                clearProjectDocumentCache()
+            })
+        } catch (err) {
+            console.error('Failed to delete document:', err)
+            ui.toast('Could not delete it.', 'error')
+        }
+    }
 
     // --- card mutations (optimistic; the server's answer overwrites) ---
 
@@ -735,10 +1009,7 @@ const Hub: Component<{
     const dismissCard = (c: ProjectCard) => {
         if (editId() === c.id) setEditId(null)
         patchCard(c.id, (x) => (x.dismissed = true), { dismissed: true })
-        setUndoStack([...undoStack(), { label: `Dismissed "${c.title}"`, apply: () => patchCard(c.id, (x) => (x.dismissed = false), { dismissed: false }) }])
-        clearTimeout(undoTimer)
-        setToastVisible(true)
-        undoTimer = setTimeout(() => setToastVisible(false), 6000)
+        pushUndo(`Dismissed "${c.title}"`, () => patchCard(c.id, (x) => (x.dismissed = false), { dismissed: false }))
     }
 
     const deleteCardForever = async (c: ProjectCard) => {
@@ -910,12 +1181,14 @@ const Hub: Component<{
                         class="text-main font-serif hover:border-element-accent focus:border-highlight w-36 min-w-0 rounded-md border border-transparent bg-transparent px-1 text-xl font-semibold transition-colors focus:outline-none sm:w-56"
                     />
                 </Show>
-                <div class="border-element-accent flex overflow-hidden rounded-md border">
+                {/* Scrolls rather than clips: four tabs are wider than a
+                    390px shell, and a clipped tab is a tab nobody can reach. */}
+                <div class="border-element-accent flex max-w-full overflow-x-auto rounded-md border">
                     <For each={HUB_TABS}>
                         {(t) => (
                             <button
                                 onClick={() => setTab(t.key)}
-                                class="flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors hover:cursor-pointer"
+                                class="flex shrink-0 items-center gap-1 px-2.5 py-1.5 text-xs transition-colors hover:cursor-pointer"
                                 classList={{ 'text-sub hover:text-main': tab() !== t.key }}
                                 style={tab() === t.key ? { 'background-color': `${accent()}2b`, color: accent(), 'font-weight': '700' } : {}}
                                 title={`${t.label} view`}
@@ -1020,7 +1293,7 @@ const Hub: Component<{
                             <div class="min-w-0">
                                 <div class="bg-element border-element-accent/60 rounded-lg border p-7">
                                     <div class="mb-5 flex items-center justify-between">
-                                        <h3 class="text-main font-serif text-xl font-semibold">Document</h3>
+                                        <h3 class="text-main font-serif text-xl font-semibold">Brief</h3>
                                         <Show when={props.canManage}>
                                             <button
                                                 onClick={() => (ovEditing() ? ovDone() : setOvEditing(true))}
@@ -1038,8 +1311,7 @@ const Hub: Component<{
                                             <Editor
                                                 chrome="body"
                                                 initialContent={props.project.overview}
-                                                momentIndex={props.momentIndex}
-                                                placeholder="The project document. Markdown; / embeds a to-do, canvas, moment or project; [[ links a moment; paste or drop images."
+                                                placeholder="The project brief. Markdown; [[ embeds a moment, to-do, canvas, project or document; paste or drop images."
                                                 onChange={ovChange}
                                                 onSubmit={async () => ovDone()}
                                             />
@@ -1049,7 +1321,7 @@ const Hub: Component<{
                                             when={props.project.overview.trim()}
                                             fallback={
                                                 <p class="text-sub/60 text-sm italic">
-                                                    {props.canManage ? 'No document yet. Edit starts it.' : 'No document yet.'}
+                                                    {props.canManage ? 'No brief yet. Edit starts it.' : 'No brief yet.'}
                                                 </p>
                                             }
                                         >
@@ -1059,6 +1331,7 @@ const Hub: Component<{
                                                 onOpenTodo={props.onOpenTodo}
                                                 onOpenCanvas={props.onOpenCanvas}
                                                 onOpenProject={props.onOpenProject}
+                                                onOpenDoc={props.onOpenDoc}
                                             />
                                         </Show>
                                     </Show>
@@ -1599,6 +1872,33 @@ const Hub: Component<{
                 </div>
             </Show>
 
+            <Show when={tab() === 'documents'}>
+                <DocumentsTab
+                    project={props.project}
+                    canManage={props.canManage}
+                    accent={accent()}
+                    folderId={docFolderId()}
+                    setFolderId={setDocFolderId}
+                    openId={docOpenId()}
+                    setOpenId={setDocOpenId}
+                    renameId={docRenameId()}
+                    setRenameId={setDocRenameId}
+                    onRename={(id, title) => patchDoc(id, (d) => (d.title = title), { title })}
+                    onNew={(kind, template) => void newDocumentRow(kind, template)}
+                    onDelete={(row) => void deleteDocumentRow(row)}
+                    onBodyChange={docBodyChange}
+                    onBodyFlush={docBodyFlush}
+                    onStatus={(id, status) => patchDoc(id, (d) => (d.status = status), { status })}
+                    onCommentsChanged={(id, open) => withDoc(id, (d) => (d.open_comments = open))}
+                    onRestored={(doc) => withDoc(doc.id, (d) => Object.assign(d, doc))}
+                    onOpenMoment={props.onOpenMoment}
+                    onOpenTodo={props.onOpenTodo}
+                    onOpenCanvas={props.onOpenCanvas}
+                    onOpenProject={props.onOpenProject}
+                    onOpenDoc={props.onOpenDoc}
+                />
+            </Show>
+
             <Show when={toastVisible() && undoStack().length > 0}>
                 <div class="bg-element-matte border-element-accent fixed bottom-6 left-4 z-50 flex items-center gap-3 rounded-lg border px-4 py-2 shadow-2xl">
                     <span class="text-main max-w-72 truncate text-sm">{undoStack()[undoStack().length - 1].label}</span>
@@ -1621,15 +1921,1400 @@ const Hub: Component<{
                         patch={(optimistic, body) => patchCard(c().id, optimistic, body)}
                         onDismiss={() => dismissCard(c())}
                         onClose={() => setEditId(null)}
-                        momentIndex={props.momentIndex}
                         onOpenMoment={props.onOpenMoment}
                         onOpenTodo={props.onOpenTodo}
                         onOpenCanvas={props.onOpenCanvas}
                         onOpenProject={props.onOpenProject}
+                        onOpenDoc={props.onOpenDoc}
                     />
                 )}
             </Show>
         </div>
+    )
+}
+
+// ---- documents ----
+
+// The tab root name in the breadcrumb. The tree has no row for it, so it is
+// spelled once here rather than at each of the places that draw the trail.
+const DOCUMENTS_ROOT = 'Documents'
+
+interface DocumentsHandlers {
+    onRename: (id: string, title: string) => void
+    onNew: (kind: 'folder' | 'document', template?: DocumentTemplate) => void
+    onDelete: (row: ProjectDocument) => void
+    onBodyChange: (id: string, value: string) => void
+    onBodyFlush: () => void
+    onStatus: (id: string, status: ProjectDocumentStatus) => void
+    // The open-thread count the tile badges. The document view owns the
+    // comments it loaded, so it is the only thing that knows the number
+    // changed; the store keeps it so the grid behind is right on the way out.
+    onCommentsChanged: (id: string, open: number) => void
+    onRestored: (doc: ProjectDocument) => void
+    onOpenMoment?: (id: string) => void
+    onOpenTodo?: (id: string) => void
+    onOpenCanvas?: (id: string) => void
+    onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
+}
+
+// The Documents tab: a folder's children as a grid of tiles, or one document
+// open on top of it. The tree arrives flat in the project payload and every
+// question about its shape is answered by ../projectDocuments.
+const DocumentsTab: Component<
+    DocumentsHandlers & {
+        project: Project
+        canManage: boolean
+        accent: string
+        folderId: string | null
+        setFolderId: (id: string | null) => void
+        openId: string | null
+        setOpenId: (id: string | null) => void
+        renameId: string | null
+        setRenameId: (id: string | null) => void
+    }
+> = (props) => {
+    const rows = () => props.project.documents || []
+    const trail = () => documentPath(rows(), props.folderId)
+    const shown = () => childDocuments(rows(), props.folderId)
+    const open = () => rows().find((d) => d.id === props.openId && d.kind === 'document') || null
+    const [templatesOpen, setTemplatesOpen] = createSignal(false)
+
+    // A folder deleted from another tab (or by an undo that never landed)
+    // leaves the grid pointed at nothing. Falling back to the root beats an
+    // empty grid with a breadcrumb that names a folder nobody can reach.
+    createEffect(() => {
+        if (props.folderId && !rows().some((d) => d.id === props.folderId)) props.setFolderId(null)
+    })
+
+    return (
+        <div data-testid="documents-tab" class="animate-fade-in flex min-h-0 flex-1 flex-col">
+            <Show
+                when={open()}
+                fallback={
+                    <div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+                        <div data-testid="documents-breadcrumb" class="mb-4 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                            <span class="material-symbols-outlined text-base" style={{ color: props.accent }}>
+                                folder_open
+                            </span>
+                            <button
+                                onClick={() => props.setFolderId(null)}
+                                class="text-sub hover:text-main text-sm transition-colors hover:cursor-pointer"
+                                classList={{ 'text-main font-semibold': trail().length === 0 }}
+                            >
+                                {DOCUMENTS_ROOT}
+                            </button>
+                            <For each={trail()}>
+                                {(folder, i) => (
+                                    <>
+                                        <span class="text-sub/40 text-sm">/</span>
+                                        <button
+                                            onClick={() => props.setFolderId(folder.id)}
+                                            class="text-sub hover:text-main max-w-48 truncate text-sm transition-colors hover:cursor-pointer"
+                                            classList={{ 'text-main font-semibold': i() === trail().length - 1 }}
+                                        >
+                                            {folder.title || 'Untitled folder'}
+                                        </button>
+                                    </>
+                                )}
+                            </For>
+                            <span class="text-sub/60 ml-1 text-xs">
+                                {shown().length} item{shown().length === 1 ? '' : 's'}
+                            </span>
+                        </div>
+
+                        <Show
+                            when={shown().length > 0 || props.canManage}
+                            fallback={
+                                <div class="bg-element border-element-accent flex flex-col items-center gap-2 rounded-lg border border-dashed py-20">
+                                    <span class="material-symbols-outlined text-sub/40 text-4xl">folder_open</span>
+                                    <p class="text-sub/60 text-sm italic">Nothing here.</p>
+                                </div>
+                            }
+                        >
+                            <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                                <For each={shown()}>
+                                    {(row) => (
+                                        <DocumentTile
+                                            row={row}
+                                            documents={rows()}
+                                            canManage={props.canManage}
+                                            accent={props.accent}
+                                            renaming={props.renameId === row.id}
+                                            onStartRename={() => props.setRenameId(row.id)}
+                                            onRename={(title) => {
+                                                props.setRenameId(null)
+                                                if (title && title !== row.title) props.onRename(row.id, title)
+                                            }}
+                                            onOpen={() => (row.kind === 'folder' ? props.setFolderId(row.id) : props.setOpenId(row.id))}
+                                            onDelete={() => props.onDelete(row)}
+                                        />
+                                    )}
+                                </For>
+                                {/* Two ghost tiles, drawn as the outline of what
+                                    they add, the way the portfolio draws New
+                                    project into the grid it joins. */}
+                                <Show when={props.canManage}>
+                                    <GhostTile
+                                        testid="new-document"
+                                        icon="article"
+                                        label="New document"
+                                        hint="Durable reference content"
+                                        onClick={() => props.onNew('document')}
+                                        secondaryLabel="From a template"
+                                        onSecondary={() => setTemplatesOpen(true)}
+                                    />
+                                    <GhostTile
+                                        testid="new-folder"
+                                        icon="create_new_folder"
+                                        label="New folder"
+                                        hint="Group what belongs together"
+                                        onClick={() => props.onNew('folder')}
+                                    />
+                                </Show>
+                            </div>
+                        </Show>
+
+                        <Show when={templatesOpen()}>
+                            <DocumentTemplatePicker
+                                accent={props.accent}
+                                onClose={() => setTemplatesOpen(false)}
+                                onPick={(template) => {
+                                    setTemplatesOpen(false)
+                                    props.onNew('document', template)
+                                }}
+                            />
+                        </Show>
+                    </div>
+                }
+            >
+                {(doc) => (
+                    <DocumentView
+                        document={doc()}
+                        project={props.project}
+                        canManage={props.canManage}
+                        accent={props.accent}
+                        trail={documentPath(rows(), doc().parent_id ?? null)}
+                        onClose={() => props.setOpenId(null)}
+                        onOpenFolder={(id) => {
+                            props.setOpenId(null)
+                            props.setFolderId(id)
+                        }}
+                        onRename={props.onRename}
+                        onNew={props.onNew}
+                        onDelete={props.onDelete}
+                        onBodyChange={props.onBodyChange}
+                        onBodyFlush={props.onBodyFlush}
+                        onStatus={props.onStatus}
+                        onCommentsChanged={props.onCommentsChanged}
+                        onRestored={props.onRestored}
+                        onOpenMoment={props.onOpenMoment}
+                        onOpenTodo={props.onOpenTodo}
+                        onOpenCanvas={props.onOpenCanvas}
+                        onOpenProject={props.onOpenProject}
+                        onOpenDoc={props.onOpenDoc}
+                    />
+                )}
+            </Show>
+        </div>
+    )
+}
+
+// A ghost tile is the outline of what it adds. The optional second action is a
+// quieter line under the first, never a competing button: the plain path stays
+// one tap and anything else is one more.
+const GhostTile: Component<{
+    testid: string
+    icon: string
+    label: string
+    hint: string
+    onClick: () => void
+    secondaryLabel?: string
+    onSecondary?: () => void
+}> = (props) => (
+    <div
+        data-testid={props.testid}
+        role="button"
+        tabindex={0}
+        onClick={props.onClick}
+        onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                props.onClick()
+            }
+        }}
+        class="bg-element border-element-accent hover:border-highlight text-sub hover:text-main flex min-h-32 flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed transition-colors hover:cursor-pointer"
+    >
+        <span class="material-symbols-outlined text-2xl">{props.icon}</span>
+        <span class="text-sm font-bold">{props.label}</span>
+        <span class="text-sub/60 text-xs">{props.hint}</span>
+        <Show when={props.secondaryLabel && props.onSecondary}>
+            <button
+                data-testid={`${props.testid}-template`}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    props.onSecondary!()
+                }}
+                class="text-highlight mt-1 text-xs font-bold hover:cursor-pointer hover:brightness-125"
+            >
+                {props.secondaryLabel}
+            </button>
+        </Show>
+    </div>
+)
+
+// The template choice. A template is a first draft of a body and nothing more,
+// so the picker says what each one lays out and then gets out of the way.
+const DocumentTemplatePicker: Component<{
+    accent: string
+    onClose: () => void
+    onPick: (template: DocumentTemplate) => void
+}> = (props) => (
+    <Modal onClose={props.onClose} layer="editor" scrim="heavy" class="animate-fade-in p-4 backdrop-blur-sm">
+        <div
+            data-testid="document-templates"
+            class="bg-element-matte border-element-accent flex w-full max-w-md flex-col gap-3 rounded-xl border p-5 shadow-2xl"
+        >
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined" style={{ color: props.accent }}>
+                    article
+                </span>
+                <h3 class="text-main font-serif flex-1 text-lg font-semibold">Start from a template</h3>
+                <button onClick={props.onClose} class="text-sub hover:text-main hover:cursor-pointer" title="Close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <For each={DOCUMENT_TEMPLATES}>
+                {(template) => (
+                    <button
+                        onClick={() => props.onPick(template)}
+                        class="border-element-accent hover:border-highlight flex items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:cursor-pointer"
+                    >
+                        <span class="material-symbols-outlined text-sub text-xl">{template.icon}</span>
+                        <span class="min-w-0 flex-1">
+                            <span class="text-main block text-sm font-bold">{template.label}</span>
+                            <span class="text-sub/70 block text-xs">{template.hint}</span>
+                        </span>
+                    </button>
+                )}
+            </For>
+            <p class="text-sub/60 text-xs">
+                A template only writes the first draft of the body. Everything in it is yours to rewrite or delete.
+            </p>
+        </div>
+    </Modal>
+)
+
+// One tile in the grid. A div rather than a button, the way an embed card is,
+// because it holds its own rename field and delete control and a button cannot
+// contain either.
+const DocumentTile: Component<{
+    row: ProjectDocument
+    documents: ProjectDocument[]
+    canManage: boolean
+    accent: string
+    renaming: boolean
+    onStartRename: () => void
+    onRename: (title: string) => void
+    onOpen: () => void
+    onDelete: () => void
+}> = (props) => {
+    const isFolder = () => props.row.kind === 'folder'
+    const counts = () => folderCounts(props.documents, props.row.id)
+    const summary = () => excerpt(props.row.body || '', 160)
+    return (
+        <div
+            data-testid={isFolder() ? 'folder-tile' : 'document-tile'}
+            role="button"
+            tabindex={0}
+            onClick={() => !props.renaming && props.onOpen()}
+            onKeyDown={(e) => {
+                if (!props.renaming && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault()
+                    props.onOpen()
+                }
+            }}
+            class="group bg-element border-element-accent hover:border-highlight/60 flex min-h-32 flex-col gap-2 rounded-lg border p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:cursor-pointer hover:shadow-xl"
+        >
+            <div class="flex items-start gap-2">
+                <span class="material-symbols-outlined shrink-0 text-lg" style={{ color: props.accent }}>
+                    {isFolder() ? 'folder' : 'article'}
+                </span>
+                <Show
+                    when={props.renaming}
+                    fallback={<h3 class="text-main font-serif min-w-0 flex-1 truncate text-lg font-semibold">{props.row.title || 'Untitled'}</h3>}
+                >
+                    <input
+                        type="text"
+                        value={props.row.title}
+                        // Selected, not just focused: a new folder opens on the
+                        // placeholder name, and typing should replace it.
+                        ref={(el) => queueMicrotask(() => {
+                            el.focus()
+                            el.select()
+                        })}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                            e.stopPropagation()
+                            if (e.key === 'Enter') e.currentTarget.blur()
+                            if (e.key === 'Escape') {
+                                e.currentTarget.value = props.row.title
+                                e.currentTarget.blur()
+                            }
+                        }}
+                        onBlur={(e) => props.onRename(e.currentTarget.value.trim())}
+                        class="bg-element-matte text-main font-serif border-element-accent focus:border-highlight min-w-0 flex-1 rounded-md border px-2 py-1 text-lg font-semibold focus:outline-none"
+                    />
+                </Show>
+                {/* Draft carries no badge. Every document starts there, so a
+                    chip on each one would say nothing and cost the title its
+                    room; Final and Locked are the states worth spotting from
+                    the grid. */}
+                <Show when={!isFolder() && !props.renaming && props.row.status !== 'draft'}>
+                    <DocumentStatusBadge status={props.row.status} />
+                </Show>
+                <Show when={props.canManage && !props.renaming}>
+                    <span class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 no-hover:opacity-100">
+                        <span
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                props.onStartRename()
+                            }}
+                            title="Rename"
+                            class="material-symbols-outlined text-sub hover:text-main text-base hover:cursor-pointer"
+                        >
+                            edit
+                        </span>
+                        <span
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                props.onDelete()
+                            }}
+                            title={isFolder() ? 'Delete folder and everything in it' : 'Delete document'}
+                            class="material-symbols-outlined text-sub hover:text-danger text-base hover:cursor-pointer"
+                        >
+                            delete
+                        </span>
+                    </span>
+                </Show>
+            </div>
+            <Show
+                when={isFolder()}
+                fallback={
+                    <Show when={summary()} fallback={<p class="text-sub/50 flex-1 text-sm italic">Empty document.</p>}>
+                        <p class="text-sub line-clamp-3 flex-1 text-sm">{summary()}</p>
+                    </Show>
+                }
+            >
+                <p class="text-sub flex-1 text-sm">
+                    {counts().folders} folder{counts().folders === 1 ? '' : 's'} · {counts().documents} document
+                    {counts().documents === 1 ? '' : 's'}
+                </p>
+            </Show>
+            <p class="text-sub/60 border-element-accent/60 flex flex-wrap items-center gap-x-1 border-t pt-2 text-xs">
+                <Show when={!isFolder()}>{documentWordCount(props.row.body || '')} words · </Show>
+                <Show when={props.row.open_comments > 0}>
+                    <span data-testid="document-tile-comments" class="text-highlight flex items-center gap-0.5 font-bold">
+                        <span class="material-symbols-outlined text-[13px]">chat_bubble</span>
+                        {props.row.open_comments}
+                    </span>
+                    <span> · </span>
+                </Show>
+                <span>updated {fmtWhen(props.row.updated_at)}</span>
+            </p>
+        </div>
+    )
+}
+
+// The status badge, shared by the tile and the read-only header. Draft draws
+// nothing, so this renders nothing for it. Locked is the only status with a
+// color of its own: it is the one that changes what the reader can do, not just
+// what the document is.
+const DocumentStatusBadge: Component<{ status: ProjectDocumentStatus }> = (props) => (
+    <Show when={documentStatusBadge(props.status)}>
+        {(badge) => (
+            <span
+                data-testid="document-status-badge"
+                class="flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold"
+                classList={{
+                    'border-highlight/50 text-highlight': props.status === 'locked',
+                    'border-element-accent text-sub': props.status !== 'locked',
+                }}
+                title={props.status === 'locked' ? 'Locked: the title and body are frozen until it is unlocked.' : undefined}
+            >
+                <span class="material-symbols-outlined text-[13px]">{badge().icon}</span>
+                {badge().label}
+            </span>
+        )}
+    </Show>
+)
+
+// The outline, shared by the desktop rail and the phone's collapsible panel.
+// Indented by heading level, and the entry's index is the index of the heading
+// element in the rendered body, which is how a click finds it without the
+// renderer having to mint anchors.
+const DocumentOutline: Component<{ headings: DocumentHeading[]; onPick: (index: number) => void }> = (props) => (
+    <Show
+        when={props.headings.length > 0}
+        fallback={<p class="text-sub/50 text-xs italic">No headings yet. Start a line with # to make one.</p>}
+    >
+        <div data-testid="document-outline" class="flex flex-col gap-0.5">
+            <For each={props.headings}>
+                {(heading, i) => (
+                    <button
+                        onClick={() => props.onPick(i())}
+                        class="text-sub hover:text-main truncate rounded px-1 py-0.5 text-left text-xs transition-colors hover:cursor-pointer"
+                        classList={{ 'font-semibold': heading.level <= 2 }}
+                        style={{ 'padding-left': `${(Math.min(heading.level, 4) - 1) * 10 + 4}px` }}
+                        title={heading.text}
+                    >
+                        {heading.text}
+                    </button>
+                )}
+            </For>
+        </div>
+    </Show>
+)
+
+// ---- comments ----
+
+interface DocumentCommentsProps {
+    threads: DocumentThread[]
+    blocks: DocumentBlock[]
+    canManage: boolean
+    busy: boolean
+    // The block a new thread is being written against, or null.
+    draftBlock: number | null
+    focus: string | null
+    onFocus: (id: string | null) => void
+    onCancelDraft: () => void
+    onAdd: (body: string, parentId?: string) => void
+    onResolved: (root: ProjectDocumentComment, resolved: boolean) => void
+    onDelete: (comment: ProjectDocumentComment) => void
+}
+
+// The thread list, shared by the desktop rail and the phone's sheet the way the
+// outline is. Resolved threads collapse behind a count: they are kept because a
+// settled argument is worth reading later, and folded because an open question
+// is what the reader came for.
+const DocumentComments: Component<DocumentCommentsProps> = (props) => {
+    const [showResolved, setShowResolved] = createSignal(false)
+    const openThreads = () => props.threads.filter((t) => !t.root.resolved)
+    const resolvedThreads = () => props.threads.filter((t) => t.root.resolved)
+    const draftQuote = () => {
+        const block = props.draftBlock === null ? undefined : props.blocks[props.draftBlock]
+        return block ? excerpt(block.text, 90) : 'this block'
+    }
+
+    return (
+        <div class="flex flex-col gap-2">
+            <Show when={props.draftBlock !== null}>
+                <div data-testid="comment-draft" class="border-highlight/50 flex flex-col gap-2 rounded-md border p-2.5">
+                    <p class="text-sub/70 border-element-accent line-clamp-2 border-l-2 pl-2 text-[11px] italic">{draftQuote()}</p>
+                    <CommentComposer
+                        placeholder="What about this block?"
+                        submitLabel="Comment"
+                        busy={props.busy}
+                        onSubmit={(body) => props.onAdd(body)}
+                        onCancel={props.onCancelDraft}
+                    />
+                </div>
+            </Show>
+
+            <Show
+                when={openThreads().length > 0}
+                fallback={
+                    <Show when={props.draftBlock === null}>
+                        <p class="text-sub/50 text-xs italic">
+                            {props.canManage ? 'No open comments. Hover a block and use the + to start one.' : 'No open comments.'}
+                        </p>
+                    </Show>
+                }
+            >
+                <For each={openThreads()}>
+                    {(thread) => (
+                        <ThreadCard
+                            thread={thread}
+                            canManage={props.canManage}
+                            busy={props.busy}
+                            focused={props.focus === thread.root.id}
+                            onFocus={() => props.onFocus(thread.root.id)}
+                            onAdd={props.onAdd}
+                            onResolved={props.onResolved}
+                            onDelete={props.onDelete}
+                        />
+                    )}
+                </For>
+            </Show>
+
+            <Show when={resolvedThreads().length > 0}>
+                <button
+                    data-testid="resolved-threads"
+                    onClick={() => setShowResolved(!showResolved())}
+                    class="text-sub hover:text-main flex items-center gap-1 text-xs hover:cursor-pointer"
+                >
+                    <span class="material-symbols-outlined text-sm">{showResolved() ? 'expand_less' : 'expand_more'}</span>
+                    {resolvedThreads().length} resolved
+                </button>
+                <Show when={showResolved()}>
+                    <For each={resolvedThreads()}>
+                        {(thread) => (
+                            <ThreadCard
+                                thread={thread}
+                                canManage={props.canManage}
+                                busy={props.busy}
+                                focused={props.focus === thread.root.id}
+                                onFocus={() => props.onFocus(thread.root.id)}
+                                onAdd={props.onAdd}
+                                onResolved={props.onResolved}
+                                onDelete={props.onDelete}
+                            />
+                        )}
+                    </For>
+                </Show>
+            </Show>
+        </div>
+    )
+}
+
+// One thread: the remark, its replies, and what to do about it. An anchor that
+// no longer resolves says so out loud and keeps the text it was left against,
+// because a remark whose subject is gone still says something and quietly
+// re-hanging it on whatever now sits at that index would say something else.
+const ThreadCard: Component<{
+    thread: DocumentThread
+    canManage: boolean
+    busy: boolean
+    focused: boolean
+    onFocus: () => void
+    onAdd: (body: string, parentId?: string) => void
+    onResolved: (root: ProjectDocumentComment, resolved: boolean) => void
+    onDelete: (comment: ProjectDocumentComment) => void
+}> = (props) => {
+    const [replying, setReplying] = createSignal(false)
+    return (
+        <div
+            data-testid="comment-thread"
+            onClick={props.onFocus}
+            class="border-element-accent flex flex-col gap-1.5 rounded-md border p-2.5 transition-colors"
+            classList={{ 'border-highlight': props.focused, 'opacity-70': props.thread.root.resolved }}
+        >
+            <Show when={props.thread.at.match === 'orphaned'}>
+                <span data-testid="comment-orphaned" class="text-sub/70 flex items-start gap-1 text-[11px] font-bold">
+                    <span class="material-symbols-outlined text-[13px]">link_off</span>
+                    Orphaned: the text this was left on is gone
+                </span>
+                <Show when={props.thread.root.anchor_text}>
+                    <p class="text-sub/50 border-element-accent line-clamp-2 border-l-2 pl-2 text-[11px] italic">
+                        {props.thread.root.anchor_text}
+                    </p>
+                </Show>
+            </Show>
+            <Show when={props.thread.at.match === 'edited'}>
+                <span class="text-sub/60 text-[11px]">Edited since this was written.</span>
+            </Show>
+
+            <CommentRow comment={props.thread.root} canManage={props.canManage} onDelete={props.onDelete} />
+            <For each={props.thread.replies}>
+                {(reply) => (
+                    <div class="border-element-accent border-l pl-2">
+                        <CommentRow comment={reply} canManage={props.canManage} onDelete={props.onDelete} />
+                    </div>
+                )}
+            </For>
+
+            <Show when={props.canManage}>
+                <Show
+                    when={replying()}
+                    fallback={
+                        <div class="flex items-center gap-3 pt-0.5">
+                            <button
+                                onClick={() => setReplying(true)}
+                                class="text-highlight text-xs font-bold hover:cursor-pointer hover:brightness-125"
+                            >
+                                Reply
+                            </button>
+                            <button
+                                onClick={() => props.onResolved(props.thread.root, !props.thread.root.resolved)}
+                                disabled={props.busy}
+                                class="text-sub hover:text-main text-xs font-bold hover:cursor-pointer disabled:opacity-50"
+                            >
+                                {props.thread.root.resolved ? 'Reopen' : 'Resolve'}
+                            </button>
+                        </div>
+                    }
+                >
+                    <CommentComposer
+                        placeholder="Reply"
+                        submitLabel="Reply"
+                        busy={props.busy}
+                        onSubmit={(body) => {
+                            props.onAdd(body, props.thread.root.id)
+                            setReplying(false)
+                        }}
+                        onCancel={() => setReplying(false)}
+                    />
+                </Show>
+            </Show>
+        </div>
+    )
+}
+
+// A comment is a remark, not a document: plain text, wrapped as written, and
+// deliberately not run through the embed pipeline. A remark about a document
+// that renders another document inside itself is a second document.
+const CommentRow: Component<{
+    comment: ProjectDocumentComment
+    canManage: boolean
+    onDelete: (comment: ProjectDocumentComment) => void
+}> = (props) => (
+    <div class="group/comment flex flex-col gap-0.5">
+        <div class="flex items-baseline gap-2">
+            <span class="text-main text-xs font-bold">{userName(props.comment.author_id)}</span>
+            <span class="text-sub/60 text-[11px]">{fmtWhen(props.comment.created_at)}</span>
+            <Show when={props.canManage}>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        props.onDelete(props.comment)
+                    }}
+                    title="Delete"
+                    class="text-sub/50 hover:text-danger ml-auto opacity-0 transition-opacity group-hover/comment:opacity-100 hover:cursor-pointer no-hover:opacity-100"
+                >
+                    <span class="material-symbols-outlined text-[15px]">delete</span>
+                </button>
+            </Show>
+        </div>
+        <p class="text-sub text-xs whitespace-pre-wrap">{props.comment.body}</p>
+    </div>
+)
+
+const CommentComposer: Component<{
+    placeholder: string
+    submitLabel: string
+    busy: boolean
+    onSubmit: (body: string) => void
+    onCancel: () => void
+}> = (props) => {
+    const [draft, setDraft] = createSignal('')
+    const submit = () => {
+        const body = draft().trim()
+        if (!body) return
+        setDraft('')
+        props.onSubmit(body)
+    }
+    return (
+        <div class="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <textarea
+                value={draft()}
+                onInput={(e) => setDraft(e.currentTarget.value)}
+                // Enter commits, the way every other one-line composer in the
+                // module does; a remark needing more than one paragraph wants
+                // Shift+Enter and gets it.
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        submit()
+                    }
+                    if (e.key === 'Escape') props.onCancel()
+                }}
+                ref={(el) => queueMicrotask(() => el.focus())}
+                placeholder={props.placeholder}
+                rows={2}
+                class="bg-element-matte text-main border-element-accent focus:border-highlight placeholder:text-sub/50 w-full resize-y rounded-md border px-2 py-1.5 text-xs focus:outline-none"
+            />
+            <div class="flex items-center gap-2">
+                <button
+                    onClick={submit}
+                    disabled={props.busy || !draft().trim()}
+                    class="bg-highlight-strongest rounded-md px-2.5 py-1 text-xs text-white transition-[filter] hover:brightness-110 hover:cursor-pointer disabled:opacity-40"
+                >
+                    {props.submitLabel}
+                </button>
+                <button onClick={props.onCancel} class="text-sub hover:text-main text-xs hover:cursor-pointer">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    )
+}
+
+// One document, read or written through the shared pipeline: MomentBody in read
+// mode, the same Editor a moment uses in write mode, saved on the brief's
+// debounce. The tools around it are the ones a reference document wants and a
+// card does not: an outline, a size, version snapshots, and comments hung off
+// the blocks of the body.
+const DocumentView: Component<
+    DocumentsHandlers & {
+        document: ProjectDocument
+        project: Project
+        canManage: boolean
+        accent: string
+        trail: ProjectDocument[]
+        onClose: () => void
+        onOpenFolder: (id: string | null) => void
+    }
+> = (props) => {
+    const ui = useUI()
+    const [editing, setEditing] = createSignal(false)
+    const [outlineOpen, setOutlineOpen] = createSignal(false)
+    const [versionsOpen, setVersionsOpen] = createSignal(false)
+    const [commentsOpen, setCommentsOpen] = createSignal(false)
+    const [comments, setComments] = createSignal<ProjectDocumentComment[]>([])
+    const [draftBlock, setDraftBlock] = createSignal<number | null>(null)
+    const [focusThread, setFocusThread] = createSignal<string | null>(null)
+    const [busy, setBusy] = createSignal(false)
+    const headings = () => documentOutline(props.document.body || '')
+    const words = () => documentWordCount(props.document.body || '')
+    const locked = () => props.document.status === 'locked'
+    const blocks = () => documentBlocks(props.document.body || '')
+    let readEl: HTMLDivElement | undefined
+
+    // Embeds render their own headings inside a card; those are not this
+    // document's outline, so they are skipped on the way to the nth one.
+    const scrollToHeading = (index: number) => {
+        setOutlineOpen(false)
+        const found = [...(readEl?.querySelectorAll('h1, h2, h3, h4, h5, h6') ?? [])].filter((h) => !h.closest('[data-embed-card]'))
+        found[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+
+    const stopEditing = () => {
+        props.onBodyFlush()
+        setEditing(false)
+    }
+
+    // Locking is a status-only write, which is the one thing the server accepts
+    // from a locked document. Anything still in flight has to land first, or
+    // the lock would arrive ahead of the edit it was meant to freeze.
+    const setStatus = (status: ProjectDocumentStatus) => {
+        if (status === props.document.status) return
+        props.onBodyFlush()
+        if (status === 'locked') setEditing(false)
+        props.onStatus(props.document.id, status)
+    }
+    // The lock is enforced server-side; refusing to open the editor is what
+    // keeps a reader from typing into text that will not be saved.
+    createEffect(() => locked() && setEditing(false))
+
+    // --- comments ---
+    // Loaded with the open document rather than with the project: a tab full of
+    // tiles pays only for the open_comments count in the payload.
+    const loadComments = async (documentId: string) => {
+        try {
+            setComments((await api.listProjectDocumentComments(documentId)) ?? [])
+        } catch (err) {
+            console.error('Failed to load the comments:', err)
+            ui.toast('Could not load the comments.', 'error')
+            setComments([])
+        }
+    }
+    onMount(() => void loadUsers())
+    createEffect(
+        on(
+            () => props.document.id,
+            (id) => {
+                setComments([])
+                setDraftBlock(null)
+                setFocusThread(null)
+                void loadComments(id)
+            },
+        ),
+    )
+
+    // The tile behind the open document badges the open threads, so every
+    // change here has to reach the store the grid reads from.
+    const commit = (next: ProjectDocumentComment[]) => {
+        setComments(next)
+        props.onCommentsChanged(
+            props.document.id,
+            next.filter((c) => !c.parent_id && !c.resolved).length,
+        )
+    }
+
+    const threads = () => documentThreads(comments(), blocks())
+    const threadsAt = (index: number) => threads().filter((t) => t.at.index === index)
+
+    const startDraft = (index: number) => {
+        setCommentsOpen(true)
+        setFocusThread(null)
+        setDraftBlock(index)
+    }
+    const focusBlock = (index: number) => {
+        setCommentsOpen(true)
+        setDraftBlock(null)
+        setFocusThread(threadsAt(index)[0]?.root.id ?? null)
+    }
+
+    const addComment = async (body: string, parentId?: string) => {
+        const index = parentId ? 0 : (draftBlock() ?? 0)
+        setBusy(true)
+        try {
+            const created = await api.createProjectDocumentComment(props.document.id, {
+                body,
+                parent_id: parentId,
+                anchor_index: index,
+                anchor_text: blocks()[index]?.fingerprint ?? '',
+            })
+            commit([...comments(), created])
+            setDraftBlock(null)
+            setFocusThread(created.parent_id || created.id)
+        } catch (err) {
+            console.error('Failed to add the comment:', err)
+            ui.toast('Could not add the comment.', 'error')
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    const setResolved = async (root: ProjectDocumentComment, resolved: boolean) => {
+        setBusy(true)
+        try {
+            const updated = await api.updateProjectDocumentComment(root.id, { resolved })
+            commit(comments().map((c) => (c.id === updated.id ? updated : c)))
+        } catch (err) {
+            console.error('Failed to resolve the thread:', err)
+            ui.toast('Could not update the thread.', 'error')
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    const removeComment = async (comment: ProjectDocumentComment) => {
+        const ok = await ui.confirm({
+            title: comment.parent_id ? 'Delete this reply?' : 'Delete this thread?',
+            message: comment.parent_id ? 'It goes for good.' : 'The comment and every reply to it go for good.',
+            confirmLabel: 'Delete',
+            danger: true,
+        })
+        if (!ok) return
+        setBusy(true)
+        try {
+            const removed = (await api.deleteProjectDocumentComment(comment.id)).comments ?? [comment]
+            const gone = new Set(removed.map((c) => c.id))
+            commit(comments().filter((c) => !gone.has(c.id)))
+        } catch (err) {
+            console.error('Failed to delete the comment:', err)
+            ui.toast('Could not delete it.', 'error')
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    const commentsProps = () => ({
+        threads: threads(),
+        blocks: blocks(),
+        canManage: props.canManage,
+        busy: busy(),
+        draftBlock: draftBlock(),
+        focus: focusThread(),
+        onFocus: setFocusThread,
+        onCancelDraft: () => setDraftBlock(null),
+        onAdd: (body: string, parentId?: string) => void addComment(body, parentId),
+        onResolved: (root: ProjectDocumentComment, resolved: boolean) => void setResolved(root, resolved),
+        onDelete: (comment: ProjectDocumentComment) => void removeComment(comment),
+    })
+
+    return (
+        <div data-testid="document-view" class="flex min-h-0 flex-1 flex-col">
+            <div class="border-element-accent flex flex-wrap items-center gap-x-2 gap-y-2 border-b px-4 py-3 sm:px-5">
+                <button onClick={props.onClose} class="text-sub hover:text-main shrink-0 hover:cursor-pointer" title="Back to the folder">
+                    <span class="material-symbols-outlined">arrow_back</span>
+                </button>
+                <button
+                    onClick={() => props.onOpenFolder(null)}
+                    class="text-sub hover:text-main shrink-0 text-xs transition-colors hover:cursor-pointer"
+                >
+                    {DOCUMENTS_ROOT}
+                </button>
+                <For each={props.trail}>
+                    {(folder) => (
+                        <>
+                            <span class="text-sub/40 text-xs">/</span>
+                            <button
+                                onClick={() => props.onOpenFolder(folder.id)}
+                                class="text-sub hover:text-main max-w-32 shrink-0 truncate text-xs transition-colors hover:cursor-pointer"
+                            >
+                                {folder.title || 'Untitled folder'}
+                            </button>
+                        </>
+                    )}
+                </For>
+                <Show
+                    when={props.canManage && !locked()}
+                    fallback={<span class="text-main font-serif min-w-0 flex-1 truncate text-xl font-semibold">{props.document.title}</span>}
+                >
+                    <input
+                        type="text"
+                        value={props.document.title}
+                        onChange={(e) => props.onRename(props.document.id, e.currentTarget.value.trim() || 'Untitled document')}
+                        title="Rename document"
+                        class="text-main font-serif hover:border-element-accent focus:border-highlight min-w-0 flex-1 basis-40 rounded-md border border-transparent bg-transparent px-2 py-1 text-xl font-semibold transition-colors focus:outline-none"
+                    />
+                </Show>
+                {/* The status control follows the module's segmented idiom, the
+                    one the card modal writes and previews with. Leaving Locked
+                    is a tap on Draft or Final and nothing else: the server
+                    refuses a patch that unlocks and edits at once, and hiding
+                    that behind an edit would only move the refusal. */}
+                <Show when={props.canManage} fallback={<DocumentStatusBadge status={props.document.status} />}>
+                    <div data-testid="document-status" class="border-element-accent flex shrink-0 overflow-hidden rounded-md border">
+                        <For each={DOCUMENT_STATUSES}>
+                            {(status) => (
+                                <button
+                                    onClick={() => setStatus(status.v)}
+                                    title={
+                                        status.v === 'locked'
+                                            ? 'Lock it: the title and body freeze until it comes back to Draft or Final.'
+                                            : locked()
+                                              ? `Unlock, back to ${status.label}.`
+                                              : status.label
+                                    }
+                                    class="flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors hover:cursor-pointer"
+                                    classList={{
+                                        'bg-highlight-strongest text-white': props.document.status === status.v,
+                                        'text-sub hover:text-main': props.document.status !== status.v,
+                                    }}
+                                >
+                                    {/* The ligature text is decoration; leaving
+                                        it in the accessible name would make
+                                        "Draft" read as "edit_note Draft". */}
+                                    <span aria-hidden="true" class="material-symbols-outlined text-sm">
+                                        {status.icon}
+                                    </span>
+                                    {status.label}
+                                </button>
+                            )}
+                        </For>
+                    </div>
+                </Show>
+                <button
+                    onClick={() => setOutlineOpen(!outlineOpen())}
+                    title="Outline"
+                    class="shrink-0 transition-colors hover:cursor-pointer xl:hidden"
+                    classList={{ 'text-highlight': outlineOpen(), 'text-sub hover:text-main': !outlineOpen() }}
+                >
+                    <span class="material-symbols-outlined">toc</span>
+                </button>
+                {/* The rail carries the comments on a wide screen, so this is
+                    the phone's way in, exactly as the outline button is. */}
+                <button
+                    onClick={() => setCommentsOpen(!commentsOpen())}
+                    title="Comments"
+                    class="relative shrink-0 transition-colors hover:cursor-pointer xl:hidden"
+                    classList={{ 'text-highlight': commentsOpen(), 'text-sub hover:text-main': !commentsOpen() }}
+                >
+                    <span class="material-symbols-outlined">chat_bubble</span>
+                    <Show when={openThreadCount(threads()) > 0}>
+                        <span class="bg-highlight-strongest absolute -top-1 -right-1 min-w-4 rounded-full px-1 text-[10px] font-bold text-white">
+                            {openThreadCount(threads())}
+                        </span>
+                    </Show>
+                </button>
+                <button
+                    onClick={() => {
+                        props.onBodyFlush()
+                        setVersionsOpen(true)
+                    }}
+                    title="Versions"
+                    class="text-sub hover:text-main shrink-0 transition-colors hover:cursor-pointer"
+                >
+                    <span class="material-symbols-outlined">history</span>
+                </button>
+                <Show when={props.canManage}>
+                    <Show
+                        when={!locked()}
+                        fallback={
+                            <span
+                                data-testid="document-lock-chip"
+                                title="Locked. Set the status back to Draft or Final to edit it."
+                                class="border-highlight/50 text-highlight flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-bold"
+                            >
+                                <span class="material-symbols-outlined text-sm">lock</span>
+                                Read only
+                            </span>
+                        }
+                    >
+                        <button
+                            onClick={() => (editing() ? stopEditing() : setEditing(true))}
+                            class="border-element-accent flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs transition-colors hover:cursor-pointer"
+                            classList={{ 'bg-highlight-strongest text-white': editing(), 'text-sub hover:text-main': !editing() }}
+                        >
+                            <span class="material-symbols-outlined text-sm">{editing() ? 'done' : 'edit'}</span>
+                            {editing() ? 'Done' : 'Edit'}
+                        </button>
+                    </Show>
+                    <button
+                        onClick={() => props.onDelete(props.document)}
+                        title="Delete document"
+                        class="text-sub hover:text-danger shrink-0 transition-colors hover:cursor-pointer"
+                    >
+                        <span class="material-symbols-outlined">delete</span>
+                    </button>
+                </Show>
+            </div>
+
+            {/* The phone has no room for a rail, so the outline is a panel the
+                toc button drops down over the top of the body. */}
+            <Show when={outlineOpen()}>
+                <div class="border-element-accent bg-element border-b px-4 py-3 xl:hidden">
+                    <DocumentOutline headings={headings()} onPick={scrollToHeading} />
+                </div>
+            </Show>
+
+            {/* The phone's comments sheet. The rail below carries the same
+                threads on a screen wide enough to hold one. */}
+            <Show when={commentsOpen()}>
+                <div
+                    data-testid="document-comments-sheet"
+                    class="border-element-accent bg-element max-h-80 overflow-y-auto border-b px-4 py-3 xl:hidden"
+                >
+                    <DocumentComments {...commentsProps()} />
+                </div>
+            </Show>
+
+            <div class="flex min-h-0 flex-1 flex-col xl:flex-row">
+                <div ref={readEl} class="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8">
+                    <Show when={locked()}>
+                        <p
+                            data-testid="document-locked"
+                            class="border-highlight/40 text-sub bg-element mb-4 flex items-center gap-2 rounded-md border px-3 py-2 text-xs"
+                        >
+                            <span class="material-symbols-outlined text-highlight text-base">lock</span>
+                            {props.canManage
+                                ? 'Locked. The title and body are frozen; set the status back to Draft or Final to edit it. Comments still work.'
+                                : 'Locked. This document is frozen as it stands.'}
+                        </p>
+                    </Show>
+                    <Show
+                        when={!editing()}
+                        fallback={
+                            <Editor
+                                chrome="body"
+                                initialContent={props.document.body}
+                                placeholder="The document. Markdown; [[ embeds a moment, to-do, canvas, project or document; paste or drop images."
+                                onChange={(value) => props.onBodyChange(props.document.id, value)}
+                                onSubmit={async () => stopEditing()}
+                            />
+                        }
+                    >
+                        <Show
+                            when={props.document.body.trim()}
+                            fallback={
+                                <p class="text-sub/60 text-sm italic">
+                                    {props.canManage && !locked() ? 'Empty document. Edit starts it.' : 'Empty document.'}
+                                </p>
+                            }
+                        >
+                            {/* Read mode draws the body a block at a time so a
+                                comment has something to hang off. Each block
+                                still runs the whole moment pipeline, so embeds,
+                                code and images render exactly as they do in a
+                                moment. */}
+                            <div class="flex w-full flex-col gap-2">
+                                <For each={blocks()}>
+                                    {(block) => (
+                                        <div class="group/block flex items-start gap-1">
+                                            <div class="min-w-0 flex-1">
+                                                <MomentBody
+                                                    content={block.text}
+                                                    onOpenMoment={props.onOpenMoment}
+                                                    onOpenTodo={props.onOpenTodo}
+                                                    onOpenCanvas={props.onOpenCanvas}
+                                                    onOpenProject={props.onOpenProject}
+                                                    onOpenDoc={props.onOpenDoc}
+                                                />
+                                            </div>
+                                            <div class="flex w-7 shrink-0 flex-col items-center gap-1 pt-1">
+                                                <Show when={threadsAt(block.index).length > 0}>
+                                                    <button
+                                                        data-testid="comment-marker"
+                                                        onClick={() => focusBlock(block.index)}
+                                                        title={`${threadsAt(block.index).length} comment${threadsAt(block.index).length === 1 ? '' : 's'} on this block`}
+                                                        class="flex flex-col items-center hover:cursor-pointer"
+                                                        classList={{
+                                                            'text-highlight': threadsAt(block.index).some((t) => !t.root.resolved),
+                                                            'text-sub/40': threadsAt(block.index).every((t) => t.root.resolved),
+                                                        }}
+                                                    >
+                                                        <span class="material-symbols-outlined text-base">chat_bubble</span>
+                                                        <span class="text-[10px] font-bold">{threadsAt(block.index).length}</span>
+                                                    </button>
+                                                </Show>
+                                                <Show when={props.canManage}>
+                                                    <button
+                                                        data-testid="add-comment"
+                                                        onClick={() => startDraft(block.index)}
+                                                        title="Comment on this block"
+                                                        class="text-sub/50 hover:text-main opacity-0 transition-opacity group-hover/block:opacity-100 hover:cursor-pointer focus:opacity-100 no-hover:opacity-100"
+                                                    >
+                                                        <span class="material-symbols-outlined text-base">add_comment</span>
+                                                    </button>
+                                                </Show>
+                                            </div>
+                                        </div>
+                                    )}
+                                </For>
+                            </div>
+                        </Show>
+                    </Show>
+                </div>
+                <aside class="border-element-accent hidden w-72 shrink-0 overflow-y-auto border-l p-4 xl:block">
+                    <p class="text-sub mb-2 text-xs font-medium">Outline</p>
+                    <DocumentOutline headings={headings()} onPick={scrollToHeading} />
+                    <p class="text-sub mt-6 mb-2 text-xs font-medium">Comments</p>
+                    <div data-testid="document-comments-rail">
+                        <DocumentComments {...commentsProps()} />
+                    </div>
+                </aside>
+            </div>
+
+            <div class="border-element-accent text-sub/70 flex flex-wrap items-center gap-x-3 border-t px-4 py-2 text-xs sm:px-5">
+                <span data-testid="document-word-count">
+                    {words()} word{words() === 1 ? '' : 's'}
+                </span>
+                <Show when={words() > 0}>
+                    <span>{readingMinutes(words())} min read</span>
+                </Show>
+                <span class="ml-auto">Updated {fmtWhen(props.document.updated_at)}</span>
+            </div>
+
+            <Show when={versionsOpen()}>
+                <DocumentVersionsModal
+                    document={props.document}
+                    canManage={props.canManage}
+                    locked={locked()}
+                    onClose={() => setVersionsOpen(false)}
+                    onRestored={(doc) => {
+                        props.onRestored(doc)
+                        setEditing(false)
+                    }}
+                    onOpenMoment={props.onOpenMoment}
+                    onOpenTodo={props.onOpenTodo}
+                    onOpenCanvas={props.onOpenCanvas}
+                    onOpenProject={props.onOpenProject}
+                    onOpenDoc={props.onOpenDoc}
+                />
+            </Show>
+        </div>
+    )
+}
+
+// The version history: snapshots taken by hand and automatically (at most once
+// an hour, server-side) on a meaningful edit. Restoring snapshots the current
+// state first, which is what makes a restore itself undoable and why the panel
+// says so out loud.
+const DocumentVersionsModal: Component<{
+    document: ProjectDocument
+    canManage: boolean
+    // A restore rewrites the title and body, so a locked document refuses it
+    // for the same reason it refuses an edit. Snapshotting is still allowed:
+    // taking a copy of a frozen document changes nothing about it.
+    locked: boolean
+    onClose: () => void
+    onRestored: (doc: ProjectDocument) => void
+    onOpenMoment?: (id: string) => void
+    onOpenTodo?: (id: string) => void
+    onOpenCanvas?: (id: string) => void
+    onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
+}> = (props) => {
+    const ui = useUI()
+    const [versions, setVersions] = createSignal<ProjectDocumentVersion[] | null>(null)
+    const [viewing, setViewing] = createSignal<ProjectDocumentVersion | null>(null)
+    const [busy, setBusy] = createSignal(false)
+
+    const load = async () => {
+        try {
+            setVersions((await api.listProjectDocumentVersions(props.document.id)) ?? [])
+        } catch (err) {
+            console.error('Failed to list versions:', err)
+            ui.toast('Could not load the versions.', 'error')
+            setVersions([])
+        }
+    }
+    onMount(() => {
+        void loadUsers()
+        void load()
+    })
+
+    const saveVersion = async () => {
+        setBusy(true)
+        try {
+            await api.createProjectDocumentVersion(props.document.id)
+            await load()
+            ui.toast('Version saved.', 'success')
+        } catch (err) {
+            console.error('Failed to save a version:', err)
+            ui.toast('Could not save a version.', 'error')
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    const view = async (version: ProjectDocumentVersion) => {
+        try {
+            setViewing((await api.getProjectDocumentVersion(version.id)) ?? null)
+        } catch (err) {
+            console.error('Failed to open a version:', err)
+            ui.toast('Could not open that version.', 'error')
+        }
+    }
+
+    const restore = async (version: ProjectDocumentVersion) => {
+        const ok = await ui.confirm({
+            title: 'Restore this version?',
+            message: 'The document as it stands is saved as a version first, so this is undoable from this list.',
+            confirmLabel: 'Restore',
+        })
+        if (!ok) return
+        setBusy(true)
+        try {
+            const restored = await api.restoreProjectDocumentVersion(version.id)
+            props.onRestored(restored)
+            clearProjectDocumentCache()
+            setViewing(null)
+            await load()
+            ui.toast('Version restored.', 'success')
+        } catch (err) {
+            console.error('Failed to restore a version:', err)
+            ui.toast(
+                err instanceof APIError && err.status === 409
+                    ? 'That document is locked. Unlock it to restore a version.'
+                    : 'Could not restore that version.',
+                'error',
+            )
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    return (
+        <Modal onClose={props.onClose} layer="editor" scrim="heavy" class="animate-fade-in p-4 backdrop-blur-sm">
+            <div
+                data-testid="document-versions"
+                class="bg-element-matte border-element-accent flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border shadow-2xl"
+            >
+                <div class="bg-element border-element-accent flex items-center gap-3 border-b px-4 py-3 sm:px-6">
+                    <span class="material-symbols-outlined text-sub">history</span>
+                    {/* The name goes under the heading rather than into it:
+                        one line holding both truncates to "Versions of ..." on
+                        a phone, which names neither thing. */}
+                    <div class="min-w-0 flex-1">
+                        <h3 class="text-main font-serif text-lg font-semibold">Versions</h3>
+                        <p class="text-sub/70 truncate text-xs">{props.document.title}</p>
+                    </div>
+                    <Show when={props.locked}>
+                        <span
+                            data-testid="versions-locked"
+                            class="border-highlight/50 text-highlight flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-bold"
+                        >
+                            <span class="material-symbols-outlined text-[13px]">lock</span>
+                            Locked
+                        </span>
+                    </Show>
+                    <Show when={props.canManage}>
+                        <button
+                            onClick={() => void saveVersion()}
+                            disabled={busy()}
+                            class="bg-highlight-strongest flex shrink-0 items-center gap-1 rounded-md px-3 py-1.5 text-xs text-white transition-[filter] hover:brightness-110 hover:cursor-pointer disabled:opacity-50"
+                        >
+                            <span class="material-symbols-outlined text-sm">bookmark_add</span>
+                            Save version
+                        </button>
+                    </Show>
+                    <button onClick={props.onClose} class="text-sub hover:text-main shrink-0 hover:cursor-pointer" title="Close">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+
+                <div class="flex min-h-0 flex-1 flex-col overflow-y-auto sm:flex-row sm:overflow-hidden">
+                    <div class="border-element-accent flex w-full shrink-0 flex-col gap-1.5 p-3 sm:w-72 sm:overflow-y-auto sm:border-r">
+                        <Show when={versions()} fallback={<p class="text-sub/60 p-2 text-sm">Loading…</p>}>
+                            {(list) => (
+                                <Show
+                                    when={list().length > 0}
+                                    fallback={
+                                        <p class="text-sub/60 p-2 text-sm italic">
+                                            No versions yet. Save one, or let an edit take its own snapshot.
+                                        </p>
+                                    }
+                                >
+                                    <For each={list()}>
+                                        {(version) => (
+                                            <div
+                                                class="border-element-accent hover:border-highlight/60 flex flex-col gap-1 rounded-md border p-2.5 transition-colors"
+                                                classList={{ 'border-highlight': viewing()?.id === version.id }}
+                                            >
+                                                <span class="text-main truncate text-sm">{version.title || 'Untitled'}</span>
+                                                <span class="text-sub/70 text-xs">
+                                                    {fmtWhen(version.created_at)} · {userName(version.author_id)}
+                                                </span>
+                                                <div class="flex items-center gap-3 pt-0.5">
+                                                    <button
+                                                        onClick={() => void view(version)}
+                                                        class="text-highlight text-xs font-bold hover:cursor-pointer hover:brightness-125"
+                                                    >
+                                                        View
+                                                    </button>
+                                                    <Show when={props.canManage}>
+                                                        <button
+                                                            onClick={() => void restore(version)}
+                                                            disabled={busy() || props.locked}
+                                                            title={props.locked ? 'Locked. Unlock the document to restore a version.' : undefined}
+                                                            class="text-sub hover:text-main text-xs font-bold hover:cursor-pointer disabled:cursor-default disabled:opacity-40"
+                                                        >
+                                                            Restore
+                                                        </button>
+                                                    </Show>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </For>
+                                </Show>
+                            )}
+                        </Show>
+                    </div>
+
+                    <div class="min-w-0 flex-1 p-4 sm:overflow-y-auto sm:p-6">
+                        <Show
+                            when={viewing()}
+                            fallback={
+                                <p class="text-sub/60 text-sm italic">
+                                    <Show
+                                        when={props.locked}
+                                        fallback="Pick a version to read it here. Restoring one saves the current state first, so nothing is lost either way."
+                                    >
+                                        Pick a version to read it here. Restoring is off while the document is locked, since a restore rewrites the
+                                        title and body: unlock it first.
+                                    </Show>
+                                </p>
+                            }
+                        >
+                            {(version) => (
+                                <>
+                                    <p class="text-sub/70 mb-3 text-xs">
+                                        {fmtWhen(version().created_at)} · {userName(version().author_id)} · read only
+                                    </p>
+                                    <Show
+                                        when={(version().body || '').trim()}
+                                        fallback={<p class="text-sub/60 text-sm italic">This version was empty.</p>}
+                                    >
+                                        <MomentBody
+                                            content={version().body || ''}
+                                            onOpenMoment={props.onOpenMoment}
+                                            onOpenTodo={props.onOpenTodo}
+                                            onOpenCanvas={props.onOpenCanvas}
+                                            onOpenProject={props.onOpenProject}
+                                            onOpenDoc={props.onOpenDoc}
+                                        />
+                                    </Show>
+                                </>
+                            )}
+                        </Show>
+                    </div>
+                </div>
+            </div>
+        </Modal>
     )
 }
 
@@ -1642,11 +3327,11 @@ const CardModal: Component<{
     patch: (optimistic: (c: ProjectCard) => void, body: Parameters<typeof api.updateProjectCard>[1]) => void
     onDismiss: () => void
     onClose: () => void
-    momentIndex: { id: string; title: string }[]
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
 }> = (props) => {
     // A card with a body opens on the rendered page; an empty one opens ready
     // to write.
@@ -1751,7 +3436,9 @@ const CardModal: Component<{
                                     when={props.card.body.trim()}
                                     fallback={
                                         <p class="text-sub/60 text-sm italic">
-                                            {props.canManage ? 'No body yet. Write starts it; / embeds a to-do, canvas, moment or project.' : 'No body.'}
+                                            {props.canManage
+                                                ? 'No body yet. Write starts it; / embeds a to-do, canvas, moment, project or document.'
+                                                : 'No body.'}
                                         </p>
                                     }
                                 >
@@ -1761,6 +3448,7 @@ const CardModal: Component<{
                                         onOpenTodo={props.onOpenTodo}
                                         onOpenCanvas={props.onOpenCanvas}
                                         onOpenProject={props.onOpenProject}
+                                        onOpenDoc={props.onOpenDoc}
                                     />
                                 </Show>
                             }
@@ -1768,8 +3456,7 @@ const CardModal: Component<{
                             <Editor
                                 chrome="body"
                                 initialContent={props.card.body}
-                                momentIndex={props.momentIndex}
-                                placeholder="The card's document. Markdown; / embeds a to-do, canvas, moment or project; [[ links a moment; paste or drop images."
+                                placeholder="The card's body. Markdown; [[ embeds a moment, to-do, canvas, project or document; paste or drop images."
                                 onChange={bodyChange}
                                 onSubmit={async () => {
                                     bodyFlush()

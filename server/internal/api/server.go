@@ -135,6 +135,24 @@ func (s *Server) routes() {
 	s.mux.Handle("PATCH /api/v1/project-cards/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleUpdateProjectCard)))
 	s.mux.Handle("DELETE /api/v1/project-cards/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleDeleteProjectCard)))
 
+	// Project documents. Documents ride along in the project payload, so there
+	// is no list endpoint; versions carry bodies and have their own.
+	s.mux.Handle("POST /api/v1/projects/{id}/documents", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleCreateProjectDocument)))
+	s.mux.Handle("POST /api/v1/projects/{id}/documents/restore", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleRestoreProjectDocuments)))
+	s.mux.Handle("PATCH /api/v1/project-documents/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleUpdateProjectDocument)))
+	s.mux.Handle("DELETE /api/v1/project-documents/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleDeleteProjectDocument)))
+	s.mux.Handle("GET /api/v1/project-documents/{id}/versions", auth.RequireAuth(http.HandlerFunc(s.handleListProjectDocumentVersions)))
+	s.mux.Handle("POST /api/v1/project-documents/{id}/versions", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleCreateProjectDocumentVersion)))
+	s.mux.Handle("GET /api/v1/project-document-versions/{id}", auth.RequireAuth(http.HandlerFunc(s.handleGetProjectDocumentVersion)))
+	s.mux.Handle("POST /api/v1/project-document-versions/{id}/restore", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleRestoreProjectDocumentVersion)))
+
+	// Comments on a document. They are fetched with the open document rather
+	// than with the project, so a tab full of tiles pays for the counts only.
+	s.mux.Handle("GET /api/v1/project-documents/{id}/comments", auth.RequireAuth(http.HandlerFunc(s.handleListProjectDocumentComments)))
+	s.mux.Handle("POST /api/v1/project-documents/{id}/comments", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleCreateProjectDocumentComment)))
+	s.mux.Handle("PATCH /api/v1/project-document-comments/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleUpdateProjectDocumentComment)))
+	s.mux.Handle("DELETE /api/v1/project-document-comments/{id}", auth.RequirePermission(permissions.ManageProjects)(http.HandlerFunc(s.handleDeleteProjectDocumentComment)))
+
 	// Canvas
 	s.mux.Handle("GET /api/v1/canvases", auth.RequireAuth(http.HandlerFunc(s.handleListCanvases)))
 	s.mux.Handle("GET /api/v1/canvases/{id}", auth.RequireAuth(http.HandlerFunc(s.handleGetCanvas)))
