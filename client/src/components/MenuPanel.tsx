@@ -34,6 +34,7 @@ interface MenuPanelProps {
     onOpenTodoEmbed: (id: string) => void
     onOpenCanvasEmbed: (id: string) => void
     onOpenProjectEmbed: (id: string) => void
+    onOpenDocEmbed: (id: string, projectId: string) => void
     // Tags that still match at least one moment under the current filter; see
     // tagFacets.ts. null until the first facet response lands.
     availableTagIds?: Set<string> | null
@@ -138,6 +139,7 @@ export const MenuPanel: Component<MenuPanelProps> = (props) => {
                     onOpenTodo={props.onOpenTodoEmbed}
                     onOpenCanvas={props.onOpenCanvasEmbed}
                     onOpenProject={props.onOpenProjectEmbed}
+                    onOpenDoc={props.onOpenDocEmbed}
                 />
             </div>
         </Show>

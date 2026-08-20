@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal, onMount, onCleanup, type Component
 import { Portal } from 'solid-js/web'
 import type { Moment, Tag, Archive } from '../api'
 import { Line } from './Line'
-import { MomentBody } from './MomentBody'
+import { MomentBody, stripEmbedTokens } from './MomentBody'
 import { MarkdownText } from './MarkdownText'
 import { LinkPreviewList } from './LinkPreview'
 import { AttachmentList } from './AttachmentList'
@@ -40,10 +40,7 @@ const PREVIEW_BUDGET = 1200
 // dropped rather than rendered: MomentBody fetches each one at render time, and
 // the swiper would fire that burst for every card in the feed at once.
 function previewMarkdown(content: string): string {
-    let text = (content || '')
-        .replace(/::(todo|canvas):[0-9a-fA-F-]{6,}::/g, '')
-        .replace(/\[\[[0-9a-fA-F-]{6,}\]\]/g, '')
-        .trim()
+    let text = stripEmbedTokens(content).trim()
 
     if (text.length > PREVIEW_BUDGET) {
         // Cut on a line break so the truncation can't land inside a link or an
@@ -95,6 +92,7 @@ interface FeedProps {
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
     // Add/remove a tag from the feed filter, for tags drawn on a card. Same
     // handler the tag bar uses; gated by the clickableMomentTags pref.
     onToggleTag?: (id: string) => void
@@ -345,6 +343,7 @@ export const Feed: Component<FeedProps> = (props) => {
                     onOpenTodo={props.onOpenTodo}
                     onOpenCanvas={props.onOpenCanvas}
                     onOpenProject={props.onOpenProject}
+                    onOpenDoc={props.onOpenDoc}
                 />
                 <AttachmentList content={p.moment.content} />
                 <LinkPreviewList content={p.moment.content} />

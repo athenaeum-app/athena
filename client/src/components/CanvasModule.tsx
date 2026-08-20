@@ -38,6 +38,7 @@ interface CanvasModuleProps {
     // these the reference renders and then goes nowhere when it is clicked.
     onOpenTodo?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
     // The board a `::canvas:<id>::` reference asked for. Without it the module
     // opens on its "select a canvas" placeholder, one click short of the thing
     // that was referenced.
@@ -1315,6 +1316,7 @@ export const CanvasModule: Component<CanvasModuleProps> = (props) => {
                                                         onOpenMoment={props.onOpenMoment}
                                                         onOpenTodo={props.onOpenTodo}
                                                         onOpenProject={props.onOpenProject}
+                                                        onOpenDoc={props.onOpenDoc}
                                                         // A canvas reference opens inside this module rather
                                                         // than stacking a second one on top of it.
                                                         onOpenCanvas={(id) => void openCanvas(id)}
@@ -1497,6 +1499,7 @@ interface NodeViewProps {
     onOpenMoment?: (id: string) => void
     onOpenTodo?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
     onOpenCanvas?: (id: string) => void
     // Long-press (touch) → open this node's context menu.
     onLongPress?: (e: PointerEvent) => void
@@ -1825,6 +1828,7 @@ const NodeView: Component<NodeViewProps> = (props) => {
                                                     onOpenTodo={props.onOpenTodo}
                                                     onOpenCanvas={props.onOpenCanvas}
                                                     onOpenProject={props.onOpenProject}
+                                                    onOpenDoc={props.onOpenDoc}
                                                 />
                                             </div>
                                         </Show>
@@ -1881,6 +1885,7 @@ const NodeView: Component<NodeViewProps> = (props) => {
                         onOpenTodo={props.onOpenTodo}
                         onOpenCanvas={props.onOpenCanvas}
                         onOpenProject={props.onOpenProject}
+                        onOpenDoc={props.onOpenDoc}
                     />
                 </Show>
 
@@ -1958,6 +1963,7 @@ const MomentRefCard: Component<{
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
 }> = (props) => {
     const [moment, setMoment] = createSignal<Moment | null>(null)
     const [failed, setFailed] = createSignal(false)
@@ -2014,6 +2020,7 @@ const MomentRefCard: Component<{
                                         onOpenTodo={props.onOpenTodo}
                                         onOpenCanvas={props.onOpenCanvas}
                                         onOpenProject={props.onOpenProject}
+                                        onOpenDoc={props.onOpenDoc}
                                     />
                                 </div>
                             </ClippedBody>

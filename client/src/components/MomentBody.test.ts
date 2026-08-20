@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parse } from './MomentBody'
+import { excerpt, parse, stripEmbedTokens } from './MomentBody'
 
 const shape = (content: string, inline = true) =>
     parse(content, inline).map((p) =>
@@ -17,6 +17,14 @@ describe('parse, inline link previews off', () => {
 
     it('splits on a project token', () => {
         expect(shape('before ::project:abc123:: after', false)).toEqual(['md:before', 'project', 'md:after'])
+    })
+
+    it('splits on a document token', () => {
+        expect(shape('see ::doc:abc123:: for why', false)).toEqual(['md:see', 'doc', 'md:for why'])
+    })
+
+    it('interleaves a document token with the other kinds in document order', () => {
+        expect(shape('::doc:abc123:: then ::project:def456::', false)).toEqual(['doc', 'md:then', 'project'])
     })
 })
 
@@ -76,5 +84,73 @@ describe('parse, inline link previews on', () => {
         expect(shape('read [the docs](https://example.com) first')).toEqual([
             'md:read [the docs](https://example.com) first',
         ])
+    })
+})
+
+// A token inside a code sample is the author showing what a token looks like.
+// Rendering a live card for it both fetches something nobody asked for and
+// deletes the token from the sample it was meant to be.
+describe('parse, tokens inside code', () => {
+    it('splits on a token in prose', () => {
+        expect(shape('before ::todo:abc123:: after', false)).toEqual(['md:before', 'todo', 'md:after'])
+    })
+
+    it('leaves a token inside a fenced code block as text', () => {
+        expect(shape('```\n::todo:abc123::\n```', false)).toEqual(['md:```\n::todo:abc123::\n```'])
+    })
+
+    it('leaves a moment reference inside a fenced code block as text', () => {
+        expect(shape('```\n[[abc123]]\n```', false)).toEqual(['md:```\n[[abc123]]\n```'])
+    })
+
+    it('leaves a token inside a tilde fence as text', () => {
+        expect(shape('~~~\n::canvas:abc123::\n~~~', false)).toEqual(['md:~~~\n::canvas:abc123::\n~~~'])
+    })
+
+    it('leaves a document token inside a fenced code block as text', () => {
+        expect(shape('```\n::doc:abc123::\n```', false)).toEqual(['md:```\n::doc:abc123::\n```'])
+    })
+
+    it('leaves a token inside an inline code span as text', () => {
+        expect(shape('write `::project:abc123::` to embed', false)).toEqual([
+            'md:write `::project:abc123::` to embed',
+        ])
+    })
+
+    it('leaves a token inside a double-backtick span as text', () => {
+        expect(shape('``a ::todo:abc123:: b``', false)).toEqual(['md:``a ::todo:abc123:: b``'])
+    })
+
+    it('still splits on a token after a closed code block', () => {
+        expect(shape('```\n::todo:abc123::\n```\n\n::todo:def456::', false)).toEqual([
+            'md:```\n::todo:abc123::\n```',
+            'todo',
+        ])
+    })
+
+    it('leaves a token after an unclosed fence as text, the way markdown reads it', () => {
+        expect(shape('```\n::todo:abc123::', false)).toEqual(['md:```\n::todo:abc123::'])
+    })
+
+    it('keeps a lone backtick from swallowing the rest of the content', () => {
+        expect(shape('a ` b ::todo:abc123::', false)).toEqual(['md:a ` b', 'todo'])
+    })
+
+    it('leaves a url inside a code block out of the link previews', () => {
+        expect(shape('```\nhttps://example.com\n```')).toEqual(['md:```\nhttps://example.com\n```'])
+    })
+})
+
+describe('stripEmbedTokens', () => {
+    it('drops every kind of token, including one this build does not render', () => {
+        expect(stripEmbedTokens('a ::todo:abc123:: ::canvas:abc123:: ::project:abc123:: ::doc:abc123:: [[abc123]] b')).toBe(
+            'a      b',
+        )
+    })
+})
+
+describe('excerpt', () => {
+    it('flattens tokens and inline formatting to plain text', () => {
+        expect(excerpt('::todo:abc123:: ==hot== ++take++ [in red]{color=red}')).toBe('hot take in red')
     })
 })

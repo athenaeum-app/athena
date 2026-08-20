@@ -5,7 +5,7 @@ import { formatTime } from '../format'
 import { useAuth } from '../auth'
 import { hasPermission } from '../permissions'
 import { useUI } from '../ui'
-import { MomentBody } from './MomentBody'
+import { MomentBody, stripEmbedTokens } from './MomentBody'
 import { LinkPreviewList } from './LinkPreview'
 import { AttachmentList } from './AttachmentList'
 import { Editor, type EditorHandle } from './Editor'
@@ -24,6 +24,7 @@ interface ChatPanelProps {
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
     // When provided, a close button appears in the header (modal use).
     onClose?: () => void
     // Extra classes for the root (frame/rounding differs per host).
@@ -51,10 +52,7 @@ interface GroupedMessage {
 // out of the text wherever they sit, so carrying one into a quote would leave
 // an empty `>` behind and render its card full size outside the quote.
 export function quoteFor(content: string): string {
-    const text = (content || '')
-        .replace(/::(todo|canvas):[0-9a-fA-F-]{6,}::/g, '')
-        .replace(/\[\[[0-9a-fA-F-]{6,}\]\]/g, '')
-        .trim()
+    const text = stripEmbedTokens(content).trim()
     if (!text) return ''
     return text.split('\n').map((line) => `> ${line}`.trimEnd()).join('\n') + '\n\n'
 }
@@ -412,6 +410,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                                         onOpenTodo={props.onOpenTodo}
                                                         onOpenCanvas={props.onOpenCanvas}
                                                         onOpenProject={props.onOpenProject}
+                                                        onOpenDoc={props.onOpenDoc}
                                                     />
                                                     <AttachmentList content={msg.content} />
                                                     <LinkPreviewList content={msg.content} />

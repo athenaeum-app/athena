@@ -11,13 +11,14 @@ import {
     type Component,
     type JSX,
 } from 'solid-js'
-import { api, type TodoList, type TodoItem, type Canvas, type Moment, type Project } from '../api'
+import { api, type TodoList, type TodoItem, type Canvas, type Moment, type Project, type ProjectDocument } from '../api'
 import { MarkdownText } from './MarkdownText'
 import { LinkPreviewRow } from './LinkPreview'
 import { CanvasThumbnail } from './CanvasThumbnail'
 import { AttachmentList } from './AttachmentList'
 import { LinkPreviewList } from './LinkPreview'
 import { findBareUrls } from '../linkPreviews'
+import { stripInlineFormatting } from '../markdownFormatting'
 import { prefs } from '../prefs'
 import { notifyTodoChanged, todoVersion } from '../todoBus'
 
@@ -30,6 +31,7 @@ import { notifyTodoChanged, todoVersion } from '../todoBus'
 //     ::todo:<uuid>::      todo    → live card, items checkable inline
 //     ::canvas:<uuid>::    canvas  → compact card, opens the canvas board
 //     ::project:<uuid>::   project → summary card: progress + overview excerpt
+//     ::doc:<uuid>::       document → compact card: title + excerpt, opens the Hub
 //
 // Moment previews are NON-RECURSIVE (a flattened excerpt, never a nested
 // MomentBody) so an embed cycle is structurally impossible (ADR-0015).
@@ -38,16 +40,116 @@ import { notifyTodoChanged, todoVersion } from '../todoBus'
 // With the inlineLinkPreviews pref on, a bare URL is a fourth kind of split: the
 // URL text is replaced by its preview card and the content resumes below it.
 
-type EmbedKind = 'moment' | 'todo' | 'canvas' | 'project'
+type EmbedKind = 'moment' | 'todo' | 'canvas' | 'project' | 'doc'
 
 export type Part =
     | { type: 'md'; text: string }
     | { type: 'embed'; kind: EmbedKind; id: string }
     | { type: 'links'; urls: string[] }
 
-// Matches a todo/canvas/project token OR a [[moment]] reference. Capture groups:
-// 1 = the kind, 2 = its id; 3 = moment id (for the [[id]] form).
-const TOKEN = /::(todo|canvas|project):([0-9a-fA-F-]{6,})::|\[\[([0-9a-fA-F-]{6,})\]\]/g
+// Matches a todo/canvas/project/doc token OR a [[moment]] reference. Capture
+// groups: 1 = the kind, 2 = its id; 3 = moment id (for the [[id]] form).
+const TOKEN = /::(todo|canvas|project|doc):([0-9a-fA-F-]{6,})::|\[\[([0-9a-fA-F-]{6,})\]\]/g
+
+// The same shape with the kind left open, for text that only needs the tokens
+// gone rather than rendered. Deliberately looser than TOKEN: a kind this build
+// does not draw a card for is still a token, and leaving its raw text in a
+// preview or a quoted reply is worse than dropping it.
+const ANY_TOKEN = /::\w+:[0-9a-fA-F-]{6,}::|\[\[[0-9a-fA-F-]{6,}\]\]/g
+
+// Drop every embed token from a piece of content. Exported because three
+// places need markdown with no live embeds in it: the swiper preview card, a
+// chat message quoted into a reply, and a flattened excerpt. Each one used to
+// carry its own copy of the pattern, and each copy went stale on its own.
+export function stripEmbedTokens(content: string): string {
+    return (content || '').replace(ANY_TOKEN, '')
+}
+
+// A fenced code block, by its opening line. Up to three spaces of indent, then
+// three or more backticks or tildes.
+const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/
+
+type Span = [start: number, end: number]
+
+// Where the renderer will see code rather than prose. An embed token inside a
+// code block is the author showing what a token looks like, so rendering a live
+// card for it is exactly backwards, and the token disappears from the code
+// sample it was meant to be. Scanned on the raw source because that is the only
+// place a fence still exists: by the time markdown has run, the token has
+// already been cut out of the text.
+function codeSpans(source: string): Span[] {
+    const fences: Span[] = []
+    let offset = 0
+    let open: { marker: string; start: number } | null = null
+
+    for (const line of source.split('\n')) {
+        const end = offset + line.length
+        const fence = FENCE.exec(line)
+        if (open) {
+            // A closing fence is the same character, at least as long, and
+            // carries nothing else on its line.
+            if (
+                fence &&
+                fence[1][0] === open.marker[0] &&
+                fence[1].length >= open.marker.length &&
+                line.slice(fence[0].length).trim() === ''
+            ) {
+                fences.push([open.start, end])
+                open = null
+            }
+        } else if (fence) {
+            open = { marker: fence[1], start: offset }
+        }
+        offset = end + 1
+    }
+    // An unclosed fence runs to the end of the content, which is how markdown
+    // reads it too.
+    if (open) fences.push([open.start, source.length])
+
+    const spans = [...fences]
+    let from = 0
+    for (const [start, end] of fences) {
+        collectCodeSpans(source, from, start, spans)
+        from = end
+    }
+    collectCodeSpans(source, from, source.length, spans)
+    return spans
+}
+
+// Inline code spans between `from` and `to`: a run of backticks closed by a run
+// of exactly the same length, per CommonMark.
+function collectCodeSpans(source: string, from: number, to: number, into: Span[]): void {
+    let at = from
+    while (at < to) {
+        if (source[at] !== '`') {
+            at++
+            continue
+        }
+        let afterOpen = at
+        while (afterOpen < to && source[afterOpen] === '`') afterOpen++
+        const size = afterOpen - at
+
+        let scan = afterOpen
+        let closed = false
+        while (scan < to) {
+            if (source[scan] !== '`') {
+                scan++
+                continue
+            }
+            let afterClose = scan
+            while (afterClose < to && source[afterClose] === '`') afterClose++
+            if (afterClose - scan === size) {
+                into.push([at, afterClose])
+                at = afterClose
+                closed = true
+                break
+            }
+            scan = afterClose
+        }
+        // Backticks that never close are literal text, and so is what follows.
+        if (!closed) at = afterOpen
+    }
+}
 
 const THEMATIC_BREAK = /^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/m
 const TRAILING_BULLET = /(?:^|\n)[ \t]*(?:[-*+]|\d+[.)])[ \t]*$/
@@ -63,17 +165,23 @@ function isScaffold(text: string): boolean {
 
 export function parse(content: string, inlineLinks = false): Part[] {
     const cuts: { start: number; end: number; part: Part }[] = []
+    const code = codeSpans(content)
+    const isCode = (at: number) => code.some(([start, end]) => at >= start && at < end)
 
     TOKEN.lastIndex = 0
     let m: RegExpExecArray | null
     while ((m = TOKEN.exec(content)) !== null) {
+        if (isCode(m.index)) continue
         const part: Part = m[3]
             ? { type: 'embed', kind: 'moment', id: m[3] }
-            : { type: 'embed', kind: m[1] as 'todo' | 'canvas' | 'project', id: m[2] }
+            : { type: 'embed', kind: m[1] as 'todo' | 'canvas' | 'project' | 'doc', id: m[2] }
         cuts.push({ start: m.index, end: m.index + m[0].length, part })
     }
     if (inlineLinks) {
         for (const u of findBareUrls(content)) {
+            // A url in a code sample is being shown, not linked, for the same
+            // reason a token there is being shown.
+            if (isCode(u.start)) continue
             cuts.push({ start: u.start, end: u.end, part: { type: 'links', urls: [u.url] } })
         }
     }
@@ -125,10 +233,9 @@ function mergeLinkRuns(parts: Part[]): Part[] {
 // preview never recurses into another render (ADR-0015). Exported because the
 // canvas draws the same flattened summary on a node too small for a body.
 export function excerpt(content: string, max = 180): string {
-    let text = content || ''
-    text = text.replace(/::(todo|canvas|project):[0-9a-fA-F-]{6,}::/g, '')
-    text = text.replace(/\[\[[0-9a-fA-F-]{6,}\]\]/g, '')
+    let text = stripEmbedTokens(content)
     text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, '') // images
+    text = stripInlineFormatting(text) // ==mark==, ++underline++, [text]{color=x}
     text = text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // links, reduced to their text
     text = text.replace(/[#>*_`~]/g, '') // light markdown syntax
     text = text.replace(/\s+/g, ' ').trim()
@@ -143,6 +250,10 @@ export interface MomentBodyProps {
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    // A document is addressed by its own id but only reachable through its
+    // project's Hub, so the embed hands both back rather than making the host
+    // look the owner up a second time.
+    onOpenDoc?: (id: string, projectId: string) => void
     // Set on the body rendered inside a moment preview. It is the whole of the
     // depth cap: a nested body draws its own moment references as compact
     // cards, so a cycle terminates on the second hop (ADR-0017).
@@ -178,6 +289,7 @@ export const MomentBody: Component<MomentBodyProps> = (props) => {
                                     onOpenTodo={props.onOpenTodo}
                                     onOpenCanvas={props.onOpenCanvas}
                                     onOpenProject={props.onOpenProject}
+                                    onOpenDoc={props.onOpenDoc}
                                     resolveRef={props.resolveRef}
                                     nested={props.nested}
                                 />
@@ -191,6 +303,9 @@ export const MomentBody: Component<MomentBodyProps> = (props) => {
                         </Match>
                         <Match when={part.type === 'embed' && part.kind === 'project' ? part : null}>
                             {(e) => <ProjectEmbed id={e().id} onOpen={props.onOpenProject} />}
+                        </Match>
+                        <Match when={part.type === 'embed' && part.kind === 'doc' ? part : null}>
+                            {(e) => <DocEmbed id={e().id} onOpen={props.onOpenDoc} />}
                         </Match>
                     </Switch>
                 )}
@@ -256,6 +371,7 @@ const MomentPreview: Component<{
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
 }> = (props) => {
     const [clipped, setClipped] = createSignal(false)
     let frame: HTMLDivElement | undefined
@@ -293,6 +409,7 @@ const MomentPreview: Component<{
                     onOpenTodo={props.onOpenTodo}
                     onOpenCanvas={props.onOpenCanvas}
                     onOpenProject={props.onOpenProject}
+                    onOpenDoc={props.onOpenDoc}
                 />
                 <AttachmentList content={props.moment.content} />
                 <LinkPreviewList content={props.moment.content} />
@@ -310,6 +427,7 @@ const MomentEmbed: Component<{
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
     resolveRef?: (id: string) => string | undefined
     nested?: boolean
 }> = (props) => {
@@ -357,6 +475,7 @@ const MomentEmbed: Component<{
                             onOpenTodo={props.onOpenTodo}
                             onOpenCanvas={props.onOpenCanvas}
                             onOpenProject={props.onOpenProject}
+                            onOpenDoc={props.onOpenDoc}
                         />
                     </Show>
                 </CardShell>
@@ -609,6 +728,86 @@ const ProjectEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (
                     onOpen={props.onOpen ? () => props.onOpen!(props.id) : undefined}
                 >
                     <ProjectSummary project={p()} />
+                </CardShell>
+            )}
+        </Show>
+    )
+}
+
+// A document has no endpoint of its own: it arrives inside its project's
+// payload (ADR-0020), and the token carries only the document id, so resolving
+// one means looking through every project the reader can see. That is one
+// request for the whole index rather than one per embed, and it is shared and
+// short-lived for the same reason the picker's kind lists are: a body full of
+// doc embeds should cost one fetch, and an edit made elsewhere should show up
+// on the next read rather than the next reload.
+const DOCUMENT_INDEX_TTL_MS = 60_000
+
+type DocumentEntry = { project: Project; document: ProjectDocument }
+
+let documentIndex: { at: number; entries: Promise<Map<string, DocumentEntry>> } | null = null
+
+function projectDocumentIndex(): Promise<Map<string, DocumentEntry>> {
+    if (documentIndex && Date.now() - documentIndex.at < DOCUMENT_INDEX_TTL_MS) return documentIndex.entries
+    const entries = api
+        .listProjects()
+        .then((projects) => {
+            const found = new Map<string, DocumentEntry>()
+            for (const project of projects ?? []) {
+                for (const document of project.documents ?? []) {
+                    if (document.kind === 'document') found.set(document.id, { project, document })
+                }
+            }
+            return found
+        })
+        .catch((err) => {
+            // A failed fetch must not be cached, or one flaky request leaves
+            // every doc embed on the page unavailable for a minute.
+            documentIndex = null
+            throw err
+        })
+    documentIndex = { at: Date.now(), entries }
+    return entries
+}
+
+// Exported for the tab that edits documents: a rename or a delete there makes
+// the index wrong, and the embeds elsewhere in the app should not keep drawing
+// the old title until the TTL runs out.
+export function clearProjectDocumentCache(): void {
+    documentIndex = null
+}
+
+const DocEmbed: Component<{ id: string; onOpen?: (id: string, projectId: string) => void }> = (props) => {
+    const [entry, setEntry] = createSignal<DocumentEntry | null | undefined>(undefined)
+    onMount(async () => {
+        try {
+            setEntry((await projectDocumentIndex()).get(props.id) ?? null)
+        } catch {
+            setEntry(null)
+        }
+    })
+    return (
+        <Show
+            when={entry()}
+            fallback={
+                <Show when={entry() === null} fallback={<CardShell icon="article" label="Loading document…" />}>
+                    <UnavailableChip icon="article" label="Document unavailable" />
+                </Show>
+            }
+        >
+            {(found) => (
+                <CardShell
+                    icon="article"
+                    label={found().document.title || 'Untitled document'}
+                    onOpen={props.onOpen ? () => props.onOpen!(props.id, found().project.id) : undefined}
+                >
+                    <Show
+                        when={excerpt(found().document.body || '', 220)}
+                        fallback={<p class="text-sub/60 text-sm italic">Empty document.</p>}
+                    >
+                        <p class="text-sub line-clamp-3 text-sm">{excerpt(found().document.body || '', 220)}</p>
+                    </Show>
+                    <p class="text-sub/70 mt-2 text-xs">in {found().project.title || 'Untitled project'}</p>
                 </CardShell>
             )}
         </Show>

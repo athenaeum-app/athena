@@ -170,12 +170,23 @@ export const App: Component = () => {
     // requestedCanvasId above.
     const [requestedProjectId, setRequestedProjectId] = createSignal<string | undefined>()
     const openProject = (id?: string) => {
+        setRequestedDocumentId(undefined)
         setRequestedProjectId(id)
+        setShowProjects(true)
+    }
+    // A ::doc:id:: embed opens the same module one level deeper: the project's
+    // Hub, on its Documents tab, with that document open. The embed hands over
+    // the owning project because a document has no route of its own.
+    const [requestedDocumentId, setRequestedDocumentId] = createSignal<string | undefined>()
+    const openDoc = (id: string, projectId: string) => {
+        setRequestedProjectId(projectId)
+        setRequestedDocumentId(id)
         setShowProjects(true)
     }
     const closeProjects = () => {
         setShowProjects(false)
         setRequestedProjectId(undefined)
+        setRequestedDocumentId(undefined)
     }
     // Focus-layout drawers: the side panels collapse into slide-in
     // drawers toggled by floating buttons.
@@ -761,6 +772,7 @@ export const App: Component = () => {
                 onOpenTodoEmbed={() => setShowTodos(true)}
                 onOpenCanvasEmbed={openCanvas}
                 onOpenProjectEmbed={openProject}
+                onOpenDocEmbed={openDoc}
             />
         ) : (
             <FilterBar {...menuActionProps()} />
@@ -794,6 +806,7 @@ export const App: Component = () => {
             onOpenTodo={() => setShowTodos(true)}
             onOpenCanvas={openCanvas}
             onOpenProject={openProject}
+            onOpenDoc={openDoc}
             onToggleTag={toggleTag}
             canCreate={canCreateMoment()}
             showComposer={!mobile && canCreateMoment()}
@@ -1204,6 +1217,7 @@ export const App: Component = () => {
                     onOpenTodo={() => setShowTodos(true)}
                     onOpenCanvas={openCanvas}
                     onOpenProject={openProject}
+                    onOpenDoc={openDoc}
                 />
             </Show>
 
@@ -1259,6 +1273,7 @@ export const App: Component = () => {
                     onClose={closeProjects}
                     canManage={canManageProjects()}
                     initialProjectId={requestedProjectId()}
+                    initialDocumentId={requestedDocumentId()}
                     onOpenMoment={(id) => setFocusMomentId(id)}
                     onOpenTodo={() => setShowTodos(true)}
                     onOpenCanvas={openCanvas}
@@ -1273,6 +1288,7 @@ export const App: Component = () => {
                     onOpenMoment={(id) => setFocusMomentId(id)}
                     onOpenTodo={() => setShowTodos(true)}
                     onOpenProject={openProject}
+                    onOpenDoc={openDoc}
                 />
             </Show>
 
@@ -1303,6 +1319,7 @@ export const App: Component = () => {
                     onOpenTodo={() => setShowTodos(true)}
                     onOpenCanvas={openCanvas}
                     onOpenProject={openProject}
+                    onOpenDoc={openDoc}
                     onToggleTag={toggleTag}
                 />
             </Show>

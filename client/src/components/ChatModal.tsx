@@ -9,6 +9,7 @@ interface ChatModalProps {
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
 }
 
 // On-demand chat, used on mobile and wherever chat isn't docked in the Menu
@@ -23,6 +24,7 @@ export const ChatModal: Component<ChatModalProps> = (props) => {
                     onOpenTodo={props.onOpenTodo}
                     onOpenCanvas={props.onOpenCanvas}
                     onOpenProject={props.onOpenProject}
+                    onOpenDoc={props.onOpenDoc}
                     onClose={props.onClose}
                     class="bg-element-matte border-element-accent h-full overflow-hidden rounded-xl border shadow-2xl"
                 />

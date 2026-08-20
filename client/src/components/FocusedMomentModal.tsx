@@ -38,6 +38,7 @@ export const FocusedMomentModal: Component<{
     onOpenTodo?: (id: string) => void
     onOpenCanvas?: (id: string) => void
     onOpenProject?: (id: string) => void
+    onOpenDoc?: (id: string, projectId: string) => void
     // Add/remove a tag from the feed filter, gated by clickableMomentTags.
     onToggleTag?: (id: string) => void
 }> = (props) => {
@@ -180,6 +181,7 @@ export const FocusedMomentModal: Component<{
                                                 onOpenTodo={props.onOpenTodo}
                                                 onOpenCanvas={props.onOpenCanvas}
                                                 onOpenProject={props.onOpenProject}
+                                                onOpenDoc={props.onOpenDoc}
                                             />
                                         </div>
                                         <AttachmentList content={m().content} />
