@@ -163,6 +163,48 @@ for (const shell of [
             await expect(card).not.toContainText('Milestone')
         })
 
+        // The tray's order is the reader's: a pile with no dates is read for a
+        // project, for what is urgent, or for one name.
+        test('the unscheduled tray is sorted the way it was last asked to be', async ({ page }) => {
+            await signIn(page)
+            const title = `Sorted ${shell.name}`
+            const project = await post<{ id: string }>(page, '/api/v1/projects', { title })
+            const milestone = await post<{ id: string }>(page, `/api/v1/projects/${project.id}/milestones`, { title: `${title} phase` })
+            const cards = await post<{ id: string }[]>(page, `/api/v1/projects/${project.id}/cards`, {
+                milestone_id: milestone.id,
+                titles: [`${title} apple`, `${title} zebra`],
+            })
+            // The last one alphabetically is the urgent one, so priority and
+            // name cannot agree by accident.
+            await patch(page, `/api/v1/project-cards/${cards[1].id}`, { priority: 3 })
+
+            await page.goto('/')
+            if (shell.mobile) await page.getByRole('button', { name: 'More' }).click()
+            await page.getByRole('button', { name: 'Projects' }).click()
+            const tray = page.getByTestId('agenda-unscheduled')
+            // Filtered to this test's project: the tray holds whatever the
+            // tests before it left undated, and their order is not the point.
+            const titles = () =>
+                tray
+                    .getByTestId('agenda-card')
+                    .filter({ hasText: title })
+                    .allTextContents()
+                    .then((rows) => rows.map((row) => (row.includes('apple') ? 'apple' : 'zebra')))
+
+            await tray.getByTestId('unscheduled-sort').getByRole('button', { name: 'Name' }).click()
+            expect(await titles()).toEqual(['apple', 'zebra'])
+            await tray.getByTestId('unscheduled-sort').getByRole('button', { name: 'Priority' }).click()
+            expect(await titles()).toEqual(['zebra', 'apple'])
+
+            // Remembered, because the question someone brings to this pile is
+            // the same question most days.
+            await page.reload()
+            if (shell.mobile) await page.getByRole('button', { name: 'More' }).click()
+            await page.getByRole('button', { name: 'Projects' }).click()
+            await expect(page.getByTestId('unscheduled-sort').getByRole('button', { name: 'Priority' })).toHaveClass(/bg-highlight-strongest/)
+            expect(await titles()).toEqual(['zebra', 'apple'])
+        })
+
         test('the setting turns it back into a grouped list', async ({ page }) => {
             await signIn(page)
             await seed(page, `Listed ${shell.name}`)

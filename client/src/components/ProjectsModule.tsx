@@ -31,6 +31,7 @@ import {
     type DocumentThread,
 } from '../projectDocuments'
 import {
+    WORK_SORTS,
     bucketByDue,
     projectDeadlines,
     timelineDays,
@@ -39,6 +40,7 @@ import {
     type ProjectDeadline,
     type ProjectWorkItem,
     type TimelineDay,
+    type WorkSort,
 } from '../projectAgenda'
 import { loadUsers, userName } from '../users'
 import { Editor } from './Editor'
@@ -1398,6 +1400,7 @@ const AgendaList: Component<{
 // its date off again.
 const UnscheduledTray: Component<{
     rows: ProjectWorkItem[]
+    sort: WorkSort
     drag: AgendaDrag
     onOpen: (row: ProjectWorkItem) => void
     onComplete?: (row: ProjectWorkItem) => void
@@ -1408,13 +1411,35 @@ const UnscheduledTray: Component<{
         class="bg-element border-element-accent/60 mt-5 rounded-lg border p-4 transition-colors sm:p-5"
         classList={{ 'bg-highlight/10 ring-highlight ring-1': props.drag.over() === 'none' }}
     >
-        <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <h3 class="text-main font-serif text-xl font-semibold">
                 Not scheduled <span class="text-sub/60 font-mono text-base">{props.rows.length}</span>
             </h3>
-            <Show when={props.drag.enabled}>
-                <p class="text-sub/70 text-sm">Drag one onto a day to date it. Drag a dated one back here to take its date off.</p>
-            </Show>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <Show when={props.drag.enabled}>
+                    <p class="text-sub/70 text-sm">Drag one onto a day to date it. Drag a dated one back here to take its date off.</p>
+                </Show>
+                {/* The order is the reader's, not the module's: a pile with no
+                    dates is read for a project, for what is urgent, or for one
+                    name, and those are three different orders. */}
+                <div data-testid="unscheduled-sort" class="border-element-accent flex shrink-0 overflow-hidden rounded-md border">
+                    <For each={WORK_SORTS}>
+                        {(sort) => (
+                            <button
+                                onClick={() => setPref('projectsUnscheduledSort', sort.v)}
+                                class="px-2.5 py-1 text-xs transition-colors hover:cursor-pointer"
+                                classList={{
+                                    'bg-highlight-strongest text-white': props.sort === sort.v,
+                                    'text-sub hover:text-main': props.sort !== sort.v,
+                                }}
+                                title={`Sort by ${sort.label.toLowerCase()}`}
+                            >
+                                {sort.label}
+                            </button>
+                        )}
+                    </For>
+                </div>
+            </div>
         </div>
         <Show
             when={props.rows.length > 0}
@@ -1437,7 +1462,8 @@ const Overview: Component<{
 }> = (props) => {
     const liveProjects = createMemo(() => props.projects.filter((p) => !p.archived))
     const deadlines = createMemo(() => projectDeadlines(props.projects))
-    const unscheduled = createMemo(() => unscheduledWork(props.projects))
+    const unscheduledSort = () => prefs().projectsUnscheduledSort
+    const unscheduled = createMemo(() => unscheduledWork(props.projects, unscheduledSort()))
     const [dragItem, setDragItem] = createSignal<ProjectWorkItem | null>(null)
     const [dragOver, setDragOver] = createSignal<number | 'none' | null>(null)
     const drag: AgendaDrag = {
@@ -1649,7 +1675,7 @@ const Overview: Component<{
                         squeezed under the days was too shallow to read and
                         too shallow to aim at. */}
                     <Show when={timeline()}>
-                        <UnscheduledTray rows={unscheduled()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
+                        <UnscheduledTray rows={unscheduled()} sort={unscheduledSort()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
                     </Show>
 
                     {/* Under the agenda: the standing picture of the

@@ -10,6 +10,7 @@
 import { createSignal } from 'solid-js'
 import type { TagColorPreset } from './tagColors'
 import { syncKey } from './appearance'
+import { isWorkSort, type WorkSort } from './projectAgenda'
 
 // Rich-menu widgets (§ desktop Menu revamp). Order in MENU_WIDGETS is the
 // default display order; `label`/`blurb` drive the Widgets settings category.
@@ -180,6 +181,11 @@ export interface Prefs {
     // Which way that timeline runs. Horizontal by default, a column per day;
     // vertical stacks the days down the page for a narrow window.
     projectsAgendaVertical: boolean
+    // How the overview orders the work that has no date on it. By project by
+    // default, which is the order it was written in; the question someone
+    // brings to that pile tends to be the same question most days, so it is
+    // remembered rather than asked again.
+    projectsUnscheduledSort: WorkSort
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -215,6 +221,7 @@ export const DEFAULT_PREFS: Prefs = {
     projectCardNoteHint: 'preview',
     projectsAgendaTimeline: true,
     projectsAgendaVertical: false,
+    projectsUnscheduledSort: 'project',
     todoWidth: 'large',
     projectCardWidth: 'medium',
     canvasWidth: 'wide',
@@ -287,6 +294,9 @@ function load(): Prefs {
         }
         if (!['preview', 'label'].includes(merged.projectCardNoteHint)) {
             merged.projectCardNoteHint = DEFAULT_PREFS.projectCardNoteHint
+        }
+        if (!isWorkSort(merged.projectsUnscheduledSort)) {
+            merged.projectsUnscheduledSort = DEFAULT_PREFS.projectsUnscheduledSort
         }
         merged.menuWidgets = normalizeMenuWidgets(merged.menuWidgets)
         merged.inlineLinkPreviewsPerRow = clampPerRow(

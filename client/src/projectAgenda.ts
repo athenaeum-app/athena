@@ -108,13 +108,40 @@ export function projectDeadlines(projects: Project[]): ProjectDeadline[] {
         .sort((a, b) => dueMs(a.dueAt) - dueMs(b.dueAt) || b.priority - a.priority)
 }
 
+// How a pile of undated work can be ordered. Three questions get asked of it:
+// what is on this project, what is most important, and where is the one called
+// X. Each is a different order, and no one of them answers the other two.
+export const WORK_SORTS = [
+    { v: 'project', label: 'Project' },
+    { v: 'priority', label: 'Priority' },
+    { v: 'name', label: 'Name' },
+] as const
+
+export type WorkSort = (typeof WORK_SORTS)[number]['v']
+
+export const isWorkSort = (value: string): value is WorkSort => WORK_SORTS.some((s) => s.v === value)
+
+// Every order falls back through the other two, so rows that tie on the chosen
+// one still come out in a stable and readable sequence rather than in whatever
+// order the projects happened to load.
+const workOrder: Record<WorkSort, (a: ProjectWorkItem, b: ProjectWorkItem) => number> = {
+    project: (a, b) => a.projectTitle.localeCompare(b.projectTitle) || b.priority - a.priority || a.title.localeCompare(b.title),
+    priority: (a, b) => b.priority - a.priority || a.projectTitle.localeCompare(b.projectTitle) || a.title.localeCompare(b.title),
+    name: (a, b) => a.title.localeCompare(b.title) || a.projectTitle.localeCompare(b.projectTitle),
+}
+
+export const sortWork = (items: ProjectWorkItem[], sort: WorkSort = 'project'): ProjectWorkItem[] =>
+    [...items].sort(workOrder[sort])
+
 // The undated part: work that is real but has never been put on a day. The
 // overview keeps it beside the timeline so a date can be given by dragging it
-// onto one. Grouped by project, since that is the order it was written in.
-export function unscheduledWork(projects: Project[]): ProjectWorkItem[] {
-    return projectWork(projects)
-        .filter((item) => !item.dueAt)
-        .sort((a, b) => a.projectTitle.localeCompare(b.projectTitle) || b.priority - a.priority || a.title.localeCompare(b.title))
+// onto one. By project unless asked otherwise, since that is the order it was
+// written in.
+export function unscheduledWork(projects: Project[], sort: WorkSort = 'project'): ProjectWorkItem[] {
+    return sortWork(
+        projectWork(projects).filter((item) => !item.dueAt),
+        sort,
+    )
 }
 
 // The deadline windows an agenda is read in. Ordered soonest first; a row

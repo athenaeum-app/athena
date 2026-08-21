@@ -202,4 +202,40 @@ describe('unscheduledWork', () => {
         expect(finished).toEqual([])
         expect(unscheduledWork([project({ milestones: [milestone('m1')] })]).map((r) => r.id)).toEqual(['m1'])
     })
+
+    describe('the order it comes back in', () => {
+        // Two projects, so the three orders actually differ. Named out of
+        // alphabetical order on purpose: a sort that happens to agree with
+        // insertion order proves nothing.
+        const projects = [
+            project({
+                id: 'p2',
+                title: 'Zinc works',
+                milestones: [milestone('m1')],
+                cards: [card('anvil', { priority: 1 }), card('crucible', { priority: 3 })],
+            }),
+            project({
+                id: 'p1',
+                title: 'Bindery',
+                milestones: [milestone('m2')],
+                cards: [card('boards', { priority: 2, milestone_id: 'm2' })],
+            }),
+        ]
+
+        it('groups by project, highest priority first inside one', () => {
+            expect(unscheduledWork(projects, 'project').map((r) => r.id)).toEqual(['boards', 'm2', 'crucible', 'anvil', 'm1'])
+        })
+
+        it('puts the most urgent first whatever project it is on', () => {
+            expect(unscheduledWork(projects, 'priority').map((r) => r.id)).toEqual(['crucible', 'boards', 'anvil', 'm2', 'm1'])
+        })
+
+        it('reads alphabetically by name, projects mixed together', () => {
+            expect(unscheduledWork(projects, 'name').map((r) => r.id)).toEqual(['anvil', 'boards', 'crucible', 'm1', 'm2'])
+        })
+
+        it('groups by project when nobody asked for an order', () => {
+            expect(unscheduledWork(projects)).toEqual(unscheduledWork(projects, 'project'))
+        })
+    })
 })
