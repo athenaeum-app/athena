@@ -161,6 +161,13 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Your agenda can now be embedded anywhere you write: type [[agenda to drop in everything due, or just the tasks, or just the project work. It stays live, and to-do items can be ticked off from inside it.',
         'In a draft document, clicking anywhere outside the text now finishes the writing, not just outside the column.',
     ],
+    '2.30.0': [
+        'The Projects overview has a calendar view: a month at a time, every day a drop target, so work due further out than a fortnight can be dated by dragging it at last. While dragging, hold against either side of the grid to change month.',
+        'Clicking a card on the overview now opens the card itself, rather than the board it sits on.',
+        'Cards can be ticked off from the overview, wherever it lists them.',
+        'The unscheduled pile can be sorted by project, by priority or by name.',
+        'A milestone no longer reads as just another card on the agenda: it has a surface of its own, its name in the project colour, and a meter for the work inside it.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
