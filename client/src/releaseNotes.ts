@@ -172,6 +172,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'A single task can now be referenced anywhere, not just the list holding it: type [[ and its text. A project card works the same way.',
         'A referenced task or card can be ticked off where it is read, and stays on the page once it is done.',
     ],
+    '2.32.0': [
+        'A chat search result can be copied, whether or not it is close enough to jump to.',
+        'Copying now works on a server reached over plain http, where the browser withholds the clipboard.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
