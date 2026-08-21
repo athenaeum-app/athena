@@ -120,6 +120,37 @@ for (const shell of [
             await expect(page.getByRole('button', { name: 'Graveyard' })).toBeVisible()
         })
 
+        test('a card is finished from the agenda itself', async ({ page }) => {
+            await signIn(page)
+            const title = `Ticked ${shell.name}`
+            await seed(page, title)
+
+            await page.goto('/')
+            if (shell.mobile) await page.getByRole('button', { name: 'More' }).click()
+            await page.getByRole('button', { name: 'Projects' }).click()
+            const row = page.getByRole('button', { name: new RegExp(`${title} today`) })
+            await expect(row).toBeVisible()
+
+            // Ticking it finishes it, and finished work is not outstanding, so
+            // it leaves the agenda rather than sitting there struck through.
+            await row.getByTestId('agenda-complete').click()
+            await expect(row).toHaveCount(0)
+            await expect(page.getByText(`Marked "${title} today" done.`)).toBeVisible()
+
+            // Written down, not only crossed out on screen. It comes back as
+            // one of the recently finished.
+            await page.reload()
+            if (shell.mobile) await page.getByRole('button', { name: 'More' }).click()
+            await page.getByRole('button', { name: 'Projects' }).click()
+            await expect(page.getByRole('button', { name: new RegExp(`${title} today`) })).toHaveCount(1)
+            await expect(page.getByRole('button', { name: new RegExp(`check_circle ${title} today`) })).toBeVisible()
+
+            // A milestone carries no tick: it is finished by its cards.
+            const milestone = page.getByTestId('agenda-unscheduled').getByRole('button', { name: new RegExp(`flag ${title} phase one`) })
+            await expect(milestone).toBeVisible()
+            await expect(milestone.getByTestId('agenda-complete')).toHaveCount(0)
+        })
+
         test('the setting turns it back into a grouped list', async ({ page }) => {
             await signIn(page)
             await seed(page, `Listed ${shell.name}`)

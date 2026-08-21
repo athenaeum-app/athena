@@ -487,6 +487,27 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
         })
     }
 
+    // Ticked off from the agenda. Only a card can be: a milestone is finished
+    // by the cards inside it. The server stamps completed_at, which the
+    // momentum graph and Recently finished both read, so the response is
+    // merged back rather than assumed.
+    const completeWork = (item: ProjectWorkItem) => {
+        const withCard = (fn: (c: ProjectCard) => void) =>
+            mutate(item.projectId, (p) => {
+                const card = p.cards.find((c) => c.id === item.id)
+                if (card) fn(card)
+            })
+        withCard((c) => (c.done = true))
+        api.updateProjectCard(item.id, { done: true })
+            .then((updated) => withCard((c) => Object.assign(c, updated)))
+            .catch((err) => {
+                console.error('Failed to finish card:', err)
+                ui.toast('Could not mark that done.', 'error')
+                void load()
+            })
+        ui.toast(`Marked "${item.title}" done.`, 'success')
+    }
+
     const newProject = async () => {
         try {
             const created = await api.createProject('New project')
@@ -585,6 +606,7 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
                         onSchedule={scheduleWork}
                         onOpen={openProjectAt}
                         onOpenCard={setOpenCardId}
+                        onComplete={completeWork}
                         onNew={newProject}
                         onRestore={(id) => patchProject(id, (p) => (p.archived = false), { archived: false })}
                         onDeleteForever={(id) => {
@@ -675,6 +697,7 @@ const Portfolio: Component<{
     onSchedule: (item: ProjectWorkItem, at: number | null) => void
     onOpen: (id: string, tab?: HubTab) => void
     onOpenCard: (id: string) => void
+    onComplete: (item: ProjectWorkItem) => void
     onNew: () => void
     onRestore: (id: string) => void
     onDeleteForever: (id: string) => void
@@ -738,6 +761,7 @@ const Portfolio: Component<{
                                 onSchedule={props.onSchedule}
                                 onOpen={props.onOpen}
                                 onOpenCard={props.onOpenCard}
+                                onComplete={props.onComplete}
                             />
                         }
                     >
@@ -1000,11 +1024,26 @@ const DeadlineRow: Component<{
     // what it is, and that is the agenda's decision to make once rather than
     // every surface's to make again.
     onOpen: (row: ProjectWorkItem) => void
+    // Absent for a reader who cannot write. A milestone never gets one: a
+    // milestone is finished by its cards, and a tick here would be a claim the
+    // board would contradict on the spot.
+    onComplete?: (row: ProjectWorkItem) => void
 }> = (props) => {
     const row = () => props.row
     const dragging = () => props.drag.item()?.id === row().id
+    const tickable = () => !!props.onComplete && row().kind === 'card'
     return (
-        <button
+        // A div rather than a button, since it holds a button: the tick has to
+        // be its own control, and a button inside a button is not markup a
+        // browser will keep.
+        <div
+            role="button"
+            tabindex={0}
+            onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return
+                e.preventDefault()
+                props.onOpen(row())
+            }}
             draggable={props.drag.enabled}
             onDragStart={(e) => {
                 // Firefox starts no drag at all without payload on the event.
@@ -1025,9 +1064,33 @@ const DeadlineRow: Component<{
                       : `Open ${row().projectTitle} on the board`
             }
         >
-            <span class="material-symbols-outlined mt-px shrink-0 text-[19px]" style={{ color: row().accent }}>
-                {row().kind === 'milestone' ? 'flag' : row().icon}
-            </span>
+            {/* One slot on the left, whatever the row is: a tick for work
+                that can be finished from here, and the thing's own mark for
+                everything else. */}
+            <Show
+                when={tickable()}
+                fallback={
+                    <span class="material-symbols-outlined mt-px shrink-0 text-[19px]" style={{ color: row().accent }}>
+                        {row().kind === 'milestone' ? 'flag' : row().icon}
+                    </span>
+                }
+            >
+                <button
+                    data-testid="agenda-complete"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        props.onComplete!(row())
+                    }}
+                    // The row drags from anywhere on it, so a tick has to tick
+                    // rather than pick the row up.
+                    onPointerDown={(e) => e.stopPropagation()}
+                    draggable={false}
+                    title={`Mark "${row().title}" done`}
+                    class="text-sub/70 hover:text-highlight mt-px shrink-0 transition-colors hover:cursor-pointer"
+                >
+                    <span class="material-symbols-outlined text-[19px]">check_box_outline_blank</span>
+                </button>
+            </Show>
             <div class="min-w-0 flex-1">
                 <p class="text-main text-base leading-snug">{row().title}</p>
                 <p class="text-sub/80 truncate text-xs">
@@ -1052,7 +1115,7 @@ const DeadlineRow: Component<{
             <Show when={props.overdue && row().dueAt}>
                 <span class="bg-danger/20 text-danger shrink-0 rounded px-1.5 py-0.5 text-xs font-bold">{fmtDue(row().dueAt!)}</span>
             </Show>
-        </button>
+        </div>
     )
 }
 
@@ -1112,6 +1175,7 @@ const TimelineHorizontal: Component<{
     deadlines: ProjectDeadline[]
     drag: AgendaDrag
     onOpen: (row: ProjectWorkItem) => void
+    onComplete?: (row: ProjectWorkItem) => void
 }> = (props) => {
     const days = createMemo(() => timelineDays(props.deadlines))
     const ends = createMemo(() => timelineEnds(props.deadlines))
@@ -1137,7 +1201,7 @@ const TimelineHorizontal: Component<{
                 <div class="border-danger/60 flex w-64 shrink-0 flex-col rounded-lg border-t-2 pt-2">
                     <p class="text-danger mb-2 text-sm font-bold uppercase tracking-wide">Overdue</p>
                     <div class="flex flex-col gap-1.5">
-                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue drag={props.drag} onOpen={props.onOpen} />}</For>
+                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
                     </div>
                 </div>
             </Show>
@@ -1170,7 +1234,7 @@ const TimelineHorizontal: Component<{
                             <span class="text-sub text-xs" classList={{ 'font-bold': day.weekend }}>{dayHeadings(day).label}</span>
                         </p>
                         <div class="flex flex-1 flex-col gap-1.5">
-                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
+                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
                         </div>
                     </div>
                 )}
@@ -1179,7 +1243,7 @@ const TimelineHorizontal: Component<{
                 <div class="border-element-accent flex w-64 shrink-0 flex-col rounded-lg border-t-2 pt-2">
                     <p class="text-sub mb-2 text-sm font-bold uppercase tracking-wide">Later</p>
                     <div class="flex flex-col gap-1.5">
-                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
+                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
                     </div>
                 </div>
             </Show>
@@ -1191,6 +1255,7 @@ const TimelineVertical: Component<{
     deadlines: ProjectDeadline[]
     drag: AgendaDrag
     onOpen: (row: ProjectWorkItem) => void
+    onComplete?: (row: ProjectWorkItem) => void
 }> = (props) => {
     const days = createMemo(() => timelineDays(props.deadlines))
     const ends = createMemo(() => timelineEnds(props.deadlines))
@@ -1202,7 +1267,7 @@ const TimelineVertical: Component<{
                 <div class="border-danger/60 flex gap-4 border-l-2 pb-4 pl-4">
                     <p class="text-danger w-24 shrink-0 text-sm font-bold uppercase tracking-wide">Overdue</p>
                     <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
-                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue drag={props.drag} onOpen={props.onOpen} />}</For>
+                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
                     </div>
                 </div>
             </Show>
@@ -1228,7 +1293,7 @@ const TimelineVertical: Component<{
                             <span class="text-sub text-xs" classList={{ 'font-bold': day.weekend }}>{dayHeadings(day).label}</span>
                         </p>
                         <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
-                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
+                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
                         </div>
                     </div>
                 )}
@@ -1237,7 +1302,7 @@ const TimelineVertical: Component<{
                 <div class="border-element-accent flex gap-4 border-l-2 pl-4 pt-2">
                     <p class="text-sub w-24 shrink-0 text-sm font-bold uppercase tracking-wide">Later</p>
                     <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
-                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
+                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
                     </div>
                 </div>
             </Show>
@@ -1252,6 +1317,7 @@ const AgendaList: Component<{
     deadlines: ProjectDeadline[]
     drag: AgendaDrag
     onOpen: (row: ProjectWorkItem) => void
+    onComplete?: (row: ProjectWorkItem) => void
 }> = (props) => {
     const buckets = createMemo(() => bucketByDue(props.deadlines, (d) => d.dueAt))
     const still: AgendaDrag = { ...props.drag, enabled: false }
@@ -1274,7 +1340,7 @@ const AgendaList: Component<{
                         </h4>
                         <div class="grid grid-cols-1 gap-x-6 gap-y-1 lg:grid-cols-2 2xl:grid-cols-3">
                             <For each={bucket.rows}>
-                                {(row) => <DeadlineRow row={row} overdue={bucket.key === 'overdue'} drag={still} onOpen={props.onOpen} />}
+                                {(row) => <DeadlineRow row={row} overdue={bucket.key === 'overdue'} drag={still} onOpen={props.onOpen} onComplete={props.onComplete} />}
                             </For>
                         </div>
                     </div>
@@ -1293,6 +1359,7 @@ const UnscheduledTray: Component<{
     rows: ProjectWorkItem[]
     drag: AgendaDrag
     onOpen: (row: ProjectWorkItem) => void
+    onComplete?: (row: ProjectWorkItem) => void
 }> = (props) => (
     <div
         {...dropTarget(props.drag, 'none')}
@@ -1313,7 +1380,7 @@ const UnscheduledTray: Component<{
             fallback={<p class="text-sub/50 italic">Everything outstanding has a date on it.</p>}
         >
             <div class="grid max-h-72 grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
-                <For each={props.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} />}</For>
+                <For each={props.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
             </div>
         </Show>
     </div>
@@ -1325,6 +1392,7 @@ const Overview: Component<{
     onSchedule: (item: ProjectWorkItem, at: number | null) => void
     onOpen: (id: string, tab?: HubTab) => void
     onOpenCard: (id: string) => void
+    onComplete: (item: ProjectWorkItem) => void
 }> = (props) => {
     const liveProjects = createMemo(() => props.projects.filter((p) => !p.archived))
     const deadlines = createMemo(() => projectDeadlines(props.projects))
@@ -1349,6 +1417,9 @@ const Overview: Component<{
     // column, and a column has no modal of its own.
     const openRow = (row: ProjectWorkItem) =>
         row.kind === 'card' ? props.onOpenCard(row.id) : props.onOpen(row.projectId, 'board')
+    // Undefined rather than a no-op for a reader who cannot write, so the row
+    // draws no control it would have to refuse.
+    const completeRow = () => (props.canManage ? props.onComplete : undefined)
     const overdue = createMemo(() => deadlines().filter((d) => dueMs(d.dueAt) < startOfToday()))
     const dueThisWeek = createMemo(() => {
         const weekEnd = startOfToday() + 7 * 86400000
@@ -1521,12 +1592,12 @@ const Overview: Component<{
                             when={deadlines().length > 0}
                             fallback={<p class="text-sub/60 italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
                         >
-                            <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} drag={drag} onOpen={openRow} />}>
+                            <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />}>
                                 <Show
                                     when={vertical()}
-                                    fallback={<TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={openRow} />}
+                                    fallback={<TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />}
                                 >
-                                    <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={openRow} />
+                                    <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
                                 </Show>
                             </Show>
                         </Show>
@@ -1537,7 +1608,7 @@ const Overview: Component<{
                         squeezed under the days was too shallow to read and
                         too shallow to aim at. */}
                     <Show when={timeline()}>
-                        <UnscheduledTray rows={unscheduled()} drag={drag} onOpen={openRow} />
+                        <UnscheduledTray rows={unscheduled()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
                     </Show>
 
                     {/* Under the agenda: the standing picture of the
