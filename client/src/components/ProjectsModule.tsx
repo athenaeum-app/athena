@@ -90,13 +90,14 @@ const PRIORITIES = [
 const priorityColor = (v: number) => PRIORITIES.find((p) => p.v === v)?.color || ''
 const priorityIcon = (v: number) => PRIORITIES.find((p) => p.v === v)?.icon || ''
 
-// A document's status, in the order it travels: written, settled, frozen.
-// Locked refuses title and body edits server-side, so the reader has to leave
-// it deliberately before writing again.
+// A document's status, in the order it travels: written, settled, frozen. It
+// is also the mode. Draft is the only one that can be typed into, which is
+// what makes the control worth having: it used to sit beside an Edit button
+// that decided the same thing per visit and told nobody else.
 const DOCUMENT_STATUSES = [
-    { v: 'draft', label: 'Draft', icon: 'edit_note' },
-    { v: 'final', label: 'Final', icon: 'task_alt' },
-    { v: 'locked', label: 'Locked', icon: 'lock' },
+    { v: 'draft', label: 'Draft', icon: 'edit_note', hint: 'Draft: click the text to write in it.' },
+    { v: 'final', label: 'Final', icon: 'task_alt', hint: 'Final: the text is read only until it goes back to Draft.' },
+    { v: 'locked', label: 'Locked', icon: 'lock', hint: 'Lock it: the title and body freeze until it comes back to Draft or Final.' },
 ] as const
 
 // What a new document can start as. Client-side only: a template is a first
@@ -3635,6 +3636,10 @@ const DocumentView: Component<
     const headings = () => documentOutline(props.document.body || '')
     const words = () => documentWordCount(props.document.body || '')
     const locked = () => props.document.status === 'locked'
+    // Draft is the writing state and the only one that opens the editor. Final
+    // and Locked both read; the difference is that Final is one tap from being
+    // written again and Locked is refused by the server until it is lifted.
+    const editable = () => props.canManage && props.document.status === 'draft'
     const blocks = () => documentBlocks(props.document.body || '')
     let readEl: HTMLDivElement | undefined
 
@@ -3661,6 +3666,19 @@ const DocumentView: Component<
         setEditing(false)
     }
 
+    // A draft is written by clicking it, which is the whole of what the Edit
+    // button used to do. A click that lands on something with a job of its own
+    // (a link, an embed card, a comment control) does that job instead, and a
+    // click that finished a selection leaves the selection alone rather than
+    // swapping the text out from under it.
+    const startEditing = (e: MouseEvent) => {
+        if (!editable() || editing()) return
+        const target = e.target as HTMLElement | null
+        if (target?.closest('a, button, input, textarea, select, [role="button"], [data-embed-card]')) return
+        if (window.getSelection()?.toString()) return
+        setEditing(true)
+    }
+
     // Locking is a status-only write, which is the one thing the server accepts
     // from a locked document. Anything still in flight has to land first, or
     // the lock would arrive ahead of the edit it was meant to freeze.
@@ -3671,8 +3689,9 @@ const DocumentView: Component<
         props.onStatus(props.document.id, status)
     }
     // The lock is enforced server-side; refusing to open the editor is what
-    // keeps a reader from typing into text that will not be saved.
-    createEffect(() => locked() && setEditing(false))
+    // keeps a reader from typing into text that will not be saved. Final is
+    // refused here alone, which is the point of it.
+    createEffect(() => !editable() && setEditing(false))
 
     // --- comments ---
     // Loaded with the open document rather than with the project: a tab full of
@@ -3798,7 +3817,18 @@ const DocumentView: Component<
         // bg-element, but the reading column has no background of its own and
         // the editor's textarea is transparent, so the shelves ran straight
         // under the text. A document is a page, and pages are not textured.
-        <div data-testid="document-view" class="flex min-h-0 flex-1 flex-col" style={{ 'background-color': 'var(--theme-bg)' }}>
+        <div
+            data-testid="document-view"
+            class="flex min-h-0 flex-1 flex-col"
+            style={{ 'background-color': 'var(--theme-bg)' }}
+            // A press on anything outside the text finishes the writing: the
+            // header, the outline rail, the footer. Bound to this root rather
+            // than to the window so the editor's own portalled menus (the
+            // embed picker, the slash dialog) are never mistaken for outside.
+            onPointerDown={(e) => {
+                if (editing() && !readEl?.contains(e.target as Node)) stopEditing()
+            }}
+        >
             <div class="border-element-accent flex flex-wrap items-center gap-x-2 gap-y-2 border-b px-4 py-3 sm:px-5">
                 {/* The icon-only buttons along this row are flex boxes, not
                     the inline-block a bare button would be: a button inherits
@@ -3846,23 +3876,18 @@ const DocumentView: Component<
                     />
                 </Show>
                 {/* The status control follows the module's segmented idiom, the
-                    one the card modal writes and previews with. Leaving Locked
-                    is a tap on Draft or Final and nothing else: the server
-                    refuses a patch that unlocks and edits at once, and hiding
-                    that behind an edit would only move the refusal. */}
+                    one the card modal writes and previews with, and it is also
+                    the read/write switch: Draft types, Final and Locked read.
+                    Leaving Locked is a tap on Draft or Final and nothing else:
+                    the server refuses a patch that unlocks and edits at once,
+                    and hiding that behind an edit would only move the refusal. */}
                 <Show when={props.canManage} fallback={<DocumentStatusBadge status={props.document.status} />}>
                     <div data-testid="document-status" class="border-element-accent flex shrink-0 overflow-hidden rounded-md border">
                         <For each={DOCUMENT_STATUSES}>
                             {(status) => (
                                 <button
                                     onClick={() => setStatus(status.v)}
-                                    title={
-                                        status.v === 'locked'
-                                            ? 'Lock it: the title and body freeze until it comes back to Draft or Final.'
-                                            : locked()
-                                              ? `Unlock, back to ${status.label}.`
-                                              : status.label
-                                    }
+                                    title={locked() && status.v !== 'locked' ? `Unlock, back to ${status.label}.` : status.hint}
                                     class="flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors hover:cursor-pointer"
                                     classList={{
                                         'bg-highlight-strongest text-white': props.document.status === status.v,
@@ -3914,29 +3939,10 @@ const DocumentView: Component<
                 >
                     <span class="material-symbols-outlined">history</span>
                 </button>
+                {/* No Edit button: the status is the mode. What stood here was
+                    a second answer to the same question, and the one the
+                    document did not remember. */}
                 <Show when={props.canManage}>
-                    <Show
-                        when={!locked()}
-                        fallback={
-                            <span
-                                data-testid="document-lock-chip"
-                                title="Locked. Set the status back to Draft or Final to edit it."
-                                class="border-highlight/50 text-highlight flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-bold"
-                            >
-                                <span class="material-symbols-outlined text-sm">lock</span>
-                                Read only
-                            </span>
-                        }
-                    >
-                        <button
-                            onClick={() => (editing() ? stopEditing() : setEditing(true))}
-                            class="border-element-accent flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs transition-colors hover:cursor-pointer"
-                            classList={{ 'bg-highlight-strongest text-white': editing(), 'text-sub hover:text-main': !editing() }}
-                        >
-                            <span class="material-symbols-outlined text-sm">{editing() ? 'done' : 'edit'}</span>
-                            {editing() ? 'Done' : 'Edit'}
-                        </button>
-                    </Show>
                     <button
                         onClick={() => props.onDelete(props.document)}
                         title="Delete document"
@@ -3967,7 +3973,22 @@ const DocumentView: Component<
             </Show>
 
             <div class="flex min-h-0 flex-1 flex-col xl:flex-row">
-                <div data-testid="document-body" ref={readEl} class="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8">
+                <div
+                    ref={readEl}
+                    data-testid="document-body"
+                    class="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8"
+                    classList={{ 'cursor-text': editable() && !editing() }}
+                    onClick={startEditing}
+                    // Escape finishes. Claimed with preventDefault, the way
+                    // every layer inside a modal claims it, so the panel behind
+                    // does not read the same key as a request to close; skipped
+                    // when a menu in the editor has already answered it.
+                    onKeyDown={(e) => {
+                        if (e.key !== 'Escape' || e.defaultPrevented || !editing()) return
+                        e.preventDefault()
+                        stopEditing()
+                    }}
+                >
                     <Show when={locked()}>
                         <p
                             data-testid="document-locked"
@@ -3995,7 +4016,7 @@ const DocumentView: Component<
                             when={props.document.body.trim()}
                             fallback={
                                 <p class="text-sub/60 text-sm italic">
-                                    {props.canManage && !locked() ? 'Empty document. Edit starts it.' : 'Empty document.'}
+                                    {editable() ? 'Empty document. Click here to start writing.' : 'Empty document.'}
                                 </p>
                             }
                         >
@@ -4068,6 +4089,11 @@ const DocumentView: Component<
                 </span>
                 <Show when={words() > 0}>
                     <span>{readingMinutes(words())} min read</span>
+                </Show>
+                {/* The only place either instruction is written down, now that
+                    the mode is the status and the way in is the text itself. */}
+                <Show when={editable()}>
+                    <span data-testid="document-edit-hint">{editing() ? 'Esc finishes' : 'Click the text to write'}</span>
                 </Show>
                 <span class="ml-auto">Updated {fmtWhen(props.document.updated_at)}</span>
             </div>

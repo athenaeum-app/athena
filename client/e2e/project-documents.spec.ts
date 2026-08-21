@@ -93,12 +93,16 @@ for (const shell of [
 
             // The body is written through the shared editor and read back
             // through the shared renderer.
+            // A new document is a draft, and a draft is written by clicking
+            // it. Escape puts it back, which is the whole of the old Edit and
+            // Done pair.
             const view = page.getByTestId('document-view')
-            await view.getByRole('button', { name: 'Edit' }).click()
+            await expect(view.getByRole('button', { name: 'Edit' })).toHaveCount(0)
+            await view.getByTestId('document-body').click()
             const editor = page.getByPlaceholder('The document.', { exact: false })
-            await editor.click()
             await editor.fill('# Why SQLite\n\nIt ships inside the binary.')
-            await view.getByRole('button', { name: 'Done' }).click()
+            await page.keyboard.press('Escape')
+            await expect(editor).toHaveCount(0)
             await expect(page.getByRole('heading', { name: 'Why SQLite' })).toBeVisible()
 
             // The document tools: a heading in the outline, and a size in the
@@ -185,20 +189,25 @@ for (const shell of [
 
             // Editing the block out orphans the comment rather than sliding it
             // onto whatever now sits at that index.
-            await view.getByRole('button', { name: 'Edit' }).click()
+            await view.getByTestId('document-body').click()
             const editor = page.getByPlaceholder('The document.', { exact: false })
-            await editor.click()
             await editor.fill('# Why SQLite\n\nPostgres would want a second process to babysit.\n\nOne file, one backup.')
-            await view.getByRole('button', { name: 'Done' }).click()
+            await page.keyboard.press('Escape')
             await expect(comments.getByTestId('comment-orphaned')).toBeVisible()
+
+            // Final settles it: the same click that opened the editor a moment
+            // ago now does nothing at all.
+            await view.getByTestId('document-status').getByRole('button', { name: 'Final' }).click()
+            await view.getByTestId('document-body').click()
+            await expect(editor).toHaveCount(0)
 
             // Locking freezes the text: no editor, a read-only title, and a
             // banner saying how to get out of it.
             await view.getByTestId('document-status').getByRole('button', { name: 'Locked' }).click()
             await expect(page.getByTestId('document-locked')).toBeVisible()
-            await expect(page.getByTestId('document-lock-chip')).toBeVisible()
-            await expect(view.getByRole('button', { name: 'Edit' })).toHaveCount(0)
             await expect(page.getByTitle('Rename document')).toHaveCount(0)
+            await view.getByTestId('document-body').click()
+            await expect(editor).toHaveCount(0)
 
             // A version restore rewrites the title and body, so it is off too,
             // and says why.
@@ -211,7 +220,12 @@ for (const shell of [
             // inside an edit.
             await view.getByTestId('document-status').getByRole('button', { name: 'Final' }).click()
             await expect(page.getByTestId('document-locked')).toHaveCount(0)
-            await expect(view.getByRole('button', { name: 'Edit' })).toBeVisible()
+            // And Draft is the only thing that opens the text again.
+            await view.getByTestId('document-status').getByRole('button', { name: 'Draft' }).click()
+            await view.getByTestId('document-body').click()
+            await expect(editor).toBeVisible()
+            await page.keyboard.press('Escape')
+            await view.getByTestId('document-status').getByRole('button', { name: 'Final' }).click()
 
             // Final is worth spotting from the grid, so it badges the tile, and
             // the open thread badges it too.
