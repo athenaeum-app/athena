@@ -13,6 +13,11 @@ server/*.db-*
 client/node_modules/
 client/dist/
 
+# Agent workspace: hooks, scheduled tasks and launch settings are specific to
+# one machine and one person. AGENTS.md is the half of this worth sharing, and
+# it is tracked.
+.claude/
+
 # Test artifacts
 client/test-results/
 client/playwright-report/
