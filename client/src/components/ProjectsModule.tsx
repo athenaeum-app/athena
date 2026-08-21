@@ -53,6 +53,8 @@ import { BookcaseDrift } from './BookcaseDrift'
 // the Tasks agenda and inside an agenda embed.
 import { formatDue as fmtDue } from '../agenda'
 import { prefs, setPref, MODAL_WIDTH_CLASS } from '../prefs'
+import { PRIORITIES, priorityColor, priorityIcon } from '../priority'
+import { Meter } from './Meter'
 import { desktop } from '../desktop'
 import { Modal } from './Modal'
 
@@ -90,14 +92,6 @@ interface ProjectsModuleProps {
 
 // ---- vocabulary ----
 
-const PRIORITIES = [
-    { v: 0, label: 'None', color: '', icon: '' },
-    { v: 1, label: 'Low', color: '#7ed6df', icon: 'keyboard_arrow_down' },
-    { v: 2, label: 'Med', color: '#ffbe76', icon: 'keyboard_arrow_up' },
-    { v: 3, label: 'High', color: '#ff7979', icon: 'keyboard_double_arrow_up' },
-]
-const priorityColor = (v: number) => PRIORITIES.find((p) => p.v === v)?.color || ''
-const priorityIcon = (v: number) => PRIORITIES.find((p) => p.v === v)?.icon || ''
 
 // A document's status, in the order it travels: written, settled, frozen. It
 // is also the mode. Draft is the only one that can be typed into, which is
@@ -267,18 +261,6 @@ const snippetOf = (p: Project) => {
 }
 
 // ---- shared bits ----
-
-const Meter: Component<{ done: number; total: number; class?: string; color?: string }> = (props) => (
-    <>
-        <div class={`bg-element-accent h-1.5 overflow-hidden rounded-full ${props.class || 'w-16'}`}>
-            <div
-                class="bg-highlight-strongest h-full rounded-full transition-all"
-                style={{ width: `${props.total === 0 ? 0 : Math.round((props.done / props.total) * 100)}%`, 'background-color': props.color }}
-            />
-        </div>
-        <span class="text-sub font-mono text-[10px]">{props.total === 0 ? 0 : Math.round((props.done / props.total) * 100)}%</span>
-    </>
-)
 
 // One segment per milestone, each filling with that milestone's completion.
 const SpineMeter: Component<{ p: Project; color?: string }> = (props) => (

@@ -10,6 +10,7 @@ import { prefs, setPref, MODAL_WIDTH_CLASS } from '../prefs'
 import { notifyTodoChanged } from '../todoBus'
 import { serializeLists, parseLists, type ParsedItem } from '../todoTransfer'
 import { copyText } from '../clipboard'
+import { PRIORITIES, priorityColor } from '../priority'
 
 // Todo module (ADR-0013): server-synced, library-shared to-do
 // lists as a Trello-style board. v2.3 adds per-item due dates, priority,
@@ -36,13 +37,6 @@ interface TodoModuleProps {
 
 // ---- shared meta / helpers ----
 
-const PRIORITIES = [
-    { v: 0, label: 'None', color: '' },
-    { v: 1, label: 'Low', color: '#7ed6df' },
-    { v: 2, label: 'Med', color: '#ffbe76' },
-    { v: 3, label: 'High', color: '#ff7979' },
-]
-const priorityColor = (v: number) => PRIORITIES.find((p) => p.v === v)?.color || ''
 
 const RECURRENCES = ['', 'daily', 'weekly', 'monthly']
 
