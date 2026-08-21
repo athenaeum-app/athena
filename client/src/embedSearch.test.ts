@@ -68,6 +68,11 @@ describe('embedToken', () => {
         expect(embedToken('doc', 'd1')).toBe('::doc:d1::')
     })
 
+    it('writes an agenda as its scope, which is the one token that names no entity', () => {
+        expect(embedToken('agenda', 'all')).toBe('::agenda:all::')
+        expect(embedToken('agenda', 'tasks')).toBe('::agenda:tasks::')
+    })
+
     it('has a token for every registered kind', () => {
         for (const spec of EMBED_KINDS) {
             expect(embedToken(spec.kind, 'x')).toContain('x')

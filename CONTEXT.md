@@ -78,8 +78,8 @@ _Avoid_: backlog, inbox, undated pile
 
 **Deadline**:
 A card or a milestone with a due date on it. Deadlines belong to the project
-and are read in one place, so the Overview's agenda and the Tasks module's
-agenda list the same things in the same order. A dated card is a task in every
+and are read in one place, so the Overview's agenda, the Tasks module's agenda
+and an agenda embed list the same things in the same order. A dated card is a task in every
 sense the reader cares about, which is why the Tasks agenda carries it beside
 its own items; a shelved project's deadlines are not, which is why archived
 projects have none.

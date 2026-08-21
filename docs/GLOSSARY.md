@@ -76,7 +76,8 @@ cycle, either at midnight or 24 hours after each tick, and never deletes) or
 completed ones). Items carry a priority, one level of subtasks, and an optional
 link to a Moment; general-list items add a due date and recurrence. See
 [ADR-0013](adr/0013-server-synced-embeddable-modules.md).
-_Avoid_: task list, checklist (as a proper noun), agenda.
+_Avoid_: task list, checklist (as a proper noun), agenda (that is the view of
+what is due across every list and project, not one list).
 
 **Canvas**:
 An embeddable free-form board: an infinite pan/zoom surface holding freely
@@ -103,9 +104,12 @@ _Avoid_: link node (that is the URL node), card, embed node.
 
 **Embed**:
 An inline reference to another entity (a Moment, Todo list, Canvas, Project or
-Document), written as a token inside a Moment's or chat message's body and
-rendered as a Preview in read mode. Five kinds exist; each renders and behaves
-differently.
+Document) or to a view (the Agenda), written as a token inside a Moment's or
+chat message's body and rendered as a Preview in read mode. Six kinds exist;
+each renders and behaves differently. Every kind but the Agenda addresses one
+row by id; the Agenda's token carries a scope, because what it points at is a
+question rather than a row. See
+[ADR-0021](adr/0021-embeds-can-point-at-a-view.md).
 A Canvas text node runs the same pipeline, so the same tokens work there.
 _Avoid_: link, mention, transclusion, reference (as a proper noun). A moment
 Embed is still an Embed even though its token looks like a wiki-link.
@@ -135,6 +139,22 @@ clicking opens the canvas board.
 An Embed of a Project. Renders as a _compact_ Preview: a completion meter in the
 project's accent, an excerpt of the overview, and the open/done counts. Clicking
 opens the project's Hub.
+
+**Agenda**:
+Everything open with a due date on it, wherever it lives: dated Todo list items
+and the dated cards and milestones of every live Project, in one run sorted by
+date and then by priority, grouped under Overdue, Today, Tomorrow, This week
+and Later. It is a view, not a stored thing: nothing is filed on the Agenda,
+things simply have dates. The Tasks module draws it as a view of its own, the
+Projects overview draws the project half of it as a timeline, and it can be
+embedded.
+_Avoid_: schedule, calendar, planner, due list.
+
+**Agenda embed**:
+An Embed of the Agenda. Renders as a _live_ Preview: the same groups, capped
+with a count of what was left off, to-do rows tickable inline and project rows
+opening their project. Token: `::agenda::` for all of it, `::agenda:tasks::`
+or `::agenda:projects::` for one half.
 
 **Document embed**:
 An Embed of a project Document (see `CONTEXT.md` for the Projects language).

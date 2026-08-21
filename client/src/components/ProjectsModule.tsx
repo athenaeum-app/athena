@@ -43,6 +43,9 @@ import {
 import { loadUsers, userName } from '../users'
 import { Editor } from './Editor'
 import { BookcaseDrift } from './BookcaseDrift'
+// The agenda's date format, so a deadline reads the same here as it does on
+// the Tasks agenda and inside an agenda embed.
+import { formatDue as fmtDue } from '../agenda'
 import { prefs, setPref, MODAL_WIDTH_CLASS } from '../prefs'
 import { desktop } from '../desktop'
 import { Modal } from './Modal'
@@ -188,7 +191,6 @@ const startOfToday = () => {
     return d.getTime()
 }
 const dueMs = (iso?: string) => (iso ? new Date(iso).setHours(0, 0, 0, 0) : Infinity)
-const fmtDue = (iso: string) => new Intl.DateTimeFormat(navigator.language, { month: 'short', day: 'numeric' }).format(new Date(iso))
 // Documents are edited rather than scheduled, so their stamps carry the time of
 // day: "Mar 4" twice in a row says nothing about which draft is the later one.
 const fmtWhen = (iso: string) =>
@@ -2280,7 +2282,7 @@ const Hub: Component<{
                                             <Editor
                                                 chrome="body"
                                                 initialContent={props.project.overview}
-                                                placeholder="The project brief. Markdown; [[ embeds a moment, to-do, canvas, project or document; paste or drop images."
+                                                placeholder="The project brief. Markdown; [[ embeds a moment, to-do, canvas, project, document or your agenda; paste or drop images."
                                                 onChange={ovChange}
                                                 onSubmit={async () => ovDone()}
                                             />
@@ -4023,7 +4025,7 @@ const DocumentView: Component<
                                 <Editor
                                     chrome="body"
                                     initialContent={props.document.body}
-                                    placeholder="The document. Markdown; [[ embeds a moment, to-do, canvas, project or document; paste or drop images."
+                                    placeholder="The document. Markdown; [[ embeds a moment, to-do, canvas, project, document or your agenda; paste or drop images."
                                     onChange={(value) => props.onBodyChange(props.document.id, value)}
                                     onSubmit={async () => stopEditing()}
                                 />
@@ -4494,7 +4496,7 @@ const CardModal: Component<{
                             <Editor
                                 chrome="body"
                                 initialContent={props.card.body}
-                                placeholder="The card's body. Markdown; [[ embeds a moment, to-do, canvas, project or document; paste or drop images."
+                                placeholder="The card's body. Markdown; [[ embeds a moment, to-do, canvas, project, document or your agenda; paste or drop images."
                                 onChange={bodyChange}
                                 onSubmit={async () => {
                                     bodyFlush()

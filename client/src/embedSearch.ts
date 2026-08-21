@@ -126,6 +126,25 @@ export const EMBED_KINDS = [
                         }))
                 }),
     },
+    {
+        kind: 'agenda',
+        label: 'Agenda',
+        icon: 'event_upcoming',
+        hint: 'embed the agenda',
+        dialogTitle: 'Embed the agenda',
+        // The only kind whose second segment is a scope rather than an id: an
+        // agenda is a question about everything you own, not one row that can
+        // be pointed at (ADR-0021). The registry does not care, because a
+        // token is a string built from what the picker chose either way.
+        token: (scope: string) => `::agenda:${scope}::`,
+        // Fixed, and not fetched: these three are the agenda, so there is
+        // nothing to look up and nothing that can be missing.
+        load: async () => [
+            { id: 'all', title: 'Agenda: everything due', sub: 'Tasks and project deadlines together' },
+            { id: 'tasks', title: 'Agenda: tasks only', sub: 'Dated items from your to-do lists' },
+            { id: 'projects', title: 'Agenda: project work only', sub: 'Dated cards and milestones' },
+        ],
+    },
 ] as const satisfies readonly EmbedKindShape[]
 
 export type EmbedKind = (typeof EMBED_KINDS)[number]['kind']

@@ -1,7 +1,8 @@
 import { createSignal, createMemo, For, Show, onMount, type Component } from 'solid-js'
 import { createStore, produce, reconcile } from 'solid-js/store'
 import { api, type Project, type TodoList, type TodoItem, type TodoResetMode } from '../api'
-import { bucketByDue, dueMs, projectDeadlines, type ProjectDeadline } from '../projectAgenda'
+import { dueMs, projectDeadlines, type ProjectDeadline } from '../projectAgenda'
+import { agendaBuckets, formatDue, type AgendaRow } from '../agenda'
 import { useUI } from '../ui'
 import { Modal, PickerDialog } from './Modal'
 import { createListboxNav } from '../listboxNav'
@@ -71,7 +72,6 @@ const isoToDateInput = (iso?: string) => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 const dateInputToIso = (s: string) => (s ? new Date(`${s}T00:00:00`).toISOString() : '')
-const formatDue = (iso: string) => new Intl.DateTimeFormat(navigator.language, { month: 'short', day: 'numeric' }).format(new Date(iso))
 const isOverdue = (i: TodoItem) => !!i.due_at && !i.done && dueMs(i.due_at) < startOfToday()
 const isDueToday = (i: TodoItem) => !!i.due_at && dueMs(i.due_at) === startOfToday()
 
@@ -778,10 +778,6 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
 // on it, is work with a deadline attached like any other; leaving it out meant
 // the one screen that answers "what is due" only ever answered it for half of
 // what was due.
-type AgendaRow =
-    | { kind: 'task'; key: string; dueAt: string; priority: number; item: TodoItem; listTitle: string }
-    | { kind: 'project'; key: string; dueAt: string; priority: number; deadline: ProjectDeadline }
-
 const AgendaView: Component<{
     lists: TodoList[]
     deadlines: ProjectDeadline[]
@@ -791,31 +787,7 @@ const AgendaView: Component<{
     onOpenMoment?: (id: string) => void
     onOpenProject?: (id: string, tab?: 'board') => void
 }> = (props) => {
-    const grouped = createMemo(() => {
-        const q = props.search.trim().toLowerCase()
-        const titles = new Map(props.lists.map((l) => [l.id, l.title]))
-        const rows: AgendaRow[] = []
-        for (const l of props.lists) {
-            // Daily lists are excluded: their items carry no due date you can
-            // see or set, so any left over from before would show up here as
-            // rows with no explanation and no way to change them.
-            if (l.kind === 'daily') continue
-            for (const it of l.items) {
-                if (it.done || !it.due_at) continue
-                if (q && !it.text.toLowerCase().includes(q)) continue
-                rows.push({ kind: 'task', key: `task:${it.id}`, dueAt: it.due_at, priority: it.priority, item: it, listTitle: titles.get(it.list_id) ?? '' })
-            }
-        }
-        for (const d of props.deadlines) {
-            // The project and milestone names are searched alongside the title,
-            // so "kitchen" finds a project's deadlines without knowing what any
-            // of its cards are called.
-            if (q && ![d.title, d.projectTitle, d.milestoneTitle ?? ''].some((t) => t.toLowerCase().includes(q))) continue
-            rows.push({ kind: 'project', key: `${d.kind}:${d.id}`, dueAt: d.dueAt, priority: d.priority, deadline: d })
-        }
-        rows.sort((a, b) => dueMs(a.dueAt) - dueMs(b.dueAt) || b.priority - a.priority)
-        return bucketByDue(rows, (r) => r.dueAt)
-    })
+    const grouped = createMemo(() => agendaBuckets(props.lists, props.deadlines, { search: props.search }))
 
     return (
         <div class="h-full overflow-y-auto p-5">

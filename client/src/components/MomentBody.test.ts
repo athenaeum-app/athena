@@ -6,6 +6,11 @@ const shape = (content: string, inline = true) =>
         p.type === 'md' ? `md:${p.text.trim()}` : p.type === 'links' ? `links:${p.urls.join(',')}` : `${p.kind}`,
     )
 
+// The agenda is the one embed whose second segment is a scope rather than an
+// id, so its tests read what the scope came out as.
+const scopes = (content: string) =>
+    parse(content, false).flatMap((p) => (p.type === 'embed' && p.kind === 'agenda' ? [p.id] : []))
+
 describe('parse, inline link previews off', () => {
     it('leaves urls in the markdown', () => {
         expect(shape('see https://example.com now', false)).toEqual(['md:see https://example.com now'])
@@ -36,6 +41,20 @@ describe('parse, inline link previews off', () => {
 
     it('leaves a bracketed word too short to be an id as written', () => {
         expect(shape('a [[note]] b', false)).toEqual(['md:a [[note]] b'])
+    })
+
+    it('splits on an agenda token, which carries a scope and not an id', () => {
+        expect(shape('today: ::agenda:: onwards', false)).toEqual(['md:today:', 'agenda', 'md:onwards'])
+        expect(scopes('::agenda::')).toEqual(['all'])
+        expect(scopes('::agenda:all:: ::agenda:tasks:: ::agenda:projects::')).toEqual(['all', 'tasks', 'projects'])
+    })
+
+    it('leaves an agenda scope nobody has as written, rather than drawing an empty one', () => {
+        expect(shape('::agenda:everything::', false)).toEqual(['md:::agenda:everything::'])
+    })
+
+    it('interleaves an agenda with the entity kinds in document order', () => {
+        expect(shape('::doc:abc123:: then ::agenda:tasks::', false)).toEqual(['doc', 'md:then', 'agenda'])
     })
 })
 
@@ -157,6 +176,10 @@ describe('stripEmbedTokens', () => {
         expect(stripEmbedTokens('a ::todo:abc123:: ::canvas:abc123:: ::project:abc123:: ::doc:abc123:: [[abc123]] b')).toBe(
             'a      b',
         )
+    })
+
+    it('drops an agenda token, with or without a scope on it', () => {
+        expect(stripEmbedTokens('a ::agenda:: b ::agenda:tasks:: c')).toBe('a  b  c')
     })
 
     it('drops a legacy moment token too', () => {

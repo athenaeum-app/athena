@@ -17,3 +17,12 @@ export function notifyTodoChanged(listId: string) {
 export function todoVersion(listId: string): number {
     return versions()[listId] ?? 0
 }
+
+// Every list at once, for a reader that draws items from more than one of them
+// (the agenda embed). It cannot name the lists it depends on ahead of time, so
+// any change anywhere is a change to what it shows.
+export function todoRevision(): number {
+    let total = 0
+    for (const count of Object.values(versions())) total += count
+    return total
+}
