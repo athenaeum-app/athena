@@ -3642,6 +3642,16 @@ const DocumentView: Component<
     const editable = () => props.canManage && props.document.status === 'draft'
     const blocks = () => documentBlocks(props.document.body || '')
     let readEl: HTMLDivElement | undefined
+    // The editor's own box, which is what "outside the text" is measured
+    // against. The column around it is not: the padding under a short editor
+    // is as much outside the writing as the header is.
+    let editorEl: HTMLDivElement | undefined
+    // A press away finishes the writing, and the click that completes that
+    // press lands on the read view a moment later. It was aimed at leaving,
+    // not at the paragraph underneath, so it must not open the editor again.
+    // Recomputed on every press and consumed by the click, so it cannot go
+    // stale in either direction.
+    let leavingOnClick = false
 
     // Embeds render their own headings inside a card; those are not this
     // document's outline, so they are skipped on the way to the nth one.
@@ -3672,6 +3682,10 @@ const DocumentView: Component<
     // click that finished a selection leaves the selection alone rather than
     // swapping the text out from under it.
     const startEditing = (e: MouseEvent) => {
+        if (leavingOnClick) {
+            leavingOnClick = false
+            return
+        }
         if (!editable() || editing()) return
         const target = e.target as HTMLElement | null
         if (target?.closest('a, button, input, textarea, select, [role="button"], [data-embed-card]')) return
@@ -3821,12 +3835,14 @@ const DocumentView: Component<
             data-testid="document-view"
             class="flex min-h-0 flex-1 flex-col"
             style={{ 'background-color': 'var(--theme-bg)' }}
-            // A press on anything outside the text finishes the writing: the
-            // header, the outline rail, the footer. Bound to this root rather
-            // than to the window so the editor's own portalled menus (the
-            // embed picker, the slash dialog) are never mistaken for outside.
+            // A press on anything outside the editor finishes the writing:
+            // the header, the outline rail, the footer, the room around the
+            // text. Bound to this root rather than to the window so the
+            // editor's own portalled menus (the embed picker, the slash
+            // dialog) are never mistaken for a press away.
             onPointerDown={(e) => {
-                if (editing() && !readEl?.contains(e.target as Node)) stopEditing()
+                leavingOnClick = editing() && !editorEl?.contains(e.target as Node)
+                if (leavingOnClick) stopEditing()
             }}
         >
             <div class="border-element-accent flex flex-wrap items-center gap-x-2 gap-y-2 border-b px-4 py-3 sm:px-5">
@@ -4003,13 +4019,15 @@ const DocumentView: Component<
                     <Show
                         when={!editing()}
                         fallback={
-                            <Editor
-                                chrome="body"
-                                initialContent={props.document.body}
-                                placeholder="The document. Markdown; [[ embeds a moment, to-do, canvas, project or document; paste or drop images."
-                                onChange={(value) => props.onBodyChange(props.document.id, value)}
-                                onSubmit={async () => stopEditing()}
-                            />
+                            <div ref={editorEl} data-testid="document-editor">
+                                <Editor
+                                    chrome="body"
+                                    initialContent={props.document.body}
+                                    placeholder="The document. Markdown; [[ embeds a moment, to-do, canvas, project or document; paste or drop images."
+                                    onChange={(value) => props.onBodyChange(props.document.id, value)}
+                                    onSubmit={async () => stopEditing()}
+                                />
+                            </div>
                         }
                     >
                         <Show

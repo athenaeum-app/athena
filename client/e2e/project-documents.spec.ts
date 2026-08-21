@@ -105,6 +105,13 @@ for (const shell of [
             await expect(editor).toHaveCount(0)
             await expect(page.getByRole('heading', { name: 'Why SQLite' })).toBeVisible()
 
+            // So does a press outside the editor. The room around the text
+            // counts as outside it, not as part of the writing.
+            await view.getByTestId('document-body').click()
+            await expect(editor).toBeVisible()
+            await view.getByTestId('document-body').click({ position: { x: 4, y: 4 } })
+            await expect(editor).toHaveCount(0)
+
             // The document tools: a heading in the outline, and a size in the
             // footer. The outline is a rail on the desktop and behind the toc
             // button on the phone.
