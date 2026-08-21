@@ -1,8 +1,24 @@
 import { createSignal, createMemo, For, Show, onMount, type Component } from 'solid-js'
 import { createStore, produce, reconcile } from 'solid-js/store'
 import { api, type Project, type TodoList, type TodoItem, type TodoResetMode } from '../api'
-import { dueMs, projectDeadlines, type ProjectDeadline } from '../projectAgenda'
-import { agendaBuckets, formatDue, type AgendaRow } from '../agenda'
+import { dueMs } from '../projectAgenda'
+import { AGENDA_SCOPES, formatDue, type AgendaScope } from '../agenda'
+import {
+    datedRows,
+    plannerFromLists,
+    plannerFromProjects,
+    undatedRows,
+    type PlannerRow,
+} from '../planner'
+import {
+    PlannerBody,
+    PlannerTray,
+    PlannerViewSwitch,
+    createPlannerDrag,
+    edgeAutoScroll,
+    isoAtNoon,
+    type PlannerHandlers,
+} from './Planner'
 import { useUI } from '../ui'
 import { Modal, PickerDialog } from './Modal'
 import { createListboxNav } from '../listboxNav'
@@ -85,18 +101,77 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
     const [search, setSearch] = createSignal('')
     const [doneFilter, setDoneFilter] = createSignal<'all' | 'active' | 'done'>('all')
     const [sortMode, setSortMode] = createSignal<'manual' | 'due' | 'priority'>('manual')
-    // Board vs. agenda: the agenda pulls due-dated items across every
-    // list, and every live project, onto one deadline-ordered timeline.
-    const [boardView, setBoardView] = createSignal<'board' | 'agenda'>('board')
-    // Projects are read for their deadlines alone, and only the agenda shows
-    // them, so a failure here leaves the board exactly as it was.
+    // Board vs. planner: the planner draws every list and every live project
+    // on one run of days, a month, or a plain list, with the undated work in a
+    // tray beneath it. Not called an agenda any more, because an agenda is
+    // what is due and half of what is here has no date yet.
+    const [boardView, setBoardView] = createSignal<'board' | 'planner'>('board')
+    // Projects are read for their outstanding work alone, and only the planner
+    // shows them, so a failure here leaves the board exactly as it was.
     const [projects, setProjects] = createSignal<Project[]>([])
-    const deadlines = createMemo(() => projectDeadlines(projects()))
 
-    // Toggle an item found by its list_id (used by the agenda, which is flat).
+    // Toggle an item found by its list_id (used by the planner, which is flat).
     const toggleById = (item: TodoItem) => {
         const list = lists.find((l) => l.id === item.list_id)
         if (list) toggleItem(list, item)
+    }
+
+    // --- what the planner does to a row ---
+    //
+    // One surface, two modules behind it, so every handler dispatches on where
+    // the row came from. A task is written through the store the board reads;
+    // a project row is patched and folded back into the projects the planner
+    // was handed, which is a read-only copy here rather than the Projects
+    // module's own state.
+
+    const patchProjectRow = (row: PlannerRow, fields: { due_at?: string; done?: boolean }) => {
+        const call = row.kind === 'milestone' ? api.updateProjectMilestone(row.id, fields) : api.updateProjectCard(row.id, fields)
+        setProjects((all) =>
+            all.map((p) =>
+                p.id !== row.homeId
+                    ? p
+                    : {
+                          ...p,
+                          cards: p.cards.map((c) => (c.id === row.id ? { ...c, ...fields } : c)),
+                          milestones: p.milestones.map((m) => (m.id === row.id ? { ...m, ...fields } : m)),
+                      },
+            ),
+        )
+        call.catch((err) => {
+            console.error('Failed to update project work from the planner:', err)
+            ui.toast('Could not change that.', 'error')
+        })
+    }
+
+    // A date given by dropping a row on a day. Noon rather than midnight, so
+    // the day it lands on is the day it was dropped on wherever it is read;
+    // null takes the date off, which is what the tray means.
+    const scheduleRow = (row: PlannerRow, at: number | null) => {
+        const iso = at === null ? '' : isoAtNoon(at)
+        if (row.source !== 'task') return patchProjectRow(row, { due_at: iso })
+        withItem(row.homeId, row.id, (i) => (i.due_at = iso || undefined))
+        api.updateTodoItem(row.id, { due_at: iso }).catch((err) => {
+            console.error('Failed to date a task from the planner:', err)
+            ui.toast('Could not change that date.', 'error')
+            void load()
+        })
+    }
+
+    // One tick rule: work is finished wherever it is listed. This is where the
+    // agenda used to refuse a project row while the Projects overview allowed
+    // it, which is what having two of these screens bought.
+    const completeRow = (row: PlannerRow) => {
+        if (row.source !== 'task') return patchProjectRow(row, { done: true })
+        const list = lists.find((l) => l.id === row.homeId)
+        const item = list?.items.find((i) => i.id === row.id)
+        if (list && item) void toggleItem(list, item)
+    }
+
+    // A task's home is a list on the board behind this view; a project row
+    // opens its project, which is a module away.
+    const openRow = (row: PlannerRow) => {
+        if (row.source === 'task') setBoardView('board')
+        else props.onOpenProject?.(row.homeId, 'board')
     }
 
     // Moment picker (link a moment to a task).
@@ -191,20 +266,20 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
     }
 
     // Projects arrive whole (every card, milestone and document in the
-    // library), so they are fetched when the agenda is first opened rather
+    // library), so they are fetched when the planner is first opened rather
     // than on mount: a board that never shows a deadline should not pay for
     // one. Read access needs no permission of its own, since a project you can
     // open is a project whose deadlines are yours to see.
     let projectsRequested = false
-    const showAgenda = async () => {
-        setBoardView('agenda')
+    const showPlanner = async () => {
+        setBoardView('planner')
         if (projectsRequested) return
         projectsRequested = true
         try {
             setProjects(await api.listProjects())
         } catch (err) {
-            console.error('Failed to load projects for the agenda:', err)
-            // Left unset so opening the agenda again tries once more; the
+            console.error('Failed to load projects for the planner:', err)
+            // Left unset so opening the planner again tries once more; the
             // to-do half of it works either way.
             projectsRequested = false
         }
@@ -501,13 +576,13 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                                 Board
                             </button>
                             <button
-                                onClick={() => void showAgenda()}
+                                onClick={() => void showPlanner()}
                                 class="flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors"
-                                classList={{ 'bg-highlight-strongest text-white': boardView() === 'agenda', 'text-sub hover:text-main': boardView() !== 'agenda' }}
-                                title="Agenda view"
+                                classList={{ 'bg-highlight-strongest text-white': boardView() === 'planner', 'text-sub hover:text-main': boardView() !== 'planner' }}
+                                title="Planner view"
                             >
                                 <span class="material-symbols-outlined text-sm">calendar_month</span>
-                                Agenda
+                                Planner
                             </button>
                         </div>
                         <div class="relative">
@@ -596,14 +671,15 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                             <Show
                                 when={boardView() === 'board'}
                                 fallback={
-                                    <AgendaView
+                                    <TasksPlanner
                                         lists={lists}
-                                        deadlines={deadlines()}
+                                        projects={projects()}
                                         search={search()}
                                         canManage={props.canManage}
-                                        onToggle={toggleById}
+                                        onSchedule={scheduleRow}
+                                        onComplete={completeRow}
+                                        onOpen={openRow}
                                         onOpenMoment={props.onOpenMoment}
-                                        onOpenProject={props.onOpenProject}
                                     />
                                 }
                             >
@@ -767,143 +843,119 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
     )
 }
 
-// --- agenda view ---
-// A cross-list timeline of everything open and due-dated, bucketed by deadline
-// window. Read-mostly: you can tick a task off (which drops it from the
-// agenda) or jump to its linked moment.
+// --- the planner ---
+// The Tasks module's second view, and the same surface the Projects overview
+// draws: a fortnight of days, a month to drag onto, a plain list, and the tray
+// of everything with no date yet.
 //
-// It covers the Projects module too. A dated card, or a milestone with a date
-// on it, is work with a deadline attached like any other; leaving it out meant
-// the one screen that answers "what is due" only ever answered it for half of
-// what was due.
-const AgendaView: Component<{
+// It carries a scope, because a chore and a milestone are the same question to
+// whoever is looking at a Tuesday. Everything is the default: the reason to
+// open this is to see the week, not one module's share of it.
+const SCOPE_LABELS: Record<AgendaScope, string> = {
+    all: 'Everything',
+    tasks: 'Tasks',
+    projects: 'Projects',
+}
+
+const TasksPlanner: Component<{
     lists: TodoList[]
-    deadlines: ProjectDeadline[]
+    projects: Project[]
     search: string
     canManage: boolean
-    onToggle: (item: TodoItem) => void
+    onSchedule: (row: PlannerRow, at: number | null) => void
+    onComplete: (row: PlannerRow) => void
+    onOpen: (row: PlannerRow) => void
     onOpenMoment?: (id: string) => void
-    onOpenProject?: (id: string, tab?: 'board') => void
 }> = (props) => {
-    const grouped = createMemo(() => agendaBuckets(props.lists, props.deadlines, { search: props.search }))
+    const scope = () => prefs().tasksPlannerScope
+    const view = () => prefs().tasksPlannerView
+    const rows = createMemo(() => {
+        const needle = props.search.trim().toLowerCase()
+        const all = [
+            ...(scope() === 'projects' ? [] : plannerFromLists(props.lists)),
+            ...(scope() === 'tasks' ? [] : plannerFromProjects(props.projects)),
+        ]
+        // The board's search box narrows the planner too, against the words a
+        // row actually shows.
+        return needle
+            ? all.filter((row) => `${row.title} ${row.homeTitle} ${row.groupTitle ?? ''}`.toLowerCase().includes(needle))
+            : all
+    })
+    const drag = createPlannerDrag({ enabled: () => props.canManage, schedule: props.onSchedule })
+    const handlers = (): PlannerHandlers => ({
+        drag,
+        onOpen: props.onOpen,
+        onComplete: props.canManage ? props.onComplete : undefined,
+        onOpenMoment: props.onOpenMoment,
+        openTitle: (row) => (row.source === 'task' ? 'Open the list it is on' : `Open ${row.homeTitle} on the board`),
+    })
+    // The screen is the scroller, so a drag held near its top or bottom walks
+    // the run of days rather than stopping at the fold.
+    const pageScroll = edgeAutoScroll('y')
 
     return (
-        <div class="h-full overflow-y-auto p-5">
-            <Show
-                when={grouped().length > 0}
-                fallback={
-                    <div class="flex h-full flex-col items-center justify-center gap-2 text-center">
-                        <span class="material-symbols-outlined text-sub/40 text-4xl">event_available</span>
-                        <p class="text-sub text-sm">Nothing scheduled. Give a task or a project card a due date to see it here.</p>
-                    </div>
-                }
-            >
-                <div class="mx-auto flex max-w-2xl flex-col gap-5">
-                    <For each={grouped()}>
-                        {(bucket) => (
-                            <div>
-                                <h3 class="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
-                                    <span
-                                        classList={{
-                                            'text-danger': bucket.key === 'overdue',
-                                            'text-highlight': bucket.key === 'today',
-                                            'text-sub': bucket.key !== 'overdue' && bucket.key !== 'today',
-                                        }}
-                                    >
-                                        {bucket.label}
-                                    </span>
-                                    <span class="bg-element-accent text-sub rounded-full px-1.5 text-[10px]">{bucket.rows.length}</span>
-                                </h3>
-                                <div class="flex flex-col gap-1.5">
-                                    <For each={bucket.rows}>
-                                        {(row) => (
-                                            <Show
-                                                when={row.kind === 'task' ? row : null}
-                                                fallback={<ProjectAgendaRow row={row as Extract<AgendaRow, { kind: 'project' }>} overdue={bucket.key === 'overdue'} onOpen={props.onOpenProject} />}
-                                            >
-                                                {(taskRow) => (
-                                                    <div
-                                                        class="group bg-element-matte border-element-accent flex items-center gap-2.5 rounded-md border p-2.5"
-                                                        style={priorityColor(taskRow().priority) ? { 'border-left': `3px solid ${priorityColor(taskRow().priority)}` } : {}}
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={taskRow().item.done}
-                                                            disabled={!props.canManage}
-                                                            onChange={() => props.onToggle(taskRow().item)}
-                                                            class="h-4 w-4 shrink-0"
-                                                        />
-                                                        <div class="min-w-0 flex-1">
-                                                            <p class="text-main truncate text-sm">{taskRow().item.text}</p>
-                                                            <p class="text-sub/70 truncate text-[11px]">{taskRow().listTitle}</p>
-                                                        </div>
-                                                        <Show when={taskRow().item.recurrence}>
-                                                            <span class="material-symbols-outlined text-sub/60 text-sm" title={`Repeats ${taskRow().item.recurrence}`}>
-                                                                repeat
-                                                            </span>
-                                                        </Show>
-                                                        <Show when={taskRow().item.moment_id}>
-                                                            <button onClick={() => props.onOpenMoment?.(taskRow().item.moment_id!)} class="text-sub hover:text-main shrink-0 hover:cursor-pointer" title="Open linked moment">
-                                                                <span class="material-symbols-outlined text-sm">bookmark</span>
-                                                            </button>
-                                                        </Show>
-                                                        <span
-                                                            class="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
-                                                            classList={{ 'bg-danger/20 text-danger': isOverdue(taskRow().item), 'bg-element-accent text-sub': !isOverdue(taskRow().item) }}
-                                                        >
-                                                            {formatDue(taskRow().item.due_at!)}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </Show>
-                                        )}
-                                    </For>
-                                </div>
-                            </div>
+        <div
+            data-testid="tasks-planner"
+            ref={pageScroll.ref}
+            onDragOver={pageScroll.onDragOver}
+            onDragLeave={pageScroll.stop}
+            onDrop={pageScroll.stop}
+            onDragEnd={pageScroll.stop}
+            class="h-full overflow-y-auto p-5"
+        >
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                {/* Which half of what is due, in the same three scopes an
+                    agenda embed offers (ADR-0021). */}
+                <div data-testid="planner-scope" class="border-element-accent flex shrink-0 overflow-hidden rounded-md border">
+                    <For each={AGENDA_SCOPES}>
+                        {(option) => (
+                            <button
+                                onClick={() => setPref('tasksPlannerScope', option)}
+                                class="px-2.5 py-1 text-xs transition-colors hover:cursor-pointer"
+                                classList={{
+                                    'bg-highlight-strongest text-white': scope() === option,
+                                    'text-sub hover:text-main': scope() !== option,
+                                }}
+                                title={`Show ${SCOPE_LABELS[option].toLowerCase()}`}
+                            >
+                                {SCOPE_LABELS[option]}
+                            </button>
                         )}
                     </For>
                 </div>
+                <PlannerViewSwitch
+                    view={view()}
+                    setView={(v) => setPref('tasksPlannerView', v)}
+                    vertical={prefs().tasksPlannerVertical}
+                    setVertical={(v) => setPref('tasksPlannerVertical', v)}
+                />
+            </div>
+
+            <PlannerBody
+                rows={datedRows(rows())}
+                view={view()}
+                vertical={prefs().tasksPlannerVertical}
+                handlers={handlers()}
+                emptyNote="Nothing dated. Give a task or a project card a due date to see it here."
+            />
+
+            {/* The tray is the point of the whole thing here: a chore that
+                belongs to no project has never had anywhere to be planned. It
+                goes with the surfaces you can drop onto, not with the list,
+                where a bucket is a range of days and a drop would have to
+                guess which. */}
+            <Show when={view() !== 'list'}>
+                <PlannerTray
+                    rows={undatedRows(rows(), prefs().tasksPlannerSort)}
+                    sort={prefs().tasksPlannerSort}
+                    setSort={(sort) => setPref('tasksPlannerSort', sort)}
+                    homeWord={scope() === 'projects' ? 'Project' : scope() === 'tasks' ? 'List' : 'Where'}
+                    handlers={handlers()}
+                />
             </Show>
         </div>
     )
 }
-
-// A project's card or milestone on the agenda. No checkbox: finishing project
-// work happens on the board, where the rest of its state lives, so the row is
-// a way in rather than a place to tick something off.
-const ProjectAgendaRow: Component<{ row: Extract<AgendaRow, { kind: 'project' }>; overdue: boolean; onOpen?: (id: string, tab?: 'board') => void }> = (props) => {
-    const deadline = () => props.row.deadline
-    return (
-        <button
-            type="button"
-            disabled={!props.onOpen}
-            onClick={() => props.onOpen?.(deadline().projectId, 'board')}
-            class="group bg-element-matte border-element-accent enabled:hover:border-highlight flex items-center gap-2.5 rounded-md border p-2.5 text-left transition-colors enabled:hover:cursor-pointer"
-            style={{ 'border-left': `3px solid ${priorityColor(deadline().priority) || deadline().accent}` }}
-            title={props.onOpen ? `Open ${deadline().projectTitle} on the board` : undefined}
-        >
-            <span class="material-symbols-outlined shrink-0 text-base" style={{ color: deadline().accent }}>
-                {deadline().kind === 'milestone' ? 'flag' : deadline().icon}
-            </span>
-            <div class="min-w-0 flex-1">
-                <p class="text-main truncate text-sm">{deadline().title}</p>
-                <p class="text-sub/70 truncate text-[11px]">
-                    {deadline().projectTitle}
-                    <Show when={deadline().kind === 'milestone'} fallback={<Show when={deadline().milestoneTitle}>{` · ${deadline().milestoneTitle}`}</Show>}>
-                        {` · milestone · ${deadline().done}/${deadline().total} done`}
-                    </Show>
-                </p>
-            </div>
-            <span
-                class="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
-                classList={{ 'bg-danger/20 text-danger': props.overdue, 'bg-element-accent text-sub': !props.overdue }}
-            >
-                {formatDue(deadline().dueAt)}
-            </span>
-        </button>
-    )
-}
-
 // --- single list column ---
 
 interface ListColumnProps {

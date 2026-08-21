@@ -107,6 +107,9 @@ export interface PlannerHandlers {
     // The host's own wording for a row's title attribute. Opening a card, a
     // board and a to-do list are three different sentences.
     openTitle?: (row: PlannerRow) => string
+    // A row that names a moment offers a way into it, where the host can open
+    // one.
+    onOpenMoment?: (id: string) => void
 }
 
 const defaultOpenTitle = (row: PlannerRow) => (isContainer(row) ? `Open ${row.homeTitle}` : `Open "${row.title}"`)
@@ -240,6 +243,28 @@ const Row: Component<{
                     </div>
                 </Show>
             </div>
+            {/* Two marks that belong to the row rather than to the view:
+                that it comes back around, and that something is written about
+                it elsewhere. */}
+            <Show when={row().repeats}>
+                <span class="material-symbols-outlined text-sub/60 mt-px shrink-0 text-[15px]" title={`Repeats ${row().repeats}`}>
+                    repeat
+                </span>
+            </Show>
+            <Show when={row().momentId && props.handlers.onOpenMoment}>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        props.handlers.onOpenMoment!(row().momentId!)
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    draggable={false}
+                    title="Open the linked moment"
+                    class="text-sub/70 hover:text-main mt-px shrink-0 transition-colors hover:cursor-pointer"
+                >
+                    <span class="material-symbols-outlined text-[15px]">bookmark</span>
+                </button>
+            </Show>
             <Show when={priorityIcon(row().priority)}>
                 <span
                     class="material-symbols-outlined mt-px shrink-0 text-[17px]"

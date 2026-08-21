@@ -12,6 +12,7 @@ import type { TagColorPreset } from './tagColors'
 import { syncKey } from './appearance'
 import { AGENDA_VIEWS, type AgendaView } from './projectAgenda'
 import { isPlannerSort, type PlannerSort } from './planner'
+import { isAgendaScope, type AgendaScope } from './agenda'
 
 // Rich-menu widgets (§ desktop Menu revamp). Order in MENU_WIDGETS is the
 // default display order; `label`/`blurb` drive the Widgets settings category.
@@ -188,6 +189,21 @@ export interface Prefs {
     // brings to that pile tends to be the same question most days, so it is
     // remembered rather than asked again.
     projectsUnscheduledSort: PlannerSort
+    // The Tasks module's own planner. Its own settings rather than the
+    // Projects overview's: one is a portfolio screen and the other is where
+    // the shopping lives, and a reader wants them arranged differently.
+    //
+    // The timeline opens it, not the month, for the phone's sake: seven
+    // columns in 390 pixels is too narrow to read a title in, and dropping is
+    // HTML5 drag and drop, which a finger cannot do at all. The month is a
+    // tap away and is where a date months out gets set, on a pointer.
+    tasksPlannerView: AgendaView
+    tasksPlannerVertical: boolean
+    tasksPlannerSort: PlannerSort
+    // Which half of what is due the Tasks planner draws. Everything by
+    // default: the reason to open it is to see the week, not one module's
+    // share of it.
+    tasksPlannerScope: AgendaScope
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -224,6 +240,10 @@ export const DEFAULT_PREFS: Prefs = {
     projectsAgendaView: 'timeline',
     projectsAgendaVertical: false,
     projectsUnscheduledSort: 'home',
+    tasksPlannerView: 'timeline',
+    tasksPlannerVertical: false,
+    tasksPlannerSort: 'home',
+    tasksPlannerScope: 'all',
     todoWidth: 'large',
     projectCardWidth: 'medium',
     canvasWidth: 'wide',
@@ -305,6 +325,15 @@ function load(): Prefs {
         }
         if (!isPlannerSort(merged.projectsUnscheduledSort)) {
             merged.projectsUnscheduledSort = DEFAULT_PREFS.projectsUnscheduledSort
+        }
+        if (!isPlannerSort(merged.tasksPlannerSort)) {
+            merged.tasksPlannerSort = DEFAULT_PREFS.tasksPlannerSort
+        }
+        if (!isAgendaScope(merged.tasksPlannerScope)) {
+            merged.tasksPlannerScope = DEFAULT_PREFS.tasksPlannerScope
+        }
+        if (!AGENDA_VIEWS.some((v) => v.v === merged.tasksPlannerView)) {
+            merged.tasksPlannerView = DEFAULT_PREFS.tasksPlannerView
         }
         // Carried forward from the boolean this replaced: a reader who turned
         // the timeline off asked for the list, and should still have it.

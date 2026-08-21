@@ -1,4 +1,4 @@
-import { type Project } from './api'
+import { type Project, type TodoItem, type TodoList } from './api'
 import { dueMs, projectWork, type ProjectWorkItem } from './projectAgenda'
 
 // The planner: the surface that answers "when is this happening", and the one
@@ -42,6 +42,11 @@ export interface PlannerRow {
     // How far a container has got.
     done?: number
     total?: number
+    // Two marks a row may carry. Both are general relations rather than task
+    // trivia: something that comes back around, and something written about
+    // elsewhere. Only the Tasks side sets them today.
+    repeats?: string
+    momentId?: string
 }
 
 // A row with a day on it, which is what every view but the tray draws.
@@ -73,6 +78,51 @@ const fromWorkItem = (item: ProjectWorkItem): PlannerRow => ({
 // planner's to give a second time.
 export function plannerFromProjects(projects: Project[]): PlannerRow[] {
     return projectWork(projects).map(fromWorkItem)
+}
+
+// A list has no colour of its own, so it is given one from its name: the same
+// name always gets the same colour, which is what makes a column of several
+// lists readable at a glance. The palette is the projects' own, so a day
+// holding both halves looks like one app rather than two.
+const LIST_ACCENTS = ['#67b8c7', '#c9a35c', '#9d8fd6', '#c98fae', '#8fbf8f', '#6fae93', '#bf8f8f', '#8f9fbf']
+
+export function listAccent(title: string): string {
+    let hash = 0
+    for (const char of title) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+    return LIST_ACCENTS[hash % LIST_ACCENTS.length]
+}
+
+const fromTodoItem = (item: TodoItem, list: TodoList): PlannerRow => ({
+    id: item.id,
+    kind: 'task',
+    source: 'task',
+    title: item.text,
+    dueAt: item.due_at,
+    priority: item.priority,
+    homeId: list.id,
+    homeTitle: list.title || 'Untitled list',
+    accent: listAccent(list.title || ''),
+    icon: 'task_alt',
+    repeats: item.recurrence || undefined,
+    momentId: item.moment_id || undefined,
+})
+
+// Everything outstanding on the to-do lists.
+//
+// Daily lists are left out, the same exclusion the agenda makes and for the
+// same reason: their items carry no due date you can see or set, so they would
+// arrive as rows nothing can be done to, in a tray whose whole purpose is
+// giving something a date.
+export function plannerFromLists(lists: TodoList[]): PlannerRow[] {
+    const out: PlannerRow[] = []
+    for (const list of lists) {
+        if (list.kind === 'daily') continue
+        for (const item of list.items || []) {
+            if (item.done) continue
+            out.push(fromTodoItem(item, list))
+        }
+    }
+    return out
 }
 
 // The dated half, soonest first, with the higher priority ahead inside a day.

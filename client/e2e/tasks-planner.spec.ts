@@ -1,0 +1,166 @@
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test'
+
+// The Tasks module's planner (issue #85): the same surface the Projects
+// overview draws, so a chore that belongs to no project can finally be given a
+// day. It carries a scope, because a chore and a milestone are the same
+// question to whoever is looking at a Tuesday.
+
+async function post<T>(req: APIRequestContext, url: string, data: unknown): Promise<T> {
+    const res = await req.post(url, { data })
+    if (!res.ok()) throw new Error(`POST ${url} -> ${res.status()} ${await res.text()}`)
+    return (await res.json()) as T
+}
+
+async function patch(req: APIRequestContext, url: string, data: unknown): Promise<void> {
+    const res = await req.patch(url, { data })
+    if (!res.ok()) throw new Error(`PATCH ${url} -> ${res.status()} ${await res.text()}`)
+}
+
+async function signIn(page: Page): Promise<void> {
+    const setup = (await (await page.request.get('/api/v1/setup')).json()) as { needs_setup: boolean }
+    const [path, data] = setup.needs_setup
+        ? ['/api/v1/auth/register', { username: 'owner', password: 'password123', invite_id: '', stay_logged_in: true }]
+        : ['/api/v1/auth/login', { username: 'owner', password: 'password123', stay_logged_in: true }]
+    const res = await page.request.post(path, { data })
+    if (!res.ok()) throw new Error(`POST ${path} -> ${res.status()} ${await res.text()}`)
+}
+
+const LIST = 'House'
+const CHORE = 'Descale the kettle'
+const UNDATED = 'Book the chimney sweep'
+const DAILY_ITEM = 'Take the vitamins'
+const PROJECT = 'The reading room'
+const CARD = 'Plane the door'
+
+// Idempotent: the throwaway database is wiped once per run, not per test.
+async function seed(page: Page) {
+    const req = page.request
+    const lists = (await (await req.get('/api/v1/todos')).json()) as { title: string }[] | null
+    if (lists?.some((l) => l.title === LIST)) return
+
+    const today = new Date()
+    today.setHours(12, 0, 0, 0)
+
+    const list = await post<{ id: string }>(req, '/api/v1/todos', { title: LIST, kind: 'general' })
+    const dated = await post<{ id: string }>(req, `/api/v1/todos/${list.id}/items`, { text: CHORE })
+    await patch(req, `/api/v1/todo-items/${dated.id}`, { due_at: today.toISOString(), priority: 3 })
+    await post(req, `/api/v1/todos/${list.id}/items`, { text: UNDATED })
+
+    // A daily list, which the planner leaves out entirely: its items carry no
+    // date you can see or set, so a tray offering to schedule one would be
+    // offering something that cannot be done.
+    const daily = await post<{ id: string }>(req, '/api/v1/todos', { title: 'Every day', kind: 'daily' })
+    await post(req, `/api/v1/todos/${daily.id}/items`, { text: DAILY_ITEM })
+
+    const project = await post<{ id: string }>(req, '/api/v1/projects', { title: PROJECT })
+    const milestone = await post<{ id: string }>(req, `/api/v1/projects/${project.id}/milestones`, { title: 'Shelving' })
+    const cards = await post<{ id: string }[]>(req, `/api/v1/projects/${project.id}/cards`, {
+        milestone_id: milestone.id,
+        titles: [CARD],
+    })
+    await patch(req, `/api/v1/project-cards/${cards[0].id}`, { due_at: today.toISOString() })
+}
+
+const planner = (page: Page) => page.getByTestId('tasks-planner')
+const scope = (page: Page, name: string) => page.getByTestId('planner-scope').getByText(name, { exact: true })
+
+async function openPlanner(page: Page, mobile: boolean) {
+    await page.goto('/')
+    if (mobile) await page.getByRole('button', { name: 'More' }).click()
+    await page.getByRole('button', { name: 'Todos' }).first().click()
+    await page.getByRole('button', { name: 'Planner' }).first().click()
+    await expect(planner(page)).toBeVisible()
+}
+
+for (const [name, viewport, mobile] of [
+    ['desktop', { width: 1440, height: 900 }, false],
+    ['mobile', { width: 390, height: 844 }, true],
+] as const) {
+    test.describe(`the tasks planner (${name})`, () => {
+        test.use({ viewport, hasTouch: mobile })
+
+        test('draws both halves of what is due, and scopes to either', async ({ page }) => {
+            await signIn(page)
+            await seed(page)
+            await openPlanner(page, mobile)
+
+            // The timeline opens it: seven columns of a month in 390 pixels is
+            // too narrow to read a title in, and dropping is a pointer gesture.
+            await expect(page.getByTestId('agenda-timeline')).toBeVisible()
+
+            // Everything, which is the point: a chore beside a project's card.
+            await expect(planner(page).getByTestId('agenda-task').first()).toContainText(CHORE)
+            await expect(planner(page).getByTestId('agenda-card').first()).toContainText(CARD)
+            // A daily item is not schedulable, so it is not here.
+            await expect(planner(page)).not.toContainText(DAILY_ITEM)
+
+            await scope(page, 'Tasks').click()
+            await expect(planner(page).getByTestId('agenda-card')).toHaveCount(0)
+            await expect(planner(page).getByTestId('agenda-task').first()).toContainText(CHORE)
+
+            await scope(page, 'Projects').click()
+            await expect(planner(page).getByTestId('agenda-task')).toHaveCount(0)
+            await expect(planner(page).getByTestId('agenda-card').first()).toContainText(CARD)
+
+            // Kept, like every other view choice here.
+            await page.reload()
+            await openPlanner(page, mobile)
+            await expect(planner(page).getByTestId('agenda-task')).toHaveCount(0)
+        })
+
+        test('keeps the undated in a tray, which is where a chore starts', async ({ page }) => {
+            await signIn(page)
+            await seed(page)
+            await openPlanner(page, mobile)
+            await scope(page, 'Tasks').click()
+
+            const tray = page.getByTestId('agenda-unscheduled')
+            await expect(tray).toContainText(UNDATED)
+            // Dated work is on a day, not in the pile.
+            await expect(tray).not.toContainText(CHORE)
+        })
+    })
+}
+
+// Dragging is the whole point of drawing the days, and it is HTML5 drag and
+// drop, so it is a pointer gesture: desktop only, the same as the Projects
+// overview's own drag test.
+test.describe('scheduling from the tasks planner', () => {
+    test.use({ viewport: { width: 1440, height: 900 } })
+
+    test('a chore takes a date from a day in a month, and keeps it', async ({ page }) => {
+        await signIn(page)
+        await seed(page)
+        await openPlanner(page, false)
+        await page.getByTestId('agenda-view').getByTitle('Calendar').click()
+        await expect(page.getByTestId('agenda-calendar')).toBeVisible()
+
+        // The last cell is weeks past the end of the fortnight, which is the
+        // day that could not be reached from the Tasks module at all before.
+        await page.dragAndDrop(
+            `[data-testid="agenda-unscheduled"] >> text=${UNDATED}`,
+            '[data-testid="calendar-day"] >> nth=41',
+        )
+        await expect(page.getByTestId('calendar-day').last()).toContainText(UNDATED)
+        await expect(page.getByTestId('agenda-unscheduled')).not.toContainText(UNDATED)
+
+        // On the server, not only on the screen.
+        await page.reload()
+        await openPlanner(page, false)
+        await expect(page.getByTestId('agenda-calendar')).toBeVisible()
+        await expect(page.getByTestId('calendar-day').last()).toContainText(UNDATED)
+    })
+
+    test('a project card is finished from here, which the agenda used to refuse', async ({ page }) => {
+        await signIn(page)
+        await seed(page)
+        await openPlanner(page, false)
+
+        const card = planner(page).getByTestId('agenda-card').filter({ hasText: CARD }).first()
+        await expect(card).toBeVisible()
+        await card.getByTestId('agenda-complete').click()
+
+        // Finished work leaves the planner: a planner is what is left.
+        await expect(planner(page).getByTestId('agenda-card').filter({ hasText: CARD })).toHaveCount(0)
+    })
+})
