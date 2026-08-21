@@ -127,6 +127,58 @@ export const EMBED_KINDS = [
                 }),
     },
     {
+        kind: 'task',
+        label: 'Task',
+        icon: 'task_alt',
+        hint: 'embed a task',
+        dialogTitle: 'Embed a task',
+        token: (id: string) => `::task:${id}::`,
+        // An item has no endpoint of its own: it arrives inside its list, so
+        // the lists are the source. Only open, top-level work is offered. A
+        // subtask belongs to its parent rather than to a page of its own, and a
+        // picker is for pointing at what is in hand: a token already written
+        // keeps rendering its task after it is ticked, because a reference is
+        // not a filter.
+        load: async () =>
+            ((await api.listTodos()) ?? []).flatMap((list) =>
+                (list.items || [])
+                    .filter((item) => !item.done && !item.parent_id)
+                    .map((item) => ({
+                        id: item.id,
+                        title: item.text || 'Untitled task',
+                        // Which list it came off, so two "Call them back" rows
+                        // are told apart by where they live.
+                        sub: list.title || 'Untitled list',
+                    })),
+            ),
+    },
+    {
+        kind: 'card',
+        label: 'Card',
+        icon: 'move_to_inbox',
+        hint: 'embed a card',
+        dialogTitle: 'Embed a project card',
+        token: (id: string) => `::card:${id}::`,
+        // Cards come nested in their project for the same reason documents do
+        // (ADR-0020). Finished and dismissed work is left out: the graveyard is
+        // reached through the board it was dismissed on, not through a picker.
+        load: async () =>
+            ((await api.listProjects()) ?? [])
+                .filter((project) => !project.archived)
+                .flatMap((project) => {
+                    const milestones = new Map(project.milestones.map((m) => [m.id, m.title]))
+                    return (project.cards || [])
+                        .filter((card) => !card.done && !card.dismissed)
+                        .map((card) => ({
+                            id: card.id,
+                            title: card.title || 'Untitled card',
+                            sub: [project.title || 'Untitled project', milestones.get(card.milestone_id)]
+                                .filter(Boolean)
+                                .join(' / '),
+                        }))
+                }),
+    },
+    {
         kind: 'agenda',
         label: 'Agenda',
         icon: 'event_upcoming',

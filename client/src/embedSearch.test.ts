@@ -4,6 +4,7 @@ import {
     EMBED_KINDS,
     clearEmbedCache,
     createEmbedSearch,
+    embedKindSpec,
     embedToken,
     groupEmbedCandidates,
     isEmbedKind,
@@ -66,6 +67,8 @@ describe('embedToken', () => {
         expect(embedToken('canvas', 'c1')).toBe('::canvas:c1::')
         expect(embedToken('project', 'p1')).toBe('::project:p1::')
         expect(embedToken('doc', 'd1')).toBe('::doc:d1::')
+        expect(embedToken('task', 'k1')).toBe('::task:k1::')
+        expect(embedToken('card', 'w1')).toBe('::card:w1::')
     })
 
     it('writes an agenda as its scope, which is the one token that names no entity', () => {
@@ -113,6 +116,46 @@ describe('groupEmbedCandidates', () => {
         expect(groups.map((g) => g.kind)).toEqual(['moment', 'project'])
         expect(groups[0].items.map((i) => i.id)).toEqual(['m1', 'm2'])
         expect(groups[0].label).toBe('Moment')
+    })
+})
+
+describe('what the work kinds offer', () => {
+    it('offers open, top-level tasks, and names the list each came off', async () => {
+        vi.mocked(api.listTodos).mockResolvedValue([
+            {
+                id: 'l1',
+                title: 'The week',
+                items: [
+                    { id: 'i1', text: 'Return the books', done: false },
+                    { id: 'i2', text: 'Already ticked', done: true },
+                    { id: 'i3', text: 'One step of it', done: false, parent_id: 'i1' },
+                ],
+            },
+        ] as never)
+        // A finished task and a subtask are both real, and both stay out: the
+        // picker is for pointing at work in hand, and a subtask belongs to its
+        // parent rather than to a page of its own.
+        expect(await embedKindSpec('task').load()).toEqual([{ id: 'i1', title: 'Return the books', sub: 'The week' }])
+    })
+
+    it('offers live cards, under the project and milestone holding them', async () => {
+        vi.mocked(api.listProjects).mockResolvedValue([
+            {
+                id: 'p1',
+                title: 'The kitchen',
+                archived: false,
+                milestones: [{ id: 'm1', title: 'Carcass' }],
+                cards: [
+                    { id: 'c1', title: 'Sand the shelves', milestone_id: 'm1', done: false, dismissed: false },
+                    { id: 'c2', title: 'Finished', milestone_id: 'm1', done: true, dismissed: false },
+                    { id: 'c3', title: 'Abandoned', milestone_id: 'm1', done: false, dismissed: true },
+                ],
+            },
+            { id: 'p2', title: 'Shelved', archived: true, milestones: [], cards: [{ id: 'c4', title: 'Old work' }] },
+        ] as never)
+        expect(await embedKindSpec('card').load()).toEqual([
+            { id: 'c1', title: 'Sand the shelves', sub: 'The kitchen / Carcass' },
+        ])
     })
 })
 

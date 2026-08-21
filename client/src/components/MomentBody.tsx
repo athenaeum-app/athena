@@ -12,9 +12,18 @@ import {
     type Component,
     type JSX,
 } from 'solid-js'
-import { api, type TodoList, type TodoItem, type Canvas, type Moment, type Project, type ProjectDocument } from '../api'
+import {
+    api,
+    type TodoList,
+    type TodoItem,
+    type Canvas,
+    type Moment,
+    type Project,
+    type ProjectCard,
+    type ProjectDocument,
+} from '../api'
 import { agendaHead, formatDue, type AgendaRow, type AgendaScope } from '../agenda'
-import { projectDeadlines, type ProjectDeadline } from '../projectAgenda'
+import { dueMs, projectDeadlines, type ProjectDeadline } from '../projectAgenda'
 import { MarkdownText } from './MarkdownText'
 import { LinkPreviewRow } from './LinkPreview'
 import { CanvasThumbnail } from './CanvasThumbnail'
@@ -35,6 +44,8 @@ import { notifyTodoChanged, todoRevision, todoVersion } from '../todoBus'
 //     ::canvas:<uuid>::    canvas  → compact card, opens the canvas board
 //     ::project:<uuid>::   project → summary card: progress + overview excerpt
 //     ::doc:<uuid>::       document → compact card: title + excerpt, opens the Hub
+//     ::task:<uuid>::      task    → one row: a to-do item, tickable inline
+//     ::card:<uuid>::      card    → one row: a project card, tickable inline
 //     ::agenda:<scope>::   agenda  → live card: what is due, tickable inline
 //
 // The agenda is the one token that does not name an entity: its second segment
@@ -48,7 +59,7 @@ import { notifyTodoChanged, todoRevision, todoVersion } from '../todoBus'
 // With the inlineLinkPreviews pref on, a bare URL is a fourth kind of split: the
 // URL text is replaced by its preview card and the content resumes below it.
 
-type EmbedKind = 'moment' | 'todo' | 'canvas' | 'project' | 'doc' | 'agenda'
+type EmbedKind = 'moment' | 'todo' | 'canvas' | 'project' | 'doc' | 'task' | 'card' | 'agenda'
 
 export type Part =
     | { type: 'md'; text: string }
@@ -68,11 +79,13 @@ const ID = '[A-Za-z0-9_-]{6,}'
 // render an agenda of nothing.
 const SCOPE = 'all|tasks|projects'
 
-// Matches a todo/canvas/project/doc token, an agenda token, OR a [[moment]]
-// reference. Capture groups: 1 = the kind, 2 = its id; 3 = the agenda's scope,
-// absent on a bare ::agenda:: which means all of it; 4 = moment id (for the
-// [[id]] form).
-const TOKEN = new RegExp(`::(todo|canvas|project|doc):(${ID})::|::agenda(?::(${SCOPE}))?::|\\[\\[(${ID})\\]\\]`, 'g')
+// Matches an entity token, an agenda token, OR a [[moment]] reference. Capture
+// groups: 1 = the kind, 2 = its id; 3 = the agenda's scope, absent on a bare
+// ::agenda:: which means all of it; 4 = moment id (for the [[id]] form).
+const TOKEN = new RegExp(
+    `::(todo|canvas|project|doc|task|card):(${ID})::|::agenda(?::(${SCOPE}))?::|\\[\\[(${ID})\\]\\]`,
+    'g',
+)
 
 // The same shape with the kind left open, for text that only needs the tokens
 // gone rather than rendered. Deliberately looser than TOKEN: a kind this build
@@ -198,7 +211,7 @@ export function parse(content: string, inlineLinks = false): Part[] {
         const part: Part = m[4]
             ? { type: 'embed', kind: 'moment', id: m[4] }
             : m[1]
-              ? { type: 'embed', kind: m[1] as 'todo' | 'canvas' | 'project' | 'doc', id: m[2] }
+              ? { type: 'embed', kind: m[1] as Exclude<EmbedKind, 'moment' | 'agenda'>, id: m[2] }
               : { type: 'embed', kind: 'agenda', id: m[3] || 'all' }
         cuts.push({ start: m.index, end: m.index + m[0].length, part })
     }
@@ -331,6 +344,12 @@ export const MomentBody: Component<MomentBodyProps> = (props) => {
                         </Match>
                         <Match when={part.type === 'embed' && part.kind === 'doc' ? part : null}>
                             {(e) => <DocEmbed id={e().id} onOpen={props.onOpenDoc} />}
+                        </Match>
+                        <Match when={part.type === 'embed' && part.kind === 'task' ? part : null}>
+                            {(e) => <TaskEmbed id={e().id} onOpen={props.onOpenTodo} />}
+                        </Match>
+                        <Match when={part.type === 'embed' && part.kind === 'card' ? part : null}>
+                            {(e) => <CardEmbed id={e().id} onOpen={props.onOpenProject} />}
                         </Match>
                         <Match when={part.type === 'embed' && part.kind === 'agenda' ? part : null}>
                             {(e) => (
@@ -571,6 +590,250 @@ const AgendaEmbedRow: Component<{
                     </button>
                     {due}
                 </div>
+            )}
+        </Show>
+    )
+}
+
+// ---- one piece of work ----
+
+// A task and a project card read the same way: a thing to do, where it lives,
+// and a date if it has one. Both embeds draw this row, so the two cannot drift
+// apart, and it is the shape the Projects Overview agenda already uses, because
+// one piece of work is a line rather than a card full of chrome.
+const WorkRow: Component<{
+    testid: string
+    icon: string
+    // The project's colour on a card. A task has no colour of its own.
+    accent?: string
+    title: string
+    // Its list, or its project and milestone.
+    where: string
+    done: boolean
+    dueAt?: string
+    onToggle: () => void
+    onOpen?: () => void
+    openTitle?: string
+}> = (props) => {
+    const overdue = () => !props.done && !!props.dueAt && dueMs(props.dueAt) < new Date().setHours(0, 0, 0, 0)
+    return (
+        <div
+            data-embed-card
+            data-testid={props.testid}
+            class="bg-element-matte border-element-accent flex items-center gap-2 overflow-hidden rounded-lg border p-2.5"
+        >
+            {/* Canvas nodes drag from anywhere on their body, so a tick has to
+                tick rather than start a drag. */}
+            <button
+                type="button"
+                onClick={props.onToggle}
+                onPointerDown={(e) => e.stopPropagation()}
+                title={props.done ? 'Put it back' : 'Tick it off'}
+                class="text-sub hover:text-main flex shrink-0 items-center hover:cursor-pointer"
+            >
+                <span class="material-symbols-outlined text-lg">
+                    {props.done ? 'check_box' : 'check_box_outline_blank'}
+                </span>
+            </button>
+            <span class="material-symbols-outlined flex shrink-0 items-center text-base" style={{ color: props.accent }}>
+                {props.icon}
+            </span>
+            <button
+                type="button"
+                onClick={() => props.onOpen?.()}
+                onPointerDown={(e) => e.stopPropagation()}
+                disabled={!props.onOpen}
+                class="min-w-0 flex-1 text-left"
+                classList={{ 'hover:cursor-pointer': !!props.onOpen }}
+                title={props.openTitle}
+            >
+                <span class="text-main block truncate text-sm" classList={{ 'line-through opacity-60': props.done }}>
+                    {props.title}
+                </span>
+                <span class="text-sub/70 block truncate text-[11px]">{props.where}</span>
+            </button>
+            <Show when={props.done}>
+                <span class="bg-element-accent text-sub/70 shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold">Done</span>
+            </Show>
+            <Show when={!props.done && props.dueAt}>
+                {(due) => (
+                    <span
+                        class="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold"
+                        classList={{ 'bg-danger/20 text-danger': overdue(), 'bg-element-accent text-sub': !overdue() }}
+                    >
+                        {formatDue(due())}
+                    </span>
+                )}
+            </Show>
+        </div>
+    )
+}
+
+type TaskEntry = { list: TodoList; item: TodoItem }
+
+// One to-do item, live. The item has no endpoint of its own, so it is found in
+// the same lists the agenda embed reads: a body holding an agenda and three
+// tasks still costs one fetch.
+//
+// undefined = still loading, null = gone or forbidden.
+const TaskEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (props) => {
+    const [entry, setEntry] = createSignal<TaskEntry | null | undefined>(undefined)
+
+    const load = async () => {
+        const wanted = props.id
+        try {
+            const lists = await agendaLists()
+            let found: TaskEntry | null = null
+            for (const list of lists) {
+                const item = (list.items || []).find((i) => i.id === wanted)
+                if (item) {
+                    found = { list, item }
+                    break
+                }
+            }
+            // A slower answer for an id we no longer point at must not land.
+            if (props.id === wanted) setEntry(found)
+        } catch {
+            if (props.id === wanted) setEntry(null)
+        }
+    }
+
+    // on the id, not onMount: a canvas node's token can be rewritten under a
+    // mounted card, which swaps which task this is.
+    createEffect(
+        on(
+            () => props.id,
+            () => {
+                setEntry(undefined)
+                void load()
+            },
+        ),
+    )
+    // Ticked on the board, in an agenda, or in another embed of the same task:
+    // all of them are this row changing, so the row refetches rather than
+    // waiting to be remounted.
+    createEffect(
+        on(todoRevision, (_revision, previous) => {
+            if (previous !== undefined) void load()
+        }),
+    )
+
+    // Both ways. The row stays on the page after it is ticked, unlike an agenda
+    // row, so the tick that finished it has to be the one that undoes it.
+    const toggle = async (found: TaskEntry) => {
+        const done = !found.item.done
+        setEntry({ ...found, item: { ...found.item, done } })
+        try {
+            await api.updateTodoItem(found.item.id, { done })
+            notifyTodoChanged(found.item.list_id)
+        } catch {
+            void load()
+        }
+    }
+
+    return (
+        <Show
+            when={entry()}
+            fallback={
+                <Show when={entry() === null} fallback={<UnavailableChip icon="task_alt" label="Loading task…" />}>
+                    <UnavailableChip icon="task_alt" label="Task unavailable" />
+                </Show>
+            }
+        >
+            {(found) => (
+                <WorkRow
+                    testid="task-embed"
+                    icon="task_alt"
+                    title={found().item.text || 'Untitled task'}
+                    where={found().list.title || 'Untitled list'}
+                    done={found().item.done}
+                    dueAt={found().item.due_at}
+                    onToggle={() => void toggle(found())}
+                    onOpen={props.onOpen ? () => props.onOpen!(found().list.id) : undefined}
+                    openTitle={props.onOpen ? `Open ${found().list.title || 'the list'}` : undefined}
+                />
+            )}
+        </Show>
+    )
+}
+
+type CardEntry = { project: Project; card: ProjectCard; milestoneTitle?: string }
+
+// One project card, live, resolved off the same projects snapshot the document
+// and agenda embeds read (ADR-0020).
+const CardEmbed: Component<{ id: string; onOpen?: (id: string) => void }> = (props) => {
+    const [entry, setEntry] = createSignal<CardEntry | null | undefined>(undefined)
+
+    const load = async () => {
+        const wanted = props.id
+        try {
+            const projects = await projectsSnapshot()
+            let found: CardEntry | null = null
+            for (const project of projects) {
+                const card = (project.cards || []).find((c) => c.id === wanted)
+                if (card) {
+                    found = {
+                        project,
+                        card,
+                        milestoneTitle: project.milestones.find((m) => m.id === card.milestone_id)?.title,
+                    }
+                    break
+                }
+            }
+            if (props.id === wanted) setEntry(found)
+        } catch {
+            if (props.id === wanted) setEntry(null)
+        }
+    }
+
+    createEffect(
+        on(
+            () => props.id,
+            () => {
+                setEntry(undefined)
+                void load()
+            },
+        ),
+    )
+
+    const toggle = async (found: CardEntry) => {
+        const done = !found.card.done
+        setEntry({ ...found, card: { ...found.card, done } })
+        try {
+            const updated = await api.updateProjectCard(found.card.id, { done })
+            setEntry({ ...found, card: updated })
+            // The snapshot behind every project-side embed now says the wrong
+            // thing about this card. Projects have no change bus of their own,
+            // so dropping it is how the next reader gets the truth rather than
+            // a minute-old copy.
+            clearProjectDocumentCache()
+        } catch {
+            void load()
+        }
+    }
+
+    return (
+        <Show
+            when={entry()}
+            fallback={
+                <Show when={entry() === null} fallback={<UnavailableChip icon="move_to_inbox" label="Loading card…" />}>
+                    <UnavailableChip icon="move_to_inbox" label="Card unavailable" />
+                </Show>
+            }
+        >
+            {(found) => (
+                <WorkRow
+                    testid="card-embed"
+                    icon={found().project.icon || 'move_to_inbox'}
+                    accent={found().project.accent}
+                    title={found().card.title || 'Untitled card'}
+                    where={[found().project.title || 'Untitled project', found().milestoneTitle].filter(Boolean).join(' · ')}
+                    done={found().card.done}
+                    dueAt={found().card.due_at}
+                    onToggle={() => void toggle(found())}
+                    onOpen={props.onOpen ? () => props.onOpen!(found().project.id) : undefined}
+                    openTitle={props.onOpen ? `Open ${found().project.title || 'the project'}` : undefined}
+                />
             )}
         </Show>
     )

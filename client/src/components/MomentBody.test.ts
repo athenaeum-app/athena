@@ -43,6 +43,17 @@ describe('parse, inline link previews off', () => {
         expect(shape('a [[note]] b', false)).toEqual(['md:a [[note]] b'])
     })
 
+    it('splits on a task token and on a card token', () => {
+        expect(shape('do ::task:abc123:: first', false)).toEqual(['md:do', 'task', 'md:first'])
+        expect(shape('blocked by ::card:def456::', false)).toEqual(['md:blocked by', 'card'])
+    })
+
+    // The two units of work sit beside the containers that hold them, so a note
+    // can name the list and the one row in it that matters.
+    it('interleaves a task with the container kinds in document order', () => {
+        expect(shape('::todo:abc123:: and ::task:def456::', false)).toEqual(['todo', 'md:and', 'task'])
+    })
+
     it('splits on an agenda token, which carries a scope and not an id', () => {
         expect(shape('today: ::agenda:: onwards', false)).toEqual(['md:today:', 'agenda', 'md:onwards'])
         expect(scopes('::agenda::')).toEqual(['all'])
@@ -173,9 +184,11 @@ describe('parse, tokens inside code', () => {
 
 describe('stripEmbedTokens', () => {
     it('drops every kind of token, including one this build does not render', () => {
-        expect(stripEmbedTokens('a ::todo:abc123:: ::canvas:abc123:: ::project:abc123:: ::doc:abc123:: [[abc123]] b')).toBe(
-            'a      b',
-        )
+        expect(
+            stripEmbedTokens(
+                'a ::todo:abc123:: ::canvas:abc123:: ::project:abc123:: ::doc:abc123:: ::task:abc123:: ::card:abc123:: [[abc123]] b',
+            ),
+        ).toBe('a        b')
     })
 
     it('drops an agenda token, with or without a scope on it', () => {
