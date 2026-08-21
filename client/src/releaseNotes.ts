@@ -157,6 +157,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'The bookcase no longer shows through the text of an open document.',
         'The buttons along a document header now line up with the controls beside them.',
     ],
+    '2.29.0': [
+        'Your agenda can now be embedded anywhere you write: type [[agenda to drop in everything due, or just the tasks, or just the project work. It stays live, and to-do items can be ticked off from inside it.',
+        'In a draft document, clicking anywhere outside the text now finishes the writing, not just outside the column.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
