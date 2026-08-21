@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import type { Project, ProjectCard, ProjectMilestone } from './api'
-import { datedRows, isContainer, plannerFromProjects, sortPlanner, undatedRows, type PlannerRow } from './planner'
+import type { Project, ProjectCard, ProjectMilestone, TodoItem, TodoList } from './api'
+import {
+    datedRows,
+    isContainer,
+    isMovable,
+    plannerFromLists,
+    plannerFromProjects,
+    sortPlanner,
+    undatedRows,
+    type PlannerRow,
+} from './planner'
 
 const iso = (daysFromToday: number) => {
     const date = new Date()
@@ -176,5 +185,93 @@ describe('undatedRows', () => {
         const before = original.map((r) => r.id)
         sortPlanner(original, 'name')
         expect(original.map((r) => r.id)).toEqual(before)
+    })
+})
+
+describe('a list as a container', () => {
+    const item = (id: string, fields: Partial<TodoItem> = {}): TodoItem => ({
+        id,
+        list_id: 'l1',
+        text: id,
+        done: false,
+        position: 0,
+        rolled_over: false,
+        priority: 0,
+        recurrence: '',
+        reset_mode: 'calendar',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        ...fields,
+    })
+
+    const list = (fields: Partial<TodoList> = {}): TodoList => ({
+        id: 'l1',
+        kind: 'general',
+        title: 'Weekend jobs',
+        notes: '',
+        position: 0,
+        reset_mode: 'calendar',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        items: [],
+        ...fields,
+    })
+
+    it('draws the list once for a day several of its tasks land on', () => {
+        const rows = plannerFromLists([list({ items: [item('a', { due_at: iso(2) }), item('b', { due_at: iso(2) })] })])
+        const containers = rows.filter((r) => r.kind === 'list')
+        expect(containers).toHaveLength(1)
+        expect(containers[0].title).toBe('Weekend jobs')
+        expect(isContainer(containers[0])).toBe(true)
+    })
+
+    it('leaves a lone task alone: one thing is not a container', () => {
+        const rows = plannerFromLists([list({ items: [item('a', { due_at: iso(2) }), item('b', { due_at: iso(5) })] })])
+        expect(rows.filter((r) => r.kind === 'list')).toEqual([])
+    })
+
+    it('counts the finished ones in the meter, so ticking fills it rather than emptying the day', () => {
+        const rows = plannerFromLists([
+            list({
+                items: [
+                    item('a', { due_at: iso(2), done: true }),
+                    item('b', { due_at: iso(2), done: true }),
+                    item('c', { due_at: iso(2) }),
+                ],
+            }),
+        ])
+        const container = rows.find((r) => r.kind === 'list')!
+        expect([container.done, container.total]).toEqual([2, 3])
+        // The finished tasks are meter, not rows of their own.
+        expect(rows.filter((r) => r.kind === 'task').map((r) => r.id)).toEqual(['c'])
+    })
+
+    it('draws no container for a day whose work is all behind you', () => {
+        const rows = plannerFromLists([
+            list({ items: [item('a', { due_at: iso(-3), done: true }), item('b', { due_at: iso(-3), done: true })] }),
+        ])
+        expect(rows).toEqual([])
+    })
+
+    it('leaves daily lists out entirely, dates or no dates', () => {
+        const rows = plannerFromLists([
+            list({ kind: 'daily', items: [item('a', { due_at: iso(1) }), item('b', { due_at: iso(1) })] }),
+        ])
+        expect(rows).toEqual([])
+    })
+
+    it('is not a thing that can be moved, having no date of its own', () => {
+        const rows = plannerFromLists([list({ items: [item('a', { due_at: iso(2) }), item('b', { due_at: iso(2) })] })])
+        expect(isMovable(rows.find((r) => r.kind === 'list')!)).toBe(false)
+        expect(isMovable(rows.find((r) => r.kind === 'task')!)).toBe(true)
+    })
+
+    it('comes before the work it holds inside its day', () => {
+        const rows = datedRows(
+            plannerFromLists([
+                list({ items: [item('a', { due_at: iso(2), priority: 3 }), item('b', { due_at: iso(2) })] }),
+            ]),
+        )
+        expect(rows.map((r) => r.kind)).toEqual(['list', 'task', 'task'])
     })
 })

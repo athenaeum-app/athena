@@ -27,6 +27,7 @@ async function signIn(page: Page): Promise<void> {
 
 const LIST = 'House'
 const CHORE = 'Descale the kettle'
+const SECOND_CHORE = 'Bleed the radiators'
 const UNDATED = 'Book the chimney sweep'
 const DAILY_ITEM = 'Take the vitamins'
 const PROJECT = 'The reading room'
@@ -44,6 +45,13 @@ async function seed(page: Page) {
     const list = await post<{ id: string }>(req, '/api/v1/todos', { title: LIST, kind: 'general' })
     const dated = await post<{ id: string }>(req, `/api/v1/todos/${list.id}/items`, { text: CHORE })
     await patch(req, `/api/v1/todo-items/${dated.id}`, { due_at: today.toISOString(), priority: 3 })
+    // Two more on the same day, one of them finished, so the list has enough
+    // on that day to be drawn as the thing holding them.
+    const second = await post<{ id: string }>(req, `/api/v1/todos/${list.id}/items`, { text: SECOND_CHORE })
+    await patch(req, `/api/v1/todo-items/${second.id}`, { due_at: today.toISOString() })
+    const finished = await post<{ id: string }>(req, `/api/v1/todos/${list.id}/items`, { text: 'Refill the salt' })
+    await patch(req, `/api/v1/todo-items/${finished.id}`, { due_at: today.toISOString() })
+    await patch(req, `/api/v1/todo-items/${finished.id}`, { done: true })
     await post(req, `/api/v1/todos/${list.id}/items`, { text: UNDATED })
 
     // A daily list, which the planner leaves out entirely: its items carry no
@@ -106,6 +114,31 @@ for (const [name, viewport, mobile] of [
             await page.reload()
             await openPlanner(page, mobile)
             await expect(planner(page).getByTestId('agenda-task')).toHaveCount(0)
+        })
+
+        test('draws a list as the thing holding its tasks, with a meter', async ({ page }) => {
+            await signIn(page)
+            await seed(page)
+            await openPlanner(page, mobile)
+            await scope(page, 'Tasks').click()
+
+            // Two of the seeded chores fall on today, so the list is worth
+            // drawing as what holds them. One of the two is already done.
+            const container = planner(page).getByTestId('agenda-list').first()
+            await expect(container).toContainText(LIST)
+            await expect(container).toContainText('1/3 done')
+            // It has no date of its own, so there is nothing to pick up.
+            await expect(container).toHaveAttribute('draggable', 'false')
+
+            // Ticking one underneath fills the meter rather than emptying the
+            // day: a container counts what is finished as well as what is not.
+            await planner(page)
+                .getByTestId('agenda-task')
+                .filter({ hasText: CHORE })
+                .first()
+                .getByTestId('agenda-complete')
+                .click()
+            await expect(planner(page).getByTestId('agenda-list').first()).toContainText('2/3 done')
         })
 
         test('keeps the undated in a tray, which is where a chore starts', async ({ page }) => {

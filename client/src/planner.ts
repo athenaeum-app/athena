@@ -56,6 +56,12 @@ export interface PlannerDated extends PlannerRow {
 
 export const isContainer = (row: PlannerRow): boolean => row.kind === 'milestone' || row.kind === 'list'
 
+// Whether the row is a thing with a date of its own. A milestone is: it has a
+// due date on the server and dragging it moves that date. A list container is
+// not: it is drawn from the tasks under it, exists only on the day they fall
+// on, and has nothing of its own to move.
+export const isMovable = (row: PlannerRow): boolean => row.kind !== 'list'
+
 const fromWorkItem = (item: ProjectWorkItem): PlannerRow => ({
     id: item.id,
     kind: item.kind,
@@ -107,7 +113,35 @@ const fromTodoItem = (item: TodoItem, list: TodoList): PlannerRow => ({
     momentId: item.moment_id || undefined,
 })
 
-// Everything outstanding on the to-do lists.
+// How many tasks a list needs due on one day before it is worth drawing as the
+// thing that holds them. One is a task, not a container with one thing in it.
+const CONTAINER_MIN = 2
+
+// A list on the day its tasks land, drawn the way a milestone is: the thing
+// the work feeds into rather than more work.
+//
+// A list has no due date of its own, unlike a milestone, so what dates it is
+// what is inside it. The meter counts everything on that list due that day,
+// finished included, which is what makes it a meter rather than a tally: tick
+// one off and the bar fills instead of the row disappearing.
+const containerRow = (list: TodoList, day: TodoItem[]): PlannerRow => ({
+    // Not an entity id: this row exists only for this list on this day.
+    id: `list:${list.id}:${dueMs(day[0].due_at)}`,
+    kind: 'list',
+    source: 'task',
+    title: list.title || 'Untitled list',
+    dueAt: day[0].due_at,
+    priority: 0,
+    homeId: list.id,
+    homeTitle: list.title || 'Untitled list',
+    accent: listAccent(list.title || ''),
+    icon: 'checklist',
+    done: day.filter((item) => item.done).length,
+    total: day.length,
+})
+
+// Everything outstanding on the to-do lists, plus a container row per list per
+// day where several tasks land together.
 //
 // Daily lists are left out, the same exclusion the agenda makes and for the
 // same reason: their items carry no due date you can see or set, so they would
@@ -117,19 +151,42 @@ export function plannerFromLists(lists: TodoList[]): PlannerRow[] {
     const out: PlannerRow[] = []
     for (const list of lists) {
         if (list.kind === 'daily') continue
-        for (const item of list.items || []) {
+        const items = list.items || []
+        for (const item of items) {
             if (item.done) continue
             out.push(fromTodoItem(item, list))
+        }
+
+        const byDay = new Map<number, TodoItem[]>()
+        for (const item of items) {
+            if (!item.due_at) continue
+            const day = dueMs(item.due_at)
+            const found = byDay.get(day)
+            if (found) found.push(item)
+            else byDay.set(day, [item])
+        }
+        for (const day of byDay.values()) {
+            // A day whose work is all behind you needs no container: the list
+            // would sit there on a Tuesday in the past with nothing under it.
+            if (day.length < CONTAINER_MIN || day.every((item) => item.done)) continue
+            out.push(containerRow(list, day))
         }
     }
     return out
 }
 
-// The dated half, soonest first, with the higher priority ahead inside a day.
+// The dated half, soonest first. Inside a day the container comes before the
+// work it holds, because it is what introduces the work rather than another
+// piece of it; then the higher priority first.
 export function datedRows(rows: PlannerRow[]): PlannerDated[] {
     return rows
         .filter((row): row is PlannerDated => !!row.dueAt)
-        .sort((a, b) => dueMs(a.dueAt) - dueMs(b.dueAt) || b.priority - a.priority)
+        .sort(
+            (a, b) =>
+                dueMs(a.dueAt) - dueMs(b.dueAt) ||
+                Number(isContainer(b)) - Number(isContainer(a)) ||
+                b.priority - a.priority,
+        )
 }
 
 // How a pile of undated work can be ordered. Three questions get asked of it:

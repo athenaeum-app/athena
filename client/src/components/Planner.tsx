@@ -11,7 +11,7 @@ import {
     type AgendaView,
     type TimelineDay,
 } from '../projectAgenda'
-import { PLANNER_SORTS, isContainer, type PlannerDated, type PlannerRow, type PlannerSort } from '../planner'
+import { PLANNER_SORTS, isContainer, isMovable, type PlannerDated, type PlannerRow, type PlannerSort } from '../planner'
 import { formatDue as fmtDue } from '../agenda'
 import { PRIORITIES, priorityColor, priorityIcon } from '../priority'
 import { Meter } from './Meter'
@@ -116,7 +116,9 @@ const defaultOpenTitle = (row: PlannerRow) => (isContainer(row) ? `Open ${row.ho
 
 const rowTitle = (handlers: PlannerHandlers, row: PlannerRow) => {
     const open = (handlers.openTitle ?? defaultOpenTitle)(row)
-    return handlers.drag.enabled ? `Drag to a day to date it, or click to ${open[0].toLowerCase()}${open.slice(1)}` : open
+    return handlers.drag.enabled && isMovable(row)
+        ? `Drag to a day to date it, or click to ${open[0].toLowerCase()}${open.slice(1)}`
+        : open
 }
 
 // One row of work, wherever the planner draws it: in a day's column, in a
@@ -139,6 +141,7 @@ const Row: Component<{
     const drag = () => props.handlers.drag
     const dragging = () => drag().item()?.id === row().id
     const container = () => isContainer(row())
+    const movable = () => drag().enabled && isMovable(row())
     const tickable = () => !!props.handlers.onComplete && !container()
     return (
         // A div rather than a button, since it holds a button: the tick has to
@@ -152,7 +155,7 @@ const Row: Component<{
                 e.preventDefault()
                 props.handlers.onOpen(row())
             }}
-            draggable={drag().enabled}
+            draggable={movable()}
             onDragStart={(e) => {
                 // Firefox starts no drag at all without payload on the event.
                 e.dataTransfer?.setData('text/plain', row().id)
@@ -164,8 +167,8 @@ const Row: Component<{
             data-testid={`agenda-${row().kind}`}
             class="hover:bg-element-matte hover:border-highlight/60 flex w-full items-start gap-2.5 rounded-md border p-2 text-left transition-colors"
             classList={{
-                'cursor-grab active:cursor-grabbing': drag().enabled,
-                'hover:cursor-pointer': !drag().enabled,
+                'cursor-grab active:cursor-grabbing': movable(),
+                'hover:cursor-pointer': !movable(),
                 'opacity-40': dragging(),
                 'bg-element-matte border-element-accent': container(),
                 'border-transparent': !container(),
@@ -626,9 +629,10 @@ const Chip: Component<{ row: PlannerDated; handlers: PlannerHandlers }> = (props
     const row = () => props.row
     const drag = () => props.handlers.drag
     const container = () => isContainer(row())
+    const movable = () => drag().enabled && isMovable(row())
     return (
         <button
-            draggable={drag().enabled}
+            draggable={movable()}
             onDragStart={(e) => {
                 e.dataTransfer?.setData('text/plain', row().id)
                 if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
@@ -639,8 +643,8 @@ const Chip: Component<{ row: PlannerDated; handlers: PlannerHandlers }> = (props
             data-testid={`calendar-${row().kind}`}
             class="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] leading-tight transition-colors"
             classList={{
-                'cursor-grab active:cursor-grabbing': drag().enabled,
-                'hover:cursor-pointer': !drag().enabled,
+                'cursor-grab active:cursor-grabbing': movable(),
+                'hover:cursor-pointer': !movable(),
                 'opacity-40': drag().item()?.id === row().id,
                 'font-bold text-white': container(),
                 'text-main hover:bg-element-matte': !container(),
