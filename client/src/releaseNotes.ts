@@ -151,6 +151,12 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.27.0': [
         'The Projects overview carries more below the agenda, and at a size worth reading: every project on a line in the order they come due, the open work split by priority, the milestone each project is working towards, the labels across it all, a taller momentum chart, and longer lists of what needs attention and what was finished.',
     ],
+    '2.28.0': [
+        'A project document is now written by clicking its text. Draft types, Final reads, and the Edit button is gone; Escape or a click outside the text finishes.',
+        'The outline no longer scrolls the whole Projects panel out of sight; it moves the document.',
+        'The bookcase no longer shows through the text of an open document.',
+        'The buttons along a document header now line up with the controls beside them.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
