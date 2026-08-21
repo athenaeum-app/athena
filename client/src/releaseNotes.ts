@@ -176,6 +176,11 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'A chat search result can be copied, whether or not it is close enough to jump to.',
         'Copying now works on a server reached over plain http, where the browser withholds the clipboard.',
     ],
+    '2.33.0': [
+        'The Tasks module has a planner: the same days, month and drag-onto-a-day the Projects overview uses, so a task that belongs to no project can finally be scheduled.',
+        'It shows everything due, your tasks only, or project work only, and remembers which.',
+        'A to-do list now reads as the thing holding its tasks on a day several of them fall on, with a meter for how far through it you are.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
