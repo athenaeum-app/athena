@@ -1513,177 +1513,185 @@ const Overview: Component<{
                         </div>
                     </OverviewCard>
 
-                    <div class="mt-5 grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
-                        <OverviewCard title="Momentum" pad="p-4 sm:p-6" note={<span class="text-sub text-sm">cards finished per day · 14d</span>}>
-                            <MomentumBars days={allMomentum()} height={168} barClass="min-w-0 flex-1" />
-                            <div class="text-sub/60 mt-2 flex justify-between text-xs">
-                                <span>2 weeks ago</span>
-                                <span class="text-main font-mono">
-                                    {allMomentum().reduce((a, b) => a + b, 0)} finished · best day {Math.max(0, ...allMomentum())}
-                                </span>
-                                <span>today</span>
-                            </div>
-                        </OverviewCard>
-
-                        <OverviewCard title="Open work" pad="p-4 sm:p-6" note={<span class="text-sub text-sm">{openCards().length} cards, by priority</span>}>
-                            <div class="flex flex-col gap-2">
-                                <For each={priorityCounts()}>
-                                    {(pr) => (
-                                        <div class="flex items-center gap-3">
-                                            <span class="text-sub w-16 shrink-0 text-sm">{pr.label}</span>
-                                            <div class="bg-element-accent h-4 flex-1 overflow-hidden rounded">
-                                                <div
-                                                    class="h-full rounded transition-all"
-                                                    style={{
-                                                        width: `${Math.round((pr.count / Math.max(1, ...priorityCounts().map((x) => x.count))) * 100)}%`,
-                                                        'background-color': pr.color || 'var(--theme-element-accent)',
-                                                        'min-width': pr.count > 0 ? '4px' : '0',
-                                                    }}
-                                                />
-                                            </div>
-                                            <span class="text-main w-8 shrink-0 text-right font-mono text-sm font-bold">{pr.count}</span>
-                                        </div>
-                                    )}
-                                </For>
-                            </div>
-                            <p class="text-sub/60 mt-4 text-xs">
-                                <span class="text-main font-mono">{unscheduled().length}</span> of them carry no date at all.
-                            </p>
-                        </OverviewCard>
-
-                        <OverviewCard
-                            title="Needs attention"
-                            pad="p-4 sm:p-6"
-                            body="max-h-96 overflow-y-auto"
-                            note={<span class="text-sub text-sm">overdue or gone quiet</span>}
-                        >
-                            <Show when={attention().length > 0} fallback={<p class="text-sub/50 italic">Nothing overdue or stalled. Every project is moving.</p>}>
-                                <div class="flex flex-col gap-1">
-                                    <For each={attention()}>
-                                        {(row) => (
-                                            <button
-                                                onClick={() => props.onOpen(row.project.id)}
-                                                class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:cursor-pointer"
-                                                title={`Open ${row.project.title}`}
-                                            >
-                                                <span class="material-symbols-outlined shrink-0 text-[19px]" style={{ color: row.project.accent }}>
-                                                    {row.project.icon}
-                                                </span>
-                                                <div class="min-w-0 flex-1">
-                                                    <p class="text-main truncate text-base">{row.project.title}</p>
-                                                    <p class="text-sub/80 truncate text-xs">{row.reason}</p>
-                                                </div>
-                                                <HealthWord p={row.project} />
-                                            </button>
-                                        )}
-                                    </For>
-                                </div>
-                            </Show>
-                        </OverviewCard>
-
-                        <OverviewCard
-                            title="Milestones ahead"
-                            pad="p-4 sm:p-6"
-                            body="max-h-96 overflow-y-auto"
-                            note={<span class="text-sub text-sm">the next one in each project</span>}
-                        >
-                            <Show when={milestonesAhead().length > 0} fallback={<p class="text-sub/50 italic">No milestones yet. Projects grow them on the board.</p>}>
-                                <div class="flex flex-col gap-1">
-                                    <For each={milestonesAhead()}>
-                                        {(row) => (
-                                            <button
-                                                onClick={() => props.onOpen(row.project.id, 'board')}
-                                                class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:cursor-pointer"
-                                                title={`Open ${row.project.title} on the board`}
-                                            >
-                                                <span class="material-symbols-outlined shrink-0 text-[19px]" style={{ color: row.project.accent }}>flag</span>
-                                                <div class="min-w-0 flex-1">
-                                                    <p class="text-main truncate text-base">{row.milestone.title}</p>
-                                                    <p class="text-sub/80 truncate text-xs">
-                                                        {row.project.title} · {row.done}/{row.total} done
-                                                    </p>
-                                                </div>
-                                                <Show when={row.milestone.due_at}>
-                                                    <span
-                                                        class="shrink-0 rounded px-1.5 py-0.5 text-xs font-bold"
-                                                        classList={{
-                                                            'bg-danger/20 text-danger': dueMs(row.milestone.due_at) < startOfToday(),
-                                                            'bg-element-accent text-sub': dueMs(row.milestone.due_at) >= startOfToday(),
-                                                        }}
-                                                    >
-                                                        {fmtDue(row.milestone.due_at!)}
-                                                    </span>
-                                                </Show>
-                                            </button>
-                                        )}
-                                    </For>
-                                </div>
-                            </Show>
-                        </OverviewCard>
-
-                        <OverviewCard
-                            title="Recently finished"
-                            pad="p-4 sm:p-6"
-                            body="max-h-96 overflow-y-auto"
-                            note={<span class="text-sub text-sm">newest first</span>}
-                        >
-                            <Show when={recentlyFinished().length > 0} fallback={<p class="text-sub/50 italic">Nothing finished yet.</p>}>
-                                <div class="flex flex-col gap-1">
-                                    <For each={recentlyFinished()}>
-                                        {(row) => (
-                                            <button
-                                                onClick={() => props.onOpen(row.project.id, 'board')}
-                                                class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:cursor-pointer"
-                                                title={`Open ${row.project.title} on the board`}
-                                            >
-                                                <span class="material-symbols-outlined shrink-0 text-[17px]" style={{ color: row.project.accent }}>check_circle</span>
-                                                <div class="min-w-0 flex-1">
-                                                    <p class="text-sub truncate text-base line-through">{row.card.title}</p>
-                                                    <p class="text-sub/80 truncate text-xs">
-                                                        {row.project.title} · {fmtWhen(row.card.completed_at!)}
-                                                    </p>
-                                                </div>
-                                            </button>
-                                        )}
-                                    </For>
-                                </div>
-                            </Show>
-                        </OverviewCard>
-
-                        <OverviewCard
-                            title="Labels"
-                            pad="p-4 sm:p-6"
-                            body="max-h-96 overflow-y-auto"
-                            note={<span class="text-sub text-sm">across the open work</span>}
-                        >
-                            <Show when={labelCounts().length > 0} fallback={<p class="text-sub/50 italic">No labels yet. Cards grow them on the board.</p>}>
-                                <div class="flex flex-col gap-2">
-                                    <For each={labelCounts()}>
-                                        {(row) => (
-                                            <div class="flex items-center gap-3">
-                                                <span
-                                                    class="w-24 shrink-0 truncate rounded px-1.5 py-0.5 text-center text-xs font-medium"
-                                                    style={{ color: labelColor(row.label), border: `1px solid ${labelColor(row.label)}44` }}
+                    {/* Two columns, each packing its own cards, rather
+                        than a grid: a grid lays panels out in rows, and a
+                        row is only as short as its tallest member, so a
+                        short panel beside a long one leaves a hole under
+                        itself that the next row cannot rise into. */}
+                    <div class="mt-5 flex flex-col gap-5 xl:flex-row xl:items-start">
+                        <div class="flex min-w-0 flex-1 flex-col gap-5">
+                            <OverviewCard
+                                title="Needs attention"
+                                pad="p-4 sm:p-6"
+                                body="max-h-96 overflow-y-auto"
+                                note={<span class="text-sub text-sm">overdue or gone quiet</span>}
+                            >
+                                <Show when={attention().length > 0} fallback={<p class="text-sub/50 italic">Nothing overdue or stalled. Every project is moving.</p>}>
+                                    <div class="flex flex-col gap-1">
+                                        <For each={attention()}>
+                                            {(row) => (
+                                                <button
+                                                    onClick={() => props.onOpen(row.project.id)}
+                                                    class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:cursor-pointer"
+                                                    title={`Open ${row.project.title}`}
                                                 >
-                                                    {row.label}
-                                                </span>
-                                                <div class="bg-element-accent h-3 flex-1 overflow-hidden rounded">
+                                                    <span class="material-symbols-outlined shrink-0 text-[19px]" style={{ color: row.project.accent }}>
+                                                        {row.project.icon}
+                                                    </span>
+                                                    <div class="min-w-0 flex-1">
+                                                        <p class="text-main truncate text-base">{row.project.title}</p>
+                                                        <p class="text-sub/80 truncate text-xs">{row.reason}</p>
+                                                    </div>
+                                                    <HealthWord p={row.project} />
+                                                </button>
+                                            )}
+                                        </For>
+                                    </div>
+                                </Show>
+                            </OverviewCard>
+
+                            <OverviewCard title="Momentum" pad="p-4 sm:p-6" note={<span class="text-sub text-sm">cards finished per day · 14d</span>}>
+                                <MomentumBars days={allMomentum()} height={168} barClass="min-w-0 flex-1" />
+                                <div class="text-sub/60 mt-2 flex justify-between text-xs">
+                                    <span>2 weeks ago</span>
+                                    <span class="text-main font-mono">
+                                        {allMomentum().reduce((a, b) => a + b, 0)} finished · best day {Math.max(0, ...allMomentum())}
+                                    </span>
+                                    <span>today</span>
+                                </div>
+                            </OverviewCard>
+
+                            <OverviewCard
+                                title="Recently finished"
+                                pad="p-4 sm:p-6"
+                                body="max-h-96 overflow-y-auto"
+                                note={<span class="text-sub text-sm">newest first</span>}
+                            >
+                                <Show when={recentlyFinished().length > 0} fallback={<p class="text-sub/50 italic">Nothing finished yet.</p>}>
+                                    <div class="flex flex-col gap-1">
+                                        <For each={recentlyFinished()}>
+                                            {(row) => (
+                                                <button
+                                                    onClick={() => props.onOpen(row.project.id, 'board')}
+                                                    class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:cursor-pointer"
+                                                    title={`Open ${row.project.title} on the board`}
+                                                >
+                                                    <span class="material-symbols-outlined shrink-0 text-[17px]" style={{ color: row.project.accent }}>check_circle</span>
+                                                    <div class="min-w-0 flex-1">
+                                                        <p class="text-sub truncate text-base line-through">{row.card.title}</p>
+                                                        <p class="text-sub/80 truncate text-xs">
+                                                            {row.project.title} · {fmtWhen(row.card.completed_at!)}
+                                                        </p>
+                                                    </div>
+                                                </button>
+                                            )}
+                                        </For>
+                                    </div>
+                                </Show>
+                            </OverviewCard>
+                        </div>
+                        <div class="flex min-w-0 flex-1 flex-col gap-5">
+                            <OverviewCard
+                                title="Milestones ahead"
+                                pad="p-4 sm:p-6"
+                                body="max-h-96 overflow-y-auto"
+                                note={<span class="text-sub text-sm">the next one in each project</span>}
+                            >
+                                <Show when={milestonesAhead().length > 0} fallback={<p class="text-sub/50 italic">No milestones yet. Projects grow them on the board.</p>}>
+                                    <div class="flex flex-col gap-1">
+                                        <For each={milestonesAhead()}>
+                                            {(row) => (
+                                                <button
+                                                    onClick={() => props.onOpen(row.project.id, 'board')}
+                                                    class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:cursor-pointer"
+                                                    title={`Open ${row.project.title} on the board`}
+                                                >
+                                                    <span class="material-symbols-outlined shrink-0 text-[19px]" style={{ color: row.project.accent }}>flag</span>
+                                                    <div class="min-w-0 flex-1">
+                                                        <p class="text-main truncate text-base">{row.milestone.title}</p>
+                                                        <p class="text-sub/80 truncate text-xs">
+                                                            {row.project.title} · {row.done}/{row.total} done
+                                                        </p>
+                                                    </div>
+                                                    <Show when={row.milestone.due_at}>
+                                                        <span
+                                                            class="shrink-0 rounded px-1.5 py-0.5 text-xs font-bold"
+                                                            classList={{
+                                                                'bg-danger/20 text-danger': dueMs(row.milestone.due_at) < startOfToday(),
+                                                                'bg-element-accent text-sub': dueMs(row.milestone.due_at) >= startOfToday(),
+                                                            }}
+                                                        >
+                                                            {fmtDue(row.milestone.due_at!)}
+                                                        </span>
+                                                    </Show>
+                                                </button>
+                                            )}
+                                        </For>
+                                    </div>
+                                </Show>
+                            </OverviewCard>
+
+                            <OverviewCard title="Open work" pad="p-4 sm:p-6" note={<span class="text-sub text-sm">{openCards().length} cards, by priority</span>}>
+                                <div class="flex flex-col gap-2">
+                                    <For each={priorityCounts()}>
+                                        {(pr) => (
+                                            <div class="flex items-center gap-3">
+                                                <span class="text-sub w-16 shrink-0 text-sm">{pr.label}</span>
+                                                <div class="bg-element-accent h-4 flex-1 overflow-hidden rounded">
                                                     <div
                                                         class="h-full rounded transition-all"
                                                         style={{
-                                                            width: `${Math.round((row.count / Math.max(1, ...labelCounts().map((x) => x.count))) * 100)}%`,
-                                                            'background-color': `${labelColor(row.label)}cc`,
-                                                            'min-width': '4px',
+                                                            width: `${Math.round((pr.count / Math.max(1, ...priorityCounts().map((x) => x.count))) * 100)}%`,
+                                                            'background-color': pr.color || 'var(--theme-element-accent)',
+                                                            'min-width': pr.count > 0 ? '4px' : '0',
                                                         }}
                                                     />
                                                 </div>
-                                                <span class="text-main w-8 shrink-0 text-right font-mono text-sm font-bold">{row.count}</span>
+                                                <span class="text-main w-8 shrink-0 text-right font-mono text-sm font-bold">{pr.count}</span>
                                             </div>
                                         )}
                                     </For>
                                 </div>
-                            </Show>
-                        </OverviewCard>
+                                <p class="text-sub/60 mt-4 text-xs">
+                                    <span class="text-main font-mono">{unscheduled().length}</span> of them carry no date at all.
+                                </p>
+                            </OverviewCard>
+
+                            <OverviewCard
+                                title="Labels"
+                                pad="p-4 sm:p-6"
+                                body="max-h-96 overflow-y-auto"
+                                note={<span class="text-sub text-sm">across the open work</span>}
+                            >
+                                <Show when={labelCounts().length > 0} fallback={<p class="text-sub/50 italic">No labels yet. Cards grow them on the board.</p>}>
+                                    <div class="flex flex-col gap-2">
+                                        <For each={labelCounts()}>
+                                            {(row) => (
+                                                <div class="flex items-center gap-3">
+                                                    <span
+                                                        class="w-24 shrink-0 truncate rounded px-1.5 py-0.5 text-center text-xs font-medium"
+                                                        style={{ color: labelColor(row.label), border: `1px solid ${labelColor(row.label)}44` }}
+                                                    >
+                                                        {row.label}
+                                                    </span>
+                                                    <div class="bg-element-accent h-3 flex-1 overflow-hidden rounded">
+                                                        <div
+                                                            class="h-full rounded transition-all"
+                                                            style={{
+                                                                width: `${Math.round((row.count / Math.max(1, ...labelCounts().map((x) => x.count))) * 100)}%`,
+                                                                'background-color': `${labelColor(row.label)}cc`,
+                                                                'min-width': '4px',
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <span class="text-main w-8 shrink-0 text-right font-mono text-sm font-bold">{row.count}</span>
+                                                </div>
+                                            )}
+                                        </For>
+                                    </div>
+                                </Show>
+                            </OverviewCard>
+                        </div>
                     </div>
                 </div>
             </Show>
