@@ -154,10 +154,31 @@ Everything open with a due date on it, wherever it lives: dated Todo list items
 and the dated cards and milestones of every live Project, in one run sorted by
 date and then by priority, grouped under Overdue, Today, Tomorrow, This week
 and Later. It is a view, not a stored thing: nothing is filed on the Agenda,
-things simply have dates. The Tasks module draws it as a view of its own, the
-Projects overview draws the project half of it as a timeline, and it can be
-embedded.
-_Avoid_: schedule, calendar, planner, due list.
+things simply have dates. It is what the Planner draws on its days, and it is
+embeddable on its own.
+_Avoid_: schedule, calendar, due list. Distinct from the Planner, which also
+holds the undated.
+
+**Planner**:
+The surface that answers when work is happening: a fortnight of day columns, a
+month to drag onto, the same rows as a grouped list, and a tray of everything
+with no date yet. One component draws it for both modules, over one row type,
+and which work it holds is a scope (everything, tasks, project work) rather
+than a separate screen. See
+[ADR-0022](adr/0022-one-planner-two-modules.md).
+
+The Tasks module's second view is called the Planner. The Projects overview's
+is called its agenda, because there everything on it is dated; the tray sits
+under it either way.
+_Avoid_: schedule, timeline (that is one of its views), agenda (an Agenda is
+what is due, and half of a planner has no date yet).
+
+**Container** (on the planner):
+A row that holds other rows rather than being work itself: a Milestone, or a
+Todo list on a day several of its Tasks fall on. Drawn with its own surface,
+its title in its colour, and a meter counting what is finished as well as what
+is not. A container is never ticked off (its contents finish it) and a list
+container is never dragged (it has no date of its own).
 
 **Agenda embed**:
 An Embed of the Agenda. Renders as a _live_ Preview: the same groups, capped

@@ -65,7 +65,7 @@ say portfolio overview and project overview.
 _Avoid_: dashboard, home, summary
 
 **Timeline**:
-How the Overview's agenda draws its deadlines by default: a column per day for
+How the planner draws its rows by default: a column per day for
 a fortnight, with what has already passed and what falls beyond the run held at
 either end. It runs across or down, per the button on the card. An empty day
 still takes its place in the run, because the gaps are half of what a timeline
@@ -75,28 +75,32 @@ _Avoid_: gantt, schedule. The Calendar is a different view, not another word
 for this one.
 
 **Calendar**:
-The Overview agenda drawn as a month of weeks, six rows always so paging does
+The planner drawn as a month of weeks, six rows always so paging does
 not move what you are aiming at. Every day takes a drop, including the days
 either side of the month, which is how work further out than the Timeline's
 fortnight gets a date at all. A day holds three chips and then says how many
 more. While something is held, the arrows and the rails at either side of the
 grid page the month for as long as the pointer rests on them, since a drag
 cannot let go to press a button.
-_Avoid_: month view, planner, schedule
+_Avoid_: month view, schedule. It is one view of the planner, not the planner.
 
 **Agenda view**:
-Which of the three the Overview is drawing: Timeline, Calendar or List. Chosen
-on the agenda card itself and mirrored in Settings (Modals, Projects), one
-value either way. List is the only one that is read rather than dropped onto,
-which is why the unscheduled tray goes with it.
+Which of the three the planner is drawing: Timeline, Calendar or List. Chosen
+on the surface itself; the Overview's choice is mirrored in Settings (Modals,
+Projects), one value either way. List is the only one that is read rather than
+dropped onto, which is why the unscheduled tray goes with the other two. Each
+surface keeps its own choice: a portfolio screen and the place the shopping
+lives want arranging differently.
 _Avoid_: mode, layout, display
 
 **Unscheduled**:
-Outstanding cards and milestones with no due date, in a card of their own
-directly under the timeline or the calendar, close enough that a row can be
-dragged onto a day without losing sight of either. Work, not backlog:
-everything in it is live, it simply has no date yet. Ordered by project, by
-priority or by name, whichever was asked for last.
+Outstanding work with no due date, in a card of its own directly under the
+timeline or the calendar, close enough that a row can be dragged onto a day
+without losing sight of either. Cards and milestones on the Overview; tasks in
+the Tasks module's planner, which is the whole reason a chore belonging to no
+project can be planned at all. Work, not backlog: everything in it is live, it
+simply has no date yet. Ordered by where it lives, by priority or by name,
+whichever was asked for last.
 _Avoid_: backlog, inbox, undated pile
 
 **Deadline**:
