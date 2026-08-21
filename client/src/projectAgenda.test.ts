@@ -10,7 +10,6 @@ import {
     weekStartDay,
     timelineDays,
     timelineEnds,
-    unscheduledWork,
     TIMELINE_DAYS,
     type ProjectDeadline,
 } from './projectAgenda'
@@ -178,70 +177,6 @@ describe('the timeline', () => {
         // The last day drawn is a column, not "later".
         expect(timelineEnds([deadline('edge', TIMELINE_DAYS - 1)]).later).toEqual([])
         expect(timelineDays([deadline('edge', TIMELINE_DAYS - 1)])[TIMELINE_DAYS - 1].rows.map((r) => r.id)).toEqual(['edge'])
-    })
-})
-
-describe('unscheduledWork', () => {
-    it('lists the outstanding work that has no date, and nothing that has one', () => {
-        const rows = unscheduledWork([
-            project({
-                milestones: [milestone('dated', iso(3)), milestone('undated')],
-                cards: [
-                    card('c-dated', { due_at: iso(1) }),
-                    card('c-undated'),
-                    card('c-done', { done: true }),
-                    card('c-dismissed', { dismissed: true }),
-                ],
-            }),
-        ])
-        expect(rows.map((r) => r.id)).toEqual(['c-undated', 'undated'])
-        expect(rows.every((r) => !r.dueAt)).toBe(true)
-    })
-
-    it('leaves archived projects alone, the way the agenda does', () => {
-        expect(unscheduledWork([project({ archived: true, cards: [card('c1')] })])).toEqual([])
-    })
-
-    it('drops a milestone whose cards are all finished, and keeps an empty one', () => {
-        const finished = unscheduledWork([project({ milestones: [milestone('m1')], cards: [card('c1', { done: true })] })])
-        expect(finished).toEqual([])
-        expect(unscheduledWork([project({ milestones: [milestone('m1')] })]).map((r) => r.id)).toEqual(['m1'])
-    })
-
-    describe('the order it comes back in', () => {
-        // Two projects, so the three orders actually differ. Named out of
-        // alphabetical order on purpose: a sort that happens to agree with
-        // insertion order proves nothing.
-        const projects = [
-            project({
-                id: 'p2',
-                title: 'Zinc works',
-                milestones: [milestone('m1')],
-                cards: [card('anvil', { priority: 1 }), card('crucible', { priority: 3 })],
-            }),
-            project({
-                id: 'p1',
-                title: 'Bindery',
-                milestones: [milestone('m2')],
-                cards: [card('boards', { priority: 2, milestone_id: 'm2' })],
-            }),
-        ]
-
-        it('groups by project, highest priority first inside one', () => {
-            expect(unscheduledWork(projects, 'project').map((r) => r.id)).toEqual(['boards', 'm2', 'crucible', 'anvil', 'm1'])
-        })
-
-        it('puts the most urgent first whatever project it is on', () => {
-            expect(unscheduledWork(projects, 'priority').map((r) => r.id)).toEqual(['crucible', 'boards', 'anvil', 'm2', 'm1'])
-        })
-
-        it('reads alphabetically by name, projects mixed together', () => {
-            expect(unscheduledWork(projects, 'name').map((r) => r.id)).toEqual(['anvil', 'boards', 'crucible', 'm1', 'm2'])
-        })
-
-        it('groups by project when nobody asked for an order', () => {
-            expect(unscheduledWork(projects)).toEqual(unscheduledWork(projects, 'project'))
-        })
     })
 })
 

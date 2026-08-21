@@ -10,7 +10,8 @@
 import { createSignal } from 'solid-js'
 import type { TagColorPreset } from './tagColors'
 import { syncKey } from './appearance'
-import { AGENDA_VIEWS, isWorkSort, type AgendaView, type WorkSort } from './projectAgenda'
+import { AGENDA_VIEWS, type AgendaView } from './projectAgenda'
+import { isPlannerSort, type PlannerSort } from './planner'
 
 // Rich-menu widgets (§ desktop Menu revamp). Order in MENU_WIDGETS is the
 // default display order; `label`/`blurb` drive the Widgets settings category.
@@ -186,7 +187,7 @@ export interface Prefs {
     // default, which is the order it was written in; the question someone
     // brings to that pile tends to be the same question most days, so it is
     // remembered rather than asked again.
-    projectsUnscheduledSort: WorkSort
+    projectsUnscheduledSort: PlannerSort
     // --- Desktop-client (Electron) only; stored here but surfaced in the
     // desktop client's settings, not the PWA. Defaults are harmless in-web. ---
     font: string // '' = theme default serif
@@ -222,7 +223,7 @@ export const DEFAULT_PREFS: Prefs = {
     projectCardNoteHint: 'preview',
     projectsAgendaView: 'timeline',
     projectsAgendaVertical: false,
-    projectsUnscheduledSort: 'project',
+    projectsUnscheduledSort: 'home',
     todoWidth: 'large',
     projectCardWidth: 'medium',
     canvasWidth: 'wide',
@@ -296,7 +297,13 @@ function load(): Prefs {
         if (!['preview', 'label'].includes(merged.projectCardNoteHint)) {
             merged.projectCardNoteHint = DEFAULT_PREFS.projectCardNoteHint
         }
-        if (!isWorkSort(merged.projectsUnscheduledSort)) {
+        // The sort was named for the project it grouped by; the planner
+        // draws lists as well now, so the value is named for the question
+        // instead. Anyone who chose it keeps it.
+        if ((parsed.projectsUnscheduledSort as string) === 'project') {
+            merged.projectsUnscheduledSort = 'home'
+        }
+        if (!isPlannerSort(merged.projectsUnscheduledSort)) {
             merged.projectsUnscheduledSort = DEFAULT_PREFS.projectsUnscheduledSort
         }
         // Carried forward from the boolean this replaced: a reader who turned

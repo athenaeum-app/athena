@@ -108,42 +108,6 @@ export function projectDeadlines(projects: Project[]): ProjectDeadline[] {
         .sort((a, b) => dueMs(a.dueAt) - dueMs(b.dueAt) || b.priority - a.priority)
 }
 
-// How a pile of undated work can be ordered. Three questions get asked of it:
-// what is on this project, what is most important, and where is the one called
-// X. Each is a different order, and no one of them answers the other two.
-export const WORK_SORTS = [
-    { v: 'project', label: 'Project' },
-    { v: 'priority', label: 'Priority' },
-    { v: 'name', label: 'Name' },
-] as const
-
-export type WorkSort = (typeof WORK_SORTS)[number]['v']
-
-export const isWorkSort = (value: string): value is WorkSort => WORK_SORTS.some((s) => s.v === value)
-
-// Every order falls back through the other two, so rows that tie on the chosen
-// one still come out in a stable and readable sequence rather than in whatever
-// order the projects happened to load.
-const workOrder: Record<WorkSort, (a: ProjectWorkItem, b: ProjectWorkItem) => number> = {
-    project: (a, b) => a.projectTitle.localeCompare(b.projectTitle) || b.priority - a.priority || a.title.localeCompare(b.title),
-    priority: (a, b) => b.priority - a.priority || a.projectTitle.localeCompare(b.projectTitle) || a.title.localeCompare(b.title),
-    name: (a, b) => a.title.localeCompare(b.title) || a.projectTitle.localeCompare(b.projectTitle),
-}
-
-export const sortWork = (items: ProjectWorkItem[], sort: WorkSort = 'project'): ProjectWorkItem[] =>
-    [...items].sort(workOrder[sort])
-
-// The undated part: work that is real but has never been put on a day. The
-// overview keeps it beside the timeline so a date can be given by dragging it
-// onto one. By project unless asked otherwise, since that is the order it was
-// written in.
-export function unscheduledWork(projects: Project[], sort: WorkSort = 'project'): ProjectWorkItem[] {
-    return sortWork(
-        projectWork(projects).filter((item) => !item.dueAt),
-        sort,
-    )
-}
-
 // The deadline windows an agenda is read in. Ordered soonest first; a row
 // falls in the first window it fits.
 export interface DueBucket<T> {
@@ -185,20 +149,27 @@ export function bucketByDue<T>(rows: T[], dueOf: (row: T) => string | undefined)
 // past that the gaps say nothing, so what is left is gathered into "Later".
 export const TIMELINE_DAYS = 14
 
-export interface TimelineDay {
+// Anything the run of days can hold: a project's deadline, a task, whatever a
+// planner row turns out to be. Only the date is read here, so only the date is
+// asked for.
+export interface Dated {
+    dueAt: string
+}
+
+export interface TimelineDay<T extends Dated = ProjectDeadline> {
     // Local midnight, which is what dueMs compares against.
     at: number
     today: boolean
     weekend: boolean
-    rows: ProjectDeadline[]
+    rows: T[]
 }
 
 // Walks the calendar a day at a time rather than adding 24 hours: a day is
 // not always 86400 seconds long, and an hour lost to daylight saving would
 // slide every column after it onto the wrong date.
-export function timelineDays(deadlines: ProjectDeadline[], span = TIMELINE_DAYS): TimelineDay[] {
+export function timelineDays<T extends Dated>(deadlines: T[], span = TIMELINE_DAYS): TimelineDay<T>[] {
     const cursor = new Date(startOfToday())
-    const days: TimelineDay[] = []
+    const days: TimelineDay<T>[] = []
     for (let i = 0; i < span; i++) {
         const at = cursor.getTime()
         const weekday = cursor.getDay()
@@ -215,7 +186,7 @@ export function timelineDays(deadlines: ProjectDeadline[], span = TIMELINE_DAYS)
 
 // The two ends of that run: what a column cannot show because it has already
 // passed, and what falls beyond the last day drawn.
-export function timelineEnds(deadlines: ProjectDeadline[], span = TIMELINE_DAYS): { overdue: ProjectDeadline[]; later: ProjectDeadline[] } {
+export function timelineEnds<T extends Dated>(deadlines: T[], span = TIMELINE_DAYS): { overdue: T[]; later: T[] } {
     const today = startOfToday()
     const after = new Date(today)
     after.setDate(after.getDate() + span)
@@ -243,7 +214,7 @@ export type AgendaView = (typeof AGENDA_VIEWS)[number]['v']
 // in detail; a month is how anything further out gets a date at all, since a
 // run of fourteen columns cannot hold a day in October.
 
-export interface CalendarDay extends TimelineDay {
+export interface CalendarDay<T extends Dated = ProjectDeadline> extends TimelineDay<T> {
     // False for the days either side of the month, which are drawn dimmed and
     // still take a drop: the turn of a month should not be a wall.
     inMonth: boolean
@@ -293,16 +264,16 @@ export function weekStartDay(locale: string = navigator.language): number {
 // setDate rather than by adding a day's worth of milliseconds, for the same
 // reason the timeline is: an hour lost to daylight saving would slide every
 // day after it onto the wrong date.
-export function calendarWeeks(deadlines: ProjectDeadline[], monthAt: number, firstDay = weekStartDay()): CalendarDay[][] {
+export function calendarWeeks<T extends Dated>(deadlines: T[], monthAt: number, firstDay = weekStartDay()): CalendarDay<T>[][] {
     const first = new Date(monthStart(monthAt))
     const month = first.getMonth()
     const today = startOfToday()
     const cursor = new Date(first)
     cursor.setDate(1 - ((first.getDay() - firstDay + 7) % 7))
 
-    const weeks: CalendarDay[][] = []
+    const weeks: CalendarDay<T>[][] = []
     for (let week = 0; week < CALENDAR_WEEKS; week++) {
-        const days: CalendarDay[] = []
+        const days: CalendarDay<T>[] = []
         for (let day = 0; day < 7; day++) {
             const at = cursor.getTime()
             const weekday = cursor.getDay()

@@ -32,7 +32,6 @@ import {
 } from '../projectDocuments'
 import {
     AGENDA_VIEWS,
-    WORK_SORTS,
     bucketByDue,
     calendarWeeks,
     monthStart,
@@ -40,11 +39,9 @@ import {
     shiftMonth,
     timelineDays,
     timelineEnds,
-    unscheduledWork,
     type ProjectDeadline,
     type ProjectWorkItem,
     type TimelineDay,
-    type WorkSort,
 } from '../projectAgenda'
 import { loadUsers, userName } from '../users'
 import { Editor } from './Editor'
@@ -55,6 +52,16 @@ import { formatDue as fmtDue } from '../agenda'
 import { prefs, setPref, MODAL_WIDTH_CLASS } from '../prefs'
 import { PRIORITIES, priorityColor, priorityIcon } from '../priority'
 import { Meter } from './Meter'
+import {
+    PlannerBody,
+    PlannerTray,
+    PlannerViewSwitch,
+    createPlannerDrag,
+    edgeAutoScroll,
+    isoAtNoon,
+    type PlannerHandlers,
+} from './Planner'
+import { datedRows, plannerFromProjects, undatedRows, type PlannerRow } from '../planner'
 import { desktop } from '../desktop'
 import { Modal } from './Modal'
 
@@ -430,9 +437,9 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
     // field patch here, and noon rather than midnight so the day it lands on
     // is the day it was dropped on wherever it is read. null takes the date
     // off, which is what dropping into the unscheduled tray means.
-    const scheduleWork = (item: ProjectWorkItem, at: number | null) => {
+    const scheduleWork = (item: PlannerRow, at: number | null) => {
         const iso = at === null ? '' : isoAtNoon(at)
-        mutate(item.projectId, (p) => {
+        mutate(item.homeId, (p) => {
             if (item.kind === 'card') {
                 const card = p.cards.find((c) => c.id === item.id)
                 if (card) card.due_at = iso || undefined
@@ -479,9 +486,9 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
     // by the cards inside it. The server stamps completed_at, which the
     // momentum graph and Recently finished both read, so the response is
     // merged back rather than assumed.
-    const completeWork = (item: ProjectWorkItem) => {
+    const completeWork = (item: PlannerRow) => {
         const withCard = (fn: (c: ProjectCard) => void) =>
-            mutate(item.projectId, (p) => {
+            mutate(item.homeId, (p) => {
                 const card = p.cards.find((c) => c.id === item.id)
                 if (card) fn(card)
             })
@@ -682,10 +689,10 @@ const Portfolio: Component<{
     setView: (v: PortfolioView) => void
     canManage: boolean
     onRetry: () => void
-    onSchedule: (item: ProjectWorkItem, at: number | null) => void
+    onSchedule: (item: PlannerRow, at: number | null) => void
     onOpen: (id: string, tab?: HubTab) => void
     onOpenCard: (id: string) => void
-    onComplete: (item: ProjectWorkItem) => void
+    onComplete: (item: PlannerRow) => void
     onNew: () => void
     onRestore: (id: string) => void
     onDeleteForever: (id: string) => void
@@ -955,729 +962,37 @@ const PortfolioSpine: Component<{ projects: Project[] }> = (props) => (
 // Same mechanism as the board's card drag (HTML5, not pointer events), so a
 // touch screen cannot do it. The card's own date field still can, which is
 // why nothing here is the only way to set a date.
-interface AgendaDrag {
-    // Whether dragging is allowed at all: a viewer reads the agenda, it does
-    // not schedule anything.
-    enabled: boolean
-    item: () => ProjectWorkItem | null
-    start: (item: ProjectWorkItem) => void
-    end: () => void
-    // Which target the pointer is over, so it can say it will take the drop.
-    // A day is its midnight; the unscheduled tray is 'none'.
-    over: () => number | 'none' | null
-    // at: local midnight of the day to move it to, or null to clear the date.
-    schedule: (item: ProjectWorkItem, at: number | null) => void
-    setOver: (target: number | 'none' | null) => void
-}
-
-// Noon, not midnight: a date stored at midnight lands on the day before as
-// soon as it is read a timezone to the west.
-const isoAtNoon = (at: number) => {
-    const date = new Date(at)
-    date.setHours(12, 0, 0, 0)
-    return date.toISOString()
-}
-
-// The handlers that make something a drop target. Spread onto the element,
-// because the timeline has six of them and they must behave identically.
-const dropTarget = (drag: AgendaDrag, key: number | 'none') => ({
-    onDragOver: (e: DragEvent) => {
-        if (!drag.item()) return
-        // Without preventDefault the browser refuses the drop.
-        e.preventDefault()
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-        if (drag.over() !== key) drag.setOver(key)
-    },
-    onDragLeave: () => {
-        if (drag.over() === key) drag.setOver(null)
-    },
-    onDrop: (e: DragEvent) => {
-        e.preventDefault()
-        const item = drag.item()
-        drag.setOver(null)
-        drag.end()
-        if (item) drag.schedule(item, key === 'none' ? null : key)
-    },
-})
-
-// One row of work, wherever the agenda draws it: in a day's column, in a
-// day's row, in the plain list, or in the tray of undated work. Plain until
-// hovered, with the project's colour down its left edge so a column of
-// several projects is still readable.
-//
-// A milestone is drawn as what it is, which is not another card: it is the
-// container the cards around it feed into. It takes a surface of its own, says
-// MILESTONE outright, wears its title in the project's colour and carries a
-// meter for the work inside it. A card stays plain and points back at its
-// milestone with a chip, so the relationship is drawn once, in the direction
-// it actually runs.
-const DeadlineRow: Component<{
-    row: ProjectWorkItem
-    overdue: boolean
-    drag: AgendaDrag
-    // Handed the row rather than a project id: what a row opens depends on
-    // what it is, and that is the agenda's decision to make once rather than
-    // every surface's to make again.
-    onOpen: (row: ProjectWorkItem) => void
-    // Absent for a reader who cannot write. A milestone never gets one: a
-    // milestone is finished by its cards, and a tick here would be a claim the
-    // board would contradict on the spot.
-    onComplete?: (row: ProjectWorkItem) => void
-}> = (props) => {
-    const row = () => props.row
-    const dragging = () => props.drag.item()?.id === row().id
-    const milestone = () => row().kind === 'milestone'
-    const tickable = () => !!props.onComplete && !milestone()
-    return (
-        // A div rather than a button, since it holds a button: the tick has to
-        // be its own control, and a button inside a button is not markup a
-        // browser will keep.
-        <div
-            role="button"
-            tabindex={0}
-            onKeyDown={(e) => {
-                if (e.key !== 'Enter' && e.key !== ' ') return
-                e.preventDefault()
-                props.onOpen(row())
-            }}
-            draggable={props.drag.enabled}
-            onDragStart={(e) => {
-                // Firefox starts no drag at all without payload on the event.
-                e.dataTransfer?.setData('text/plain', row().id)
-                if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-                props.drag.start(row())
-            }}
-            onDragEnd={() => props.drag.end()}
-            onClick={() => props.onOpen(row())}
-            data-testid={milestone() ? 'agenda-milestone' : 'agenda-card'}
-            class="hover:bg-element-matte hover:border-highlight/60 flex w-full items-start gap-2.5 rounded-md border p-2 text-left transition-colors"
-            classList={{
-                'cursor-grab active:cursor-grabbing': props.drag.enabled,
-                'hover:cursor-pointer': !props.drag.enabled,
-                'opacity-40': dragging(),
-                'bg-element-matte border-element-accent': milestone(),
-                'border-transparent': !milestone(),
-            }}
-            style={{ 'border-left': `${milestone() ? 5 : 3}px solid ${row().accent}` }}
-            title={
-                props.drag.enabled
-                    ? `Drag to a day to date it, or click to open ${row().kind === 'card' ? 'the card' : row().projectTitle}`
-                    : row().kind === 'card'
-                      ? 'Open the card'
-                      : `Open ${row().projectTitle} on the board`
-            }
-        >
-            {/* One slot on the left, whatever the row is: a tick for work
-                that can be finished from here, and the thing's own mark for
-                everything else. */}
-            <Show
-                when={tickable()}
-                fallback={
-                    <span class="material-symbols-outlined mt-px shrink-0 text-[19px]" style={{ color: row().accent }}>
-                        {row().kind === 'milestone' ? 'flag' : row().icon}
-                    </span>
-                }
-            >
-                <button
-                    data-testid="agenda-complete"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        props.onComplete!(row())
-                    }}
-                    // The row drags from anywhere on it, so a tick has to tick
-                    // rather than pick the row up.
-                    onPointerDown={(e) => e.stopPropagation()}
-                    draggable={false}
-                    title={`Mark "${row().title}" done`}
-                    class="text-sub/70 hover:text-highlight mt-px shrink-0 transition-colors hover:cursor-pointer"
-                >
-                    <span class="material-symbols-outlined text-[19px]">check_box_outline_blank</span>
-                </button>
-            </Show>
-            <div class="min-w-0 flex-1">
-                <Show when={milestone()}>
-                    <p class="font-mono text-[10px] font-bold uppercase tracking-widest" style={{ color: row().accent }}>
-                        Milestone
-                    </p>
-                </Show>
-                <p
-                    class="text-base leading-snug"
-                    classList={{ 'text-main': !milestone(), 'font-semibold': milestone() }}
-                    style={milestone() ? { color: row().accent } : {}}
-                >
-                    {row().title}
-                </p>
-                <p class="text-sub/80 flex min-w-0 items-center gap-1.5 text-xs">
-                    {/* Capped rather than free: in a narrow column a long
-                        project name would eat the chip beside it entirely. */}
-                    <span class="max-w-[55%] shrink-0 truncate">{row().projectTitle}</span>
-                    {/* The card names its milestone as a chip rather than as
-                        more grey text: it is a place the card belongs to, not
-                        another line about the card. */}
-                    <Show when={!milestone() && row().milestoneTitle}>
-                        <span class="border-element-accent text-sub/70 flex min-w-0 shrink items-center gap-0.5 rounded border px-1 py-px">
-                            <span class="material-symbols-outlined shrink-0 text-[11px]">flag</span>
-                            <span class="truncate">{row().milestoneTitle}</span>
-                        </span>
-                    </Show>
-                </p>
-                {/* What a milestone is worth saying: how far the work inside
-                    it has got. */}
-                <Show when={milestone()}>
-                    <div class="mt-1.5 flex items-center gap-2">
-                        <Meter done={row().done ?? 0} total={row().total ?? 0} class="w-24" color={row().accent} />
-                        <span class="text-sub/80 shrink-0 font-mono text-[11px]">
-                            {row().done ?? 0}/{row().total ?? 0} done
-                        </span>
-                    </div>
-                </Show>
-            </div>
-            <Show when={priorityIcon(row().priority)}>
-                <span
-                    class="material-symbols-outlined mt-px shrink-0 text-[17px]"
-                    style={{ color: priorityColor(row().priority) }}
-                    title={`${PRIORITIES.find((p) => p.v === row().priority)?.label} priority`}
-                >
-                    {priorityIcon(row().priority)}
-                </span>
-            </Show>
-            <Show when={props.overdue && row().dueAt}>
-                <span class="bg-danger/20 text-danger shrink-0 rounded px-1.5 py-0.5 text-xs font-bold">{fmtDue(row().dueAt!)}</span>
-            </Show>
-        </div>
-    )
-}
-
-// The day columns, with their headings formatted here rather than in the
-// module: a date reads in the reader's own locale, and the grouping is worth
-// testing without a locale in the way.
-const dayHeadings = (day: TimelineDay) => ({
-    weekday: new Intl.DateTimeFormat(navigator.language, { weekday: 'short' }).format(new Date(day.at)),
-    label: new Intl.DateTimeFormat(navigator.language, { month: 'short', day: 'numeric' }).format(new Date(day.at)),
-})
-
-// Long enough to read as a date, short enough to sit under a heading.
-const dayTitle = (day: TimelineDay) =>
-    new Intl.DateTimeFormat(navigator.language, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(day.at))
-
-// A drag holds the pointer, and a held pointer does not scroll anything: the
-// browser auto-scrolls the page during a drag but not an overflow container,
-// so a fortnight wider than the window would be undroppable past its edge.
-// Nearing either end scrolls it, and keeps scrolling while the pointer waits
-// there, which is what a hand hovering at the edge means.
-const edgeAutoScroll = (axis: 'x' | 'y') => {
-    let el: HTMLElement | undefined
-    let timer: ReturnType<typeof setInterval> | undefined
-    const stop = () => {
-        clearInterval(timer)
-        timer = undefined
-    }
-    onCleanup(stop)
-    const EDGE = 72
-    const STEP = 10
-    return {
-        ref: (node: HTMLElement) => (el = node),
-        stop,
-        onDragOver: (e: DragEvent) => {
-            if (!el) return
-            const box = el.getBoundingClientRect()
-            const way =
-                axis === 'x'
-                    ? e.clientX < box.left + EDGE
-                        ? -1
-                        : e.clientX > box.right - EDGE
-                          ? 1
-                          : 0
-                    : e.clientY < box.top + EDGE
-                      ? -1
-                      : e.clientY > box.bottom - EDGE
-                        ? 1
-                        : 0
-            stop()
-            if (!way) return
-            timer = setInterval(() => el?.scrollBy(axis === 'x' ? { left: way * STEP } : { top: way * STEP }), 16)
-        },
-    }
-}
-
-const TimelineHorizontal: Component<{
-    deadlines: ProjectDeadline[]
-    drag: AgendaDrag
-    onOpen: (row: ProjectWorkItem) => void
-    onComplete?: (row: ProjectWorkItem) => void
-}> = (props) => {
-    const days = createMemo(() => timelineDays(props.deadlines))
-    const ends = createMemo(() => timelineEnds(props.deadlines))
-    const scroll = edgeAutoScroll('x')
-    return (
-        // Scrolls sideways rather than compressing: a fortnight of columns
-        // never fits a panel, and a column too narrow to read a card in is
-        // worse than one that has to be scrolled to.
-        <div
-            ref={scroll.ref}
-            onDragOver={scroll.onDragOver}
-            onDragLeave={scroll.stop}
-            onDrop={scroll.stop}
-            onDragEnd={scroll.stop}
-            data-testid="agenda-timeline"
-            /* overflow-y-hidden on purpose: a box with overflow-x auto and
-               overflow-y visible computes to auto on both, and the scrollbar
-               that puts on the side scrolls the two pixels of its own gutter
-               and nothing else. */
-            class="-mx-1 flex min-h-56 gap-2 overflow-x-auto overflow-y-hidden px-1 pb-2"
-        >
-            <Show when={ends().overdue.length > 0}>
-                <div class="border-danger/60 flex w-64 shrink-0 flex-col rounded-lg border-t-2 pt-2">
-                    <p class="text-danger mb-2 text-sm font-bold uppercase tracking-wide">Overdue</p>
-                    <div class="flex flex-col gap-1.5">
-                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
-                    </div>
-                </div>
-            </Show>
-            <For each={days()}>
-                {(day) => (
-                    <div
-                        {...dropTarget(props.drag, day.at)}
-                        data-testid="agenda-day"
-                        class="flex shrink-0 flex-col rounded-lg border-t-2 pt-2 transition-all"
-                        classList={{
-                            // An empty day stays a sliver even mid-drag:
-                            // widening all fourteen of them would push the
-                            // run past the edge of a window that cannot be
-                            // scrolled while something is held. The one under
-                            // the pointer opens up, which is the only one
-                            // being aimed at.
-                            'w-64': day.rows.length > 0 || props.drag.over() === day.at,
-                            'w-20': day.rows.length === 0 && props.drag.over() !== day.at,
-                            'border-highlight': day.today,
-                            'border-element-accent': !day.today,
-                            'opacity-50': day.rows.length === 0 && !day.today && props.drag.over() !== day.at,
-                            'bg-highlight/10 ring-highlight ring-1': props.drag.over() === day.at,
-                        }}
-                        title={props.drag.item() ? `Move to ${dayTitle(day)}` : undefined}
-                    >
-                        <p class="mb-2 flex items-baseline gap-1.5">
-                            <span class="text-sm font-bold uppercase tracking-wide" classList={{ 'text-highlight': day.today, 'text-main': !day.today }}>
-                                {day.today ? 'Today' : dayHeadings(day).weekday}
-                            </span>
-                            <span class="text-sub text-xs" classList={{ 'font-bold': day.weekend }}>{dayHeadings(day).label}</span>
-                        </p>
-                        <div class="flex flex-1 flex-col gap-1.5">
-                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
-                        </div>
-                    </div>
-                )}
-            </For>
-            <Show when={ends().later.length > 0}>
-                <div class="border-element-accent flex w-64 shrink-0 flex-col rounded-lg border-t-2 pt-2">
-                    <p class="text-sub mb-2 text-sm font-bold uppercase tracking-wide">Later</p>
-                    <div class="flex flex-col gap-1.5">
-                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
-                    </div>
-                </div>
-            </Show>
-        </div>
-    )
-}
-
-const TimelineVertical: Component<{
-    deadlines: ProjectDeadline[]
-    drag: AgendaDrag
-    onOpen: (row: ProjectWorkItem) => void
-    onComplete?: (row: ProjectWorkItem) => void
-}> = (props) => {
-    const days = createMemo(() => timelineDays(props.deadlines))
-    const ends = createMemo(() => timelineEnds(props.deadlines))
-    // An empty day keeps its place in the run but not its height: the rhythm
-    // of the dates is what makes a gap read as a gap.
-    return (
-        <div data-testid="agenda-timeline" class="flex flex-col">
-            <Show when={ends().overdue.length > 0}>
-                <div class="border-danger/60 flex gap-4 border-l-2 pb-4 pl-4">
-                    <p class="text-danger w-24 shrink-0 text-sm font-bold uppercase tracking-wide">Overdue</p>
-                    <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
-                        <For each={ends().overdue}>{(row) => <DeadlineRow row={row} overdue drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
-                    </div>
-                </div>
-            </Show>
-            <For each={days()}>
-                {(day) => (
-                    <div
-                        {...dropTarget(props.drag, day.at)}
-                        data-testid="agenda-day"
-                        class="flex gap-4 rounded-r-lg border-l-2 pl-4 transition-colors"
-                        classList={{
-                            'border-highlight': day.today,
-                            'border-element-accent': !day.today,
-                            'pb-4': day.rows.length > 0,
-                            'pb-2': day.rows.length === 0,
-                            'bg-highlight/10': props.drag.over() === day.at,
-                        }}
-                        title={props.drag.item() ? `Move to ${dayTitle(day)}` : undefined}
-                    >
-                        <p class="w-24 shrink-0" classList={{ 'opacity-50': day.rows.length === 0 && !day.today && !props.drag.item() }}>
-                            <span class="block text-sm font-bold uppercase tracking-wide" classList={{ 'text-highlight': day.today, 'text-main': !day.today }}>
-                                {day.today ? 'Today' : dayHeadings(day).weekday}
-                            </span>
-                            <span class="text-sub text-xs" classList={{ 'font-bold': day.weekend }}>{dayHeadings(day).label}</span>
-                        </p>
-                        <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
-                            <For each={day.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
-                        </div>
-                    </div>
-                )}
-            </For>
-            <Show when={ends().later.length > 0}>
-                <div class="border-element-accent flex gap-4 border-l-2 pl-4 pt-2">
-                    <p class="text-sub w-24 shrink-0 text-sm font-bold uppercase tracking-wide">Later</p>
-                    <div class="grid min-w-0 flex-1 grid-cols-1 gap-x-6 gap-y-1.5 xl:grid-cols-2">
-                        <For each={ends().later}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
-                    </div>
-                </div>
-            </Show>
-        </div>
-    )
-}
-
-// The month, which is the only view that can reach a day in October: a run of
-// fourteen columns cannot hold one, so anything further out than a fortnight
-// used to be undateable by hand entirely.
-//
-// A drag cannot let go to press a button, so the months turn under it: holding
-// the pointer against either arrow, or against either edge of the grid, pages
-// while it is held. The days either side of the month take drops too, so the
-// turn of a month is not a wall.
-const MONTH_PAGE_DWELL_MS = 700
-
-// How many chips a day can show before it stops and counts the rest. Six weeks
-// of cells have to fit a screen, so a busy day says how busy rather than
-// growing until the grid does not.
-const CALENDAR_DAY_ROWS = 3
-
-const CalendarMonth: Component<{
-    deadlines: ProjectDeadline[]
-    drag: AgendaDrag
-    onOpen: (row: ProjectWorkItem) => void
-}> = (props) => {
-    const [month, setMonth] = createSignal(monthStart(Date.now()))
-    const weeks = createMemo(() => calendarWeeks(props.deadlines, month()))
-    const label = () => new Intl.DateTimeFormat(navigator.language, { month: 'long', year: 'numeric' }).format(new Date(month()))
-    const weekdays = createMemo(() => {
-        const format = new Intl.DateTimeFormat(navigator.language, { weekday: 'short' })
-        return weeks()[0].map((day) => format.format(new Date(day.at)))
-    })
-    const thisMonth = () => month() === monthStart(Date.now())
-
-    // Pages while the pointer is held there, and re-arms itself, so a hand
-    // resting on the edge walks forward a month at a time rather than once.
-    // Deliberately not a drop target: releasing on an arrow should leave the
-    // date alone rather than guess at a day.
-    const pager = (by: number) => {
-        let timer: ReturnType<typeof setTimeout> | undefined
-        const stop = () => {
-            clearTimeout(timer)
-            timer = undefined
-        }
-        onCleanup(stop)
-        return {
-            onDragOver: () => {
-                if (!props.drag.item() || timer) return
-                timer = setTimeout(() => {
-                    stop()
-                    setMonth((at) => shiftMonth(at, by))
-                }, MONTH_PAGE_DWELL_MS)
-            },
-            onDragLeave: stop,
-            onDragEnd: stop,
-            onDrop: stop,
-        }
-    }
-
-    const Arrow: Component<{ by: number; icon: string; label: string }> = (arrow) => (
-        <button
-            onClick={() => setMonth((at) => shiftMonth(at, arrow.by))}
-            {...pager(arrow.by)}
-            title={props.drag.item() ? `${arrow.label} (hold to keep going)` : arrow.label}
-            class="text-sub hover:text-main border-element-accent flex shrink-0 items-center rounded-md border px-1.5 py-1 transition-colors hover:cursor-pointer"
-        >
-            <span class="material-symbols-outlined text-base">{arrow.icon}</span>
-        </button>
-    )
-
-    return (
-        <div data-testid="agenda-calendar" class="flex flex-col">
-            <div class="mb-2 flex items-center gap-2">
-                <Arrow by={-1} icon="chevron_left" label="The month before" />
-                <p data-testid="calendar-month" class="text-main font-serif min-w-44 text-center text-lg font-semibold">
-                    {label()}
-                </p>
-                <Arrow by={1} icon="chevron_right" label="The month after" />
-                <Show when={!thisMonth()}>
-                    <button
-                        onClick={() => setMonth(monthStart(Date.now()))}
-                        title="Back to this month"
-                        class="text-sub hover:text-main border-element-accent shrink-0 rounded-md border px-2 py-1 text-xs transition-colors hover:cursor-pointer"
-                    >
-                        This month
-                    </button>
-                </Show>
-                <Show when={props.drag.enabled}>
-                    <p class="text-sub/70 ml-auto text-sm">Drop one on a day to date it. Hold at an edge to change month.</p>
-                </Show>
-            </div>
-
-            {/* The edges page too, and only while something is held: a hand
-                carrying a card is already at the side of the grid by the time
-                it wants the next month. */}
-            <div class="flex items-stretch gap-1">
-                <Show when={props.drag.item()}>
-                    <div
-                        {...pager(-1)}
-                        data-testid="calendar-page-back"
-                        class="border-element-accent bg-element text-sub/60 flex w-7 shrink-0 items-center justify-center rounded-md border border-dashed"
-                        title="Hold here to go back a month"
-                    >
-                        <span class="material-symbols-outlined text-base">chevron_left</span>
-                    </div>
-                </Show>
-                <div class="min-w-0 flex-1">
-                    <div class="mb-1 grid grid-cols-7 gap-1">
-                        <For each={weekdays()}>
-                            {(name) => <p class="text-sub/70 truncate px-1 text-xs font-bold uppercase tracking-wide">{name}</p>}
-                        </For>
-                    </div>
-                    <div class="grid grid-cols-7 gap-1">
-                        <For each={weeks().flat()}>
-                            {(day) => (
-                                <div
-                                    {...dropTarget(props.drag, day.at)}
-                                    data-testid="calendar-day"
-                                    class="flex min-h-24 flex-col gap-1 rounded-md border p-1 transition-colors"
-                                    classList={{
-                                        'border-highlight': day.today,
-                                        'border-element-accent/60': !day.today,
-                                        'bg-element': day.inMonth,
-                                        'opacity-50': !day.inMonth,
-                                        'bg-highlight/10 ring-highlight ring-1': props.drag.over() === day.at,
-                                    }}
-                                    title={props.drag.item() ? `Move to ${dayTitle(day)}` : dayTitle(day)}
-                                >
-                                    <p class="flex items-baseline gap-1 px-0.5">
-                                        <span
-                                            class="text-xs font-bold"
-                                            classList={{ 'text-highlight': day.today, 'text-main': !day.today && day.inMonth, 'text-sub': !day.inMonth }}
-                                        >
-                                            {new Date(day.at).getDate()}
-                                        </span>
-                                        <Show when={day.rows.length > CALENDAR_DAY_ROWS}>
-                                            <span class="text-sub/60 ml-auto font-mono text-[10px]">{day.rows.length}</span>
-                                        </Show>
-                                    </p>
-                                    <For each={day.rows.slice(0, CALENDAR_DAY_ROWS)}>
-                                        {(row) => <DeadlineChip row={row} drag={props.drag} onOpen={props.onOpen} />}
-                                    </For>
-                                    <Show when={day.rows.length > CALENDAR_DAY_ROWS}>
-                                        <p class="text-sub/60 px-0.5 text-[10px]">and {day.rows.length - CALENDAR_DAY_ROWS} more</p>
-                                    </Show>
-                                </div>
-                            )}
-                        </For>
-                    </div>
-                </div>
-                <Show when={props.drag.item()}>
-                    <div
-                        {...pager(1)}
-                        data-testid="calendar-page-on"
-                        class="border-element-accent bg-element text-sub/60 flex w-7 shrink-0 items-center justify-center rounded-md border border-dashed"
-                        title="Hold here to go on a month"
-                    >
-                        <span class="material-symbols-outlined text-base">chevron_right</span>
-                    </div>
-                </Show>
-            </div>
-        </div>
-    )
-}
-
-// A day in a month is a seventh of the width, which is no room for a row. The
-// chip keeps what survives that: the project's colour, the title, and whether
-// it is a milestone, which is filled rather than outlined because a container
-// should read as heavier than the work inside it.
-const DeadlineChip: Component<{
-    row: ProjectDeadline
-    drag: AgendaDrag
-    onOpen: (row: ProjectWorkItem) => void
-}> = (props) => {
-    const row = () => props.row
-    const milestone = () => row().kind === 'milestone'
-    return (
-        <button
-            draggable={props.drag.enabled}
-            onDragStart={(e) => {
-                e.dataTransfer?.setData('text/plain', row().id)
-                if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-                props.drag.start(row())
-            }}
-            onDragEnd={() => props.drag.end()}
-            onClick={() => props.onOpen(row())}
-            data-testid={milestone() ? 'calendar-milestone' : 'calendar-card'}
-            class="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] leading-tight transition-colors"
-            classList={{
-                'cursor-grab active:cursor-grabbing': props.drag.enabled,
-                'hover:cursor-pointer': !props.drag.enabled,
-                'opacity-40': props.drag.item()?.id === row().id,
-                'font-bold text-white': milestone(),
-                'text-main hover:bg-element-matte': !milestone(),
-            }}
-            style={
-                milestone()
-                    ? { 'background-color': row().accent }
-                    : { 'border-left': `3px solid ${row().accent}`, 'border-radius': '2px' }
-            }
-            title={`${row().title} (${row().projectTitle})`}
-        >
-            <Show when={milestone()}>
-                <span class="material-symbols-outlined shrink-0 text-[12px]">flag</span>
-            </Show>
-            <span class="truncate">{row().title}</span>
-        </button>
-    )
-}
-
-// The timeline off: the same deadlines under Overdue, Today, Tomorrow, This
-// week and Later, two abreast where there is room. Nothing is dragged here,
-// because a bucket is a range of days and a drop would have to guess which.
-const AgendaList: Component<{
-    deadlines: ProjectDeadline[]
-    drag: AgendaDrag
-    onOpen: (row: ProjectWorkItem) => void
-    onComplete?: (row: ProjectWorkItem) => void
-}> = (props) => {
-    const buckets = createMemo(() => bucketByDue(props.deadlines, (d) => d.dueAt))
-    const still: AgendaDrag = { ...props.drag, enabled: false }
-    return (
-        <div data-testid="agenda-list" class="flex flex-col gap-6">
-            <For each={buckets()}>
-                {(bucket) => (
-                    <div>
-                        <h4 class="border-element-accent/60 mb-2 flex items-center gap-2 border-b pb-1.5 text-sm font-bold uppercase tracking-wide">
-                            <span
-                                classList={{
-                                    'text-danger': bucket.key === 'overdue',
-                                    'text-highlight': bucket.key === 'today',
-                                    'text-sub': bucket.key !== 'overdue' && bucket.key !== 'today',
-                                }}
-                            >
-                                {bucket.label}
-                            </span>
-                            <span class="text-sub/60 font-mono text-xs">{bucket.rows.length}</span>
-                        </h4>
-                        <div class="grid grid-cols-1 gap-x-6 gap-y-1 lg:grid-cols-2 2xl:grid-cols-3">
-                            <For each={bucket.rows}>
-                                {(row) => <DeadlineRow row={row} overdue={bucket.key === 'overdue'} drag={still} onOpen={props.onOpen} onComplete={props.onComplete} />}
-                            </For>
-                        </div>
-                    </div>
-                )}
-            </For>
-        </div>
-    )
-}
-
-// Work with no date on it. It stays under the timeline rather than off in a
-// panel of its own, because the point of it is the short distance between a
-// card here and the day it belongs on; sticky, so that distance stays short
-// however far down the run has been scrolled. Dropping something here takes
-// its date off again.
-const UnscheduledTray: Component<{
-    rows: ProjectWorkItem[]
-    sort: WorkSort
-    drag: AgendaDrag
-    onOpen: (row: ProjectWorkItem) => void
-    onComplete?: (row: ProjectWorkItem) => void
-}> = (props) => (
-    <div
-        {...dropTarget(props.drag, 'none')}
-        data-testid="agenda-unscheduled"
-        class="bg-element border-element-accent/60 mt-5 rounded-lg border p-4 transition-colors sm:p-5"
-        classList={{ 'bg-highlight/10 ring-highlight ring-1': props.drag.over() === 'none' }}
-    >
-        <div class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <h3 class="text-main font-serif text-xl font-semibold">
-                Not scheduled <span class="text-sub/60 font-mono text-base">{props.rows.length}</span>
-            </h3>
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <Show when={props.drag.enabled}>
-                    <p class="text-sub/70 text-sm">Drag one onto a day to date it. Drag a dated one back here to take its date off.</p>
-                </Show>
-                {/* The order is the reader's, not the module's: a pile with no
-                    dates is read for a project, for what is urgent, or for one
-                    name, and those are three different orders. */}
-                <div data-testid="unscheduled-sort" class="border-element-accent flex shrink-0 overflow-hidden rounded-md border">
-                    <For each={WORK_SORTS}>
-                        {(sort) => (
-                            <button
-                                onClick={() => setPref('projectsUnscheduledSort', sort.v)}
-                                class="px-2.5 py-1 text-xs transition-colors hover:cursor-pointer"
-                                classList={{
-                                    'bg-highlight-strongest text-white': props.sort === sort.v,
-                                    'text-sub hover:text-main': props.sort !== sort.v,
-                                }}
-                                title={`Sort by ${sort.label.toLowerCase()}`}
-                            >
-                                {sort.label}
-                            </button>
-                        )}
-                    </For>
-                </div>
-            </div>
-        </div>
-        <Show
-            when={props.rows.length > 0}
-            fallback={<p class="text-sub/50 italic">Everything outstanding has a date on it.</p>}
-        >
-            <div class="grid max-h-72 grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
-                <For each={props.rows}>{(row) => <DeadlineRow row={row} overdue={false} drag={props.drag} onOpen={props.onOpen} onComplete={props.onComplete} />}</For>
-            </div>
-        </Show>
-    </div>
-)
-
 const Overview: Component<{
     projects: Project[]
     canManage: boolean
-    onSchedule: (item: ProjectWorkItem, at: number | null) => void
+    onSchedule: (item: PlannerRow, at: number | null) => void
     onOpen: (id: string, tab?: HubTab) => void
     onOpenCard: (id: string) => void
-    onComplete: (item: ProjectWorkItem) => void
+    onComplete: (item: PlannerRow) => void
 }> = (props) => {
     const liveProjects = createMemo(() => props.projects.filter((p) => !p.archived))
     const deadlines = createMemo(() => projectDeadlines(props.projects))
     const unscheduledSort = () => prefs().projectsUnscheduledSort
-    const unscheduled = createMemo(() => unscheduledWork(props.projects, unscheduledSort()))
-    const [dragItem, setDragItem] = createSignal<ProjectWorkItem | null>(null)
-    const [dragOver, setDragOver] = createSignal<number | 'none' | null>(null)
-    const drag: AgendaDrag = {
-        get enabled() {
-            return props.canManage
-        },
-        item: dragItem,
-        start: (item) => setDragItem(item),
-        end: () => {
-            setDragItem(null)
-            setDragOver(null)
-        },
-        over: dragOver,
-        setOver: setDragOver,
-        schedule: (item, at) => props.onSchedule(item, at),
-    }
+    // Every live project's work as planner rows, which is what the shared
+    // surface draws. The panels below still read projectDeadlines, because
+    // they ask project questions rather than calendar ones.
+    const work = createMemo(() => plannerFromProjects(props.projects))
+    const dated = createMemo(() => datedRows(work()))
+    const unscheduled = createMemo(() => undatedRows(work(), unscheduledSort()))
+    const drag = createPlannerDrag({ enabled: () => props.canManage, schedule: (item, at) => props.onSchedule(item, at) })
     // A card opens the card. A milestone opens the board: a milestone is a
     // column, and a column has no modal of its own.
-    const openRow = (row: ProjectWorkItem) =>
-        row.kind === 'card' ? props.onOpenCard(row.id) : props.onOpen(row.projectId, 'board')
+    const openRow = (row: PlannerRow) =>
+        row.kind === 'card' ? props.onOpenCard(row.id) : props.onOpen(row.homeId, 'board')
     // Undefined rather than a no-op for a reader who cannot write, so the row
     // draws no control it would have to refuse.
     const completeRow = () => (props.canManage ? props.onComplete : undefined)
+    const handlers = (): PlannerHandlers => ({
+        drag,
+        onOpen: openRow,
+        onComplete: completeRow(),
+        openTitle: (row) => (row.kind === 'card' ? 'Open the card' : `Open ${row.homeTitle} on the board`),
+    })
     const overdue = createMemo(() => deadlines().filter((d) => dueMs(d.dueAt) < startOfToday()))
     const dueThisWeek = createMemo(() => {
         const weekEnd = startOfToday() + 7 * 86400000
@@ -1820,79 +1135,21 @@ const Overview: Component<{
                             </span>
                         }
                         actions={
-                            <div class="flex items-center gap-2">
-                                {/* The view lives on the card it changes, not
-                                    only in a settings panel two screens away.
-                                    The setting is the same value. */}
-                                <div data-testid="agenda-view" class="border-element-accent flex overflow-hidden rounded-md border">
-                                    <For each={AGENDA_VIEWS}>
-                                        {(option) => (
-                                            <button
-                                                onClick={() => setPref('projectsAgendaView', option.v)}
-                                                class="flex items-center px-2 py-1 transition-colors hover:cursor-pointer"
-                                                classList={{
-                                                    'bg-highlight-strongest text-white': view() === option.v,
-                                                    'text-sub hover:text-main': view() !== option.v,
-                                                }}
-                                                title={option.label}
-                                            >
-                                                <span class="material-symbols-outlined text-base">{option.icon}</span>
-                                            </button>
-                                        )}
-                                    </For>
-                                </div>
-                                <Show when={view() === 'timeline'}>
-                                    <div class="border-element-accent flex overflow-hidden rounded-md border">
-                                        <For
-                                            each={[
-                                                { v: false, icon: 'view_column', label: 'Timeline across' },
-                                                { v: true, icon: 'view_agenda', label: 'Timeline down' },
-                                            ]}
-                                        >
-                                            {(o) => (
-                                                <button
-                                                    onClick={() => setPref('projectsAgendaVertical', o.v)}
-                                                    class="flex items-center px-2 py-1 transition-colors hover:cursor-pointer"
-                                                    classList={{
-                                                        'bg-highlight-strongest text-white': vertical() === o.v,
-                                                        'text-sub hover:text-main': vertical() !== o.v,
-                                                    }}
-                                                    title={o.label}
-                                                >
-                                                    <span class="material-symbols-outlined text-base">{o.icon}</span>
-                                                </button>
-                                            )}
-                                        </For>
-                                    </div>
-                                </Show>
-                            </div>
+                            <PlannerViewSwitch
+                                view={view()}
+                                setView={(v) => setPref('projectsAgendaView', v)}
+                                vertical={vertical()}
+                                setVertical={(v) => setPref('projectsAgendaVertical', v)}
+                            />
                         }
                     >
-                        {/* The empty case belongs to the list alone. A run of
-                            days and a month are surfaces you drop onto, and a
-                            portfolio with nothing dated yet is exactly when
-                            you want to drop something: hiding the days behind
-                            a line of text is what made the first date the
-                            hardest one to set. */}
-                        <Switch>
-                            <Match when={view() === 'calendar'}>
-                                <CalendarMonth deadlines={deadlines()} drag={drag} onOpen={openRow} />
-                            </Match>
-                            <Match when={view() === 'list'}>
-                                <Show
-                                    when={deadlines().length > 0}
-                                    fallback={<p class="text-sub/60 italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
-                                >
-                                    <AgendaList deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
-                                </Show>
-                            </Match>
-                            <Match when={view() === 'timeline' && vertical()}>
-                                <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
-                            </Match>
-                            <Match when={view() === 'timeline'}>
-                                <TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
-                            </Match>
-                        </Switch>
+                        <PlannerBody
+                            rows={dated()}
+                            view={view()}
+                            vertical={vertical()}
+                            handlers={handlers()}
+                            emptyNote="Nothing dated. Give a card or a milestone a due date to see it here."
+                        />
                     </OverviewCard>
 
                     {/* Its own card under the agenda, not a strip inside it:
@@ -1900,7 +1157,13 @@ const Overview: Component<{
                         squeezed under the days was too shallow to read and
                         too shallow to aim at. */}
                     <Show when={view() !== 'list'}>
-                        <UnscheduledTray rows={unscheduled()} sort={unscheduledSort()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
+                        <PlannerTray
+                            rows={unscheduled()}
+                            sort={unscheduledSort()}
+                            setSort={(sort) => setPref('projectsUnscheduledSort', sort)}
+                            homeWord="Project"
+                            handlers={handlers()}
+                        />
                     </Show>
 
                     {/* Under the agenda: the standing picture of the
