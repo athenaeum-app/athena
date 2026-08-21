@@ -68,7 +68,7 @@ swipeable cards and a bottom nav replaces the tag bar and side menu with sheets.
 Requirements: Node.js 20 or newer and Go 1.25 or newer.
 
 ```bash
-git clone https://github.com/athenaeum-app/athena-dev.git && cd athena-dev
+git clone https://github.com/athenaeum-app/athena.git && cd athena
 npm install
 npm run dev
 ```

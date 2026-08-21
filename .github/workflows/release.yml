@@ -87,26 +87,20 @@ jobs:
       # it themselves, since electron-builder would otherwise have each platform
       # create its own separate draft release for the same tag.
       #
-      # RELEASES_TOKEN, not GITHUB_TOKEN: this workflow runs in athena-dev
-      # (the private source repo), but releases are published to athena (a
-      # separate, empty public repo, kept public so electron-updater and a
-      # plain `docker pull` work with no auth). The default GITHUB_TOKEN is
-      # scoped to whichever repo the workflow runs in, so it cannot write to
-      # a different repo; RELEASES_TOKEN is a fine-grained PAT scoped to just
-      # athena, with Contents: read/write.
+      # The default token: the source and the releases are one repository now.
+      # This used to need a fine-grained cross-repo PAT, because the workflow
+      # ran in a private source repo and published into a separate public one,
+      # and a workflow's own token cannot write to another repository. There is
+      # no other repository any more, so that is one fewer secret to hold and
+      # rotate. The jobs that publish declare `contents: write` above.
       #
-      # --target athena's own master, not github.sha: this tag has no
-      # corresponding commit in athena at all, since athena and athena-dev
-      # are unrelated histories (athena is just a README). Passing this
-      # workflow's own commit SHA as --target made sense back when the
-      # release lived in the same repo as the tag, pinning it against the
-      # Releases API lagging behind a just-pushed ref, but here it means
-      # asking athena to create a tag at a commit it has never heard of,
-      # which the API 500s on. athena has nothing resembling per-release
-      # commits anyway, so every tag just points at its one and only branch.
+      # No --target either: the tag being released exists here, at the commit
+      # that was tagged, so there is nothing to point the release at by hand.
+      # The old --target named the other repo's master because the tag had no
+      # corresponding commit over there at all.
       - name: Create draft release
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Ask before creating, rather than reading the error text.
           # `gh release create --draft` does not refuse a tag that already
@@ -120,7 +114,6 @@ jobs:
           fi
           gh release create "${{ github.ref_name }}" \
             --repo athenaeum-app/athena \
-            --target master \
             --draft --title "${{ github.ref_name }}" --generate-notes
 
   electron:
@@ -212,9 +205,7 @@ jobs:
         shell: bash
         run: npm run build -- --publish always $BUILDER_TARGETS
         env:
-          # See create-release's comment: publishing to athena, not this
-          # workflow's own athena-dev, needs the cross-repo PAT.
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-release:
     name: Publish release
@@ -227,9 +218,7 @@ jobs:
       # take the release out of draft and mark it the latest release.
       - name: Publish and mark latest
         env:
-          # See create-release's comment: publishing to athena, not this
-          # workflow's own athena-dev, needs the cross-repo PAT.
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release edit "${{ github.ref_name }}" \
             --repo athenaeum-app/athena \
