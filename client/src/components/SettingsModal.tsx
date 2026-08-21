@@ -58,6 +58,7 @@ import {
     displayCombo,
 } from '../keybinds'
 import { isElectron } from '../electron'
+import { copyText } from '../clipboard'
 import { isDesktop, desktop } from '../desktop'
 import { scope, setScope, overriddenKeys, resetOverride, appearanceIsGlobal, OVERRIDE_BUCKETS } from '../appearance'
 import { useUI } from '../ui'
@@ -1526,10 +1527,13 @@ const AppearanceTab: Component<{ archives: { id: string; name: string }[] }> = (
 
     const doExport = (theme: UserTheme) => {
         const str = encodeTheme(theme)
-        navigator.clipboard
-            .writeText(str)
-            .then(() => ui.toast('Theme copied to clipboard.', 'success'))
-            .catch(() => ui.toast('Could not copy. Theme string logged to console.', 'error'))
+        void copyText(str).then((done) => {
+            if (done) return ui.toast('Theme copied to clipboard.', 'success')
+            // The string is the whole export, so losing it to a refused
+            // clipboard would lose the theme: the console is the second copy.
+            console.log(str)
+            ui.toast('Could not copy. Theme string logged to console.', 'error')
+        })
     }
 
     const doImport = () => {

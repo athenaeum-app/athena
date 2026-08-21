@@ -6,6 +6,7 @@ import { useUI } from '../ui'
 import { useAuth } from '../auth'
 import { loadUsers, userName } from '../users'
 import { formatDateTime } from '../format'
+import { copyText } from '../clipboard'
 
 interface AdminModalProps {
     onClose: () => void
@@ -266,10 +267,9 @@ const UsersView: Component = () => {
 
     const inviteLink = (id: string) => `${window.location.origin}/register?invite=${id}`
     const copy = (text: string, what: string) =>
-        navigator.clipboard
-            .writeText(text)
-            .then(() => ui.toast(`${what} copied.`, 'success'))
-            .catch(() => ui.toast('Could not copy to clipboard.', 'error'))
+        void copyText(text).then((done) =>
+            done ? ui.toast(`${what} copied.`, 'success') : ui.toast('Could not reach the clipboard from this page.', 'error'),
+        )
 
     const refresh = async () => {
         const [u, r, i] = await Promise.all([

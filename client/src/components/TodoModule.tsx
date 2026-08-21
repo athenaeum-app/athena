@@ -9,6 +9,7 @@ import { createListboxNav } from '../listboxNav'
 import { prefs, setPref, MODAL_WIDTH_CLASS } from '../prefs'
 import { notifyTodoChanged } from '../todoBus'
 import { serializeLists, parseLists, type ParsedItem } from '../todoTransfer'
+import { copyText } from '../clipboard'
 
 // Todo module (ADR-0013): server-synced, library-shared to-do
 // lists as a Trello-style board. v2.3 adds per-item due dates, priority,
@@ -745,8 +746,11 @@ export const TodoModule: Component<TodoModuleProps> = (props) => {
                         <div class="flex items-center justify-end gap-2">
                             <button
                                 onClick={() => {
-                                    void navigator.clipboard.writeText(transferText())
-                                    ui.toast('Copied to the clipboard.', 'success')
+                                    void copyText(transferText()).then((done) =>
+                                        done
+                                            ? ui.toast('Copied to the clipboard.', 'success')
+                                            : ui.toast('Could not reach the clipboard from this page.', 'error'),
+                                    )
                                 }}
                                 class="border-element-accent text-sub hover:text-main rounded-lg border px-3 py-2 text-xs font-bold transition-colors hover:cursor-pointer"
                             >

@@ -9,6 +9,7 @@ import gdscript from '@exercism/highlightjs-gdscript'
 import 'highlight.js/styles/atom-one-dark.css'
 import { openLightbox } from '../lightbox'
 import { inlineFormatting, inlineFormattingHtml } from '../markdownFormatting'
+import { copyText } from '../clipboard'
 
 // An image-only block is a <p> whose meaningful content is just image(s), the
 // unit galleries are built from. Text or an <hr> (a `---` separator) breaks a
@@ -248,13 +249,20 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
 
             btn.addEventListener('click', (e) => {
                 e.stopPropagation()
-                navigator.clipboard.writeText(codeBlock.textContent || '')
-                btn.innerText = 'COPIED!'
-                btn.classList.replace('bg-element/80', 'bg-highlight-strong')
-                setTimeout(() => {
-                    btn.innerText = 'COPY'
-                    btn.classList.replace('bg-highlight-strong', 'bg-element/80')
-                }, 2000)
+                void copyText(codeBlock.textContent || '').then((done) => {
+                    // Only a copy that happened gets to say so. On a server
+                    // reached over plain http the browser may withhold the
+                    // clipboard entirely, and a button that claims otherwise
+                    // is worse than one that admits it.
+                    btn.innerText = done ? 'COPIED!' : 'NO'
+                    btn.title = done ? 'Copy to clipboard' : 'This browser would not give up the clipboard'
+                    btn.classList.replace('bg-element/80', done ? 'bg-highlight-strong' : 'bg-danger')
+                    setTimeout(() => {
+                        btn.innerText = 'COPY'
+                        btn.title = 'Copy to clipboard'
+                        btn.classList.replace(done ? 'bg-highlight-strong' : 'bg-danger', 'bg-element/80')
+                    }, 2000)
+                })
             })
 
             pre.classList.add('relative', 'max-h-[75vh]', 'overflow-x-auto')

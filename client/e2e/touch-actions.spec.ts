@@ -185,7 +185,7 @@ test.describe('code block copy button on touch', () => {
 // The counterweight. Pinning these visible on touch must not turn them into
 // permanent clutter on a pointer, which is what the hover reveal is for.
 test.describe('hover reveals survive on a pointer', () => {
-    test.use({ viewport: { width: 1440, height: 900 } })
+    test.use({ viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] })
 
     test('the copy button stays hidden until the code block is hovered', async ({ page }) => {
         await signIn(page)
@@ -197,6 +197,23 @@ test.describe('hover reveals survive on a pointer', () => {
 
         await btn.hover()
         await expect(btn).toHaveCSS('opacity', '1')
+    })
+
+    // And it copies. The button reports through its own label, so it has to be
+    // held by class rather than by text: matching on "COPY" stops matching the
+    // moment the press works.
+    test('pressing it puts the code on the clipboard, and says only that', async ({ page }) => {
+        await signIn(page)
+        await seedCodeMoment(page)
+        await page.goto('/')
+
+        const btn = copyButton(page)
+        await btn.click()
+
+        await expect(btn).toHaveText('COPIED!')
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('const copied = true\n')
+        // It goes back to offering the copy rather than staying on the report.
+        await expect(btn).toHaveText('COPY', { timeout: 4000 })
     })
 
     test('the delete control stays hidden until the row is hovered', async ({ page }) => {
