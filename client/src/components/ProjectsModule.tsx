@@ -3800,7 +3800,18 @@ const DocumentView: Component<
         // under the text. A document is a page, and pages are not textured.
         <div data-testid="document-view" class="flex min-h-0 flex-1 flex-col" style={{ 'background-color': 'var(--theme-bg)' }}>
             <div class="border-element-accent flex flex-wrap items-center gap-x-2 gap-y-2 border-b px-4 py-3 sm:px-5">
-                <button onClick={props.onClose} class="text-sub hover:text-main shrink-0 hover:cursor-pointer" title="Back to the folder">
+                {/* The icon-only buttons along this row are flex boxes, not
+                    the inline-block a bare button would be: a button inherits
+                    the look's line height, and an inline icon inside that line
+                    box sits on its baseline with the half-leading below it, so
+                    the glyph rides a few pixels above the padded controls it
+                    sits beside. Flex makes the button the height of the icon,
+                    and the row centres what you can actually see. */}
+                <button
+                    onClick={props.onClose}
+                    class="text-sub hover:text-main flex shrink-0 items-center hover:cursor-pointer"
+                    title="Back to the folder"
+                >
                     <span class="material-symbols-outlined">arrow_back</span>
                 </button>
                 <button
@@ -3873,7 +3884,7 @@ const DocumentView: Component<
                 <button
                     onClick={() => setOutlineOpen(!outlineOpen())}
                     title="Outline"
-                    class="shrink-0 transition-colors hover:cursor-pointer xl:hidden"
+                    class="flex shrink-0 items-center transition-colors hover:cursor-pointer xl:hidden"
                     classList={{ 'text-highlight': outlineOpen(), 'text-sub hover:text-main': !outlineOpen() }}
                 >
                     <span class="material-symbols-outlined">toc</span>
@@ -3883,7 +3894,7 @@ const DocumentView: Component<
                 <button
                     onClick={() => setCommentsOpen(!commentsOpen())}
                     title="Comments"
-                    class="relative shrink-0 transition-colors hover:cursor-pointer xl:hidden"
+                    class="relative flex shrink-0 items-center transition-colors hover:cursor-pointer xl:hidden"
                     classList={{ 'text-highlight': commentsOpen(), 'text-sub hover:text-main': !commentsOpen() }}
                 >
                     <span class="material-symbols-outlined">chat_bubble</span>
@@ -3899,7 +3910,7 @@ const DocumentView: Component<
                         setVersionsOpen(true)
                     }}
                     title="Versions"
-                    class="text-sub hover:text-main shrink-0 transition-colors hover:cursor-pointer"
+                    class="text-sub hover:text-main flex shrink-0 items-center transition-colors hover:cursor-pointer"
                 >
                     <span class="material-symbols-outlined">history</span>
                 </button>
@@ -3929,7 +3940,7 @@ const DocumentView: Component<
                     <button
                         onClick={() => props.onDelete(props.document)}
                         title="Delete document"
-                        class="text-sub hover:text-danger shrink-0 transition-colors hover:cursor-pointer"
+                        class="text-sub hover:text-danger flex shrink-0 items-center transition-colors hover:cursor-pointer"
                     >
                         <span class="material-symbols-outlined">delete</span>
                     </button>
