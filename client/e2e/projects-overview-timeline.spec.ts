@@ -103,8 +103,20 @@ for (const shell of [
             )
             expect(strays).toEqual([])
 
-            // A deadline still opens the board it lives on, timeline or not.
+            // A card opens the card itself, wherever it was clicked from.
             await page.getByRole('button', { name: new RegExp(`${title} today`) }).click()
+            const card = page.getByTestId('project-card-modal')
+            await expect(card).toBeVisible()
+            // The title is an editable field, so it is read as a value.
+            await expect(card.locator('input[type="text"]').first()).toHaveValue(`${title} today`)
+            // And it is the real card, writing to the real project: the
+            // portfolio is still behind it, not a project's board.
+            await card.getByTitle('Close').click()
+            await expect(page.getByTestId('projects-overview')).toBeVisible()
+
+            // A milestone still opens the board. A milestone is a column, and
+            // a column has no modal of its own.
+            await page.getByTestId('agenda-unscheduled').getByRole('button', { name: new RegExp(`flag ${title} phase one`) }).click()
             await expect(page.getByRole('button', { name: 'Graveyard' })).toBeVisible()
         })
 

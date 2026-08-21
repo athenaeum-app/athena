@@ -381,6 +381,10 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
         setOpenId(id)
     }
     const [pview, setPview] = createSignal<PortfolioView>('overview')
+    // A card opened from the portfolio agenda. The board's copy of this modal
+    // lives in the Hub, one project deep, which is exactly where the overview
+    // cannot reach: from here a row is a card in whichever project owns it.
+    const [openCardId, setOpenCardId] = createSignal<string | null>(null)
     // Which document a ::doc:id:: embed asked for, and whose project it is in.
     // Held here rather than in the Hub because a document embed can point at a
     // document in a project that is not the open one.
@@ -454,6 +458,31 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
         saved.catch((err) => {
             console.error('Failed to change a due date:', err)
             ui.toast('Could not change that due date.', 'error')
+            void load()
+        })
+    }
+
+    // Found by walking the store rather than held beside the id, so the modal
+    // redraws when the card it is showing changes underneath it.
+    const openCard = createMemo(() => {
+        const id = openCardId()
+        if (!id) return null
+        for (const project of projects) {
+            const card = project.cards.find((c) => c.id === id)
+            if (card) return { card, project }
+        }
+        return null
+    })
+    const patchOverviewCard = (id: string, optimistic: (c: ProjectCard) => void, body: Parameters<typeof api.updateProjectCard>[1]) => {
+        const projectId = openCard()?.project.id
+        if (!projectId) return
+        mutate(projectId, (p) => {
+            const card = p.cards.find((c) => c.id === id)
+            if (card) optimistic(card)
+        })
+        api.updateProjectCard(id, body).catch((err) => {
+            console.error('Failed to update card:', err)
+            ui.toast('Could not update the card.', 'error')
             void load()
         })
     }
@@ -555,6 +584,7 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
                         onRetry={load}
                         onSchedule={scheduleWork}
                         onOpen={openProjectAt}
+                        onOpenCard={setOpenCardId}
                         onNew={newProject}
                         onRestore={(id) => patchProject(id, (p) => (p.archived = false), { archived: false })}
                         onDeleteForever={(id) => {
@@ -581,6 +611,33 @@ export const ProjectsModule: Component<ProjectsModuleProps> = (props) => {
                         mutate={(fn) => mutate(p.id, fn)}
                         patchProject={(optimistic, body) => patchProject(p.id, optimistic, body)}
                         reload={load}
+                        onOpenMoment={props.onOpenMoment}
+                        onOpenTodo={props.onOpenTodo}
+                        onOpenCanvas={props.onOpenCanvas}
+                        onOpenProject={openProjectAt}
+                        onOpenDoc={openDoc}
+                    />
+                )}
+            </Show>
+
+            {/* The portfolio's card modal. The same component the board opens,
+                so a card is the same card wherever it was clicked; the undo
+                stack is not out here, so dismissing says where the card went
+                instead of offering to take it back. */}
+            <Show when={openCard()}>
+                {(found) => (
+                    <CardModal
+                        card={found().card}
+                        project={found().project}
+                        canManage={props.canManage}
+                        patch={(optimistic, body) => patchOverviewCard(found().card.id, optimistic, body)}
+                        onDismiss={() => {
+                            const title = found().card.title
+                            patchOverviewCard(found().card.id, (c) => (c.dismissed = true), { dismissed: true })
+                            setOpenCardId(null)
+                            ui.toast(`Dismissed "${title}". It is in the project's graveyard.`, 'success')
+                        }}
+                        onClose={() => setOpenCardId(null)}
                         onOpenMoment={props.onOpenMoment}
                         onOpenTodo={props.onOpenTodo}
                         onOpenCanvas={props.onOpenCanvas}
@@ -617,6 +674,7 @@ const Portfolio: Component<{
     onRetry: () => void
     onSchedule: (item: ProjectWorkItem, at: number | null) => void
     onOpen: (id: string, tab?: HubTab) => void
+    onOpenCard: (id: string) => void
     onNew: () => void
     onRestore: (id: string) => void
     onDeleteForever: (id: string) => void
@@ -679,6 +737,7 @@ const Portfolio: Component<{
                                 canManage={props.canManage}
                                 onSchedule={props.onSchedule}
                                 onOpen={props.onOpen}
+                                onOpenCard={props.onOpenCard}
                             />
                         }
                     >
@@ -937,7 +996,10 @@ const DeadlineRow: Component<{
     row: ProjectWorkItem
     overdue: boolean
     drag: AgendaDrag
-    onOpen: (id: string, tab?: HubTab) => void
+    // Handed the row rather than a project id: what a row opens depends on
+    // what it is, and that is the agenda's decision to make once rather than
+    // every surface's to make again.
+    onOpen: (row: ProjectWorkItem) => void
 }> = (props) => {
     const row = () => props.row
     const dragging = () => props.drag.item()?.id === row().id
@@ -951,11 +1013,17 @@ const DeadlineRow: Component<{
                 props.drag.start(row())
             }}
             onDragEnd={() => props.drag.end()}
-            onClick={() => props.onOpen(row().projectId, 'board')}
+            onClick={() => props.onOpen(row())}
             class="hover:bg-element-matte border-element-accent/50 hover:border-highlight/60 flex w-full items-start gap-2.5 rounded-md border border-transparent p-2 text-left transition-colors"
             classList={{ 'cursor-grab active:cursor-grabbing': props.drag.enabled, 'hover:cursor-pointer': !props.drag.enabled, 'opacity-40': dragging() }}
             style={{ 'border-left': `3px solid ${row().accent}` }}
-            title={props.drag.enabled ? `Drag to a day to date it, or click to open ${row().projectTitle}` : `Open ${row().projectTitle} on the board`}
+            title={
+                props.drag.enabled
+                    ? `Drag to a day to date it, or click to open ${row().kind === 'card' ? 'the card' : row().projectTitle}`
+                    : row().kind === 'card'
+                      ? 'Open the card'
+                      : `Open ${row().projectTitle} on the board`
+            }
         >
             <span class="material-symbols-outlined mt-px shrink-0 text-[19px]" style={{ color: row().accent }}>
                 {row().kind === 'milestone' ? 'flag' : row().icon}
@@ -1043,7 +1111,7 @@ const edgeAutoScroll = (axis: 'x' | 'y') => {
 const TimelineHorizontal: Component<{
     deadlines: ProjectDeadline[]
     drag: AgendaDrag
-    onOpen: (id: string, tab?: HubTab) => void
+    onOpen: (row: ProjectWorkItem) => void
 }> = (props) => {
     const days = createMemo(() => timelineDays(props.deadlines))
     const ends = createMemo(() => timelineEnds(props.deadlines))
@@ -1122,7 +1190,7 @@ const TimelineHorizontal: Component<{
 const TimelineVertical: Component<{
     deadlines: ProjectDeadline[]
     drag: AgendaDrag
-    onOpen: (id: string, tab?: HubTab) => void
+    onOpen: (row: ProjectWorkItem) => void
 }> = (props) => {
     const days = createMemo(() => timelineDays(props.deadlines))
     const ends = createMemo(() => timelineEnds(props.deadlines))
@@ -1183,7 +1251,7 @@ const TimelineVertical: Component<{
 const AgendaList: Component<{
     deadlines: ProjectDeadline[]
     drag: AgendaDrag
-    onOpen: (id: string, tab?: HubTab) => void
+    onOpen: (row: ProjectWorkItem) => void
 }> = (props) => {
     const buckets = createMemo(() => bucketByDue(props.deadlines, (d) => d.dueAt))
     const still: AgendaDrag = { ...props.drag, enabled: false }
@@ -1224,7 +1292,7 @@ const AgendaList: Component<{
 const UnscheduledTray: Component<{
     rows: ProjectWorkItem[]
     drag: AgendaDrag
-    onOpen: (id: string, tab?: HubTab) => void
+    onOpen: (row: ProjectWorkItem) => void
 }> = (props) => (
     <div
         {...dropTarget(props.drag, 'none')}
@@ -1256,6 +1324,7 @@ const Overview: Component<{
     canManage: boolean
     onSchedule: (item: ProjectWorkItem, at: number | null) => void
     onOpen: (id: string, tab?: HubTab) => void
+    onOpenCard: (id: string) => void
 }> = (props) => {
     const liveProjects = createMemo(() => props.projects.filter((p) => !p.archived))
     const deadlines = createMemo(() => projectDeadlines(props.projects))
@@ -1276,6 +1345,10 @@ const Overview: Component<{
         setOver: setDragOver,
         schedule: (item, at) => props.onSchedule(item, at),
     }
+    // A card opens the card. A milestone opens the board: a milestone is a
+    // column, and a column has no modal of its own.
+    const openRow = (row: ProjectWorkItem) =>
+        row.kind === 'card' ? props.onOpenCard(row.id) : props.onOpen(row.projectId, 'board')
     const overdue = createMemo(() => deadlines().filter((d) => dueMs(d.dueAt) < startOfToday()))
     const dueThisWeek = createMemo(() => {
         const weekEnd = startOfToday() + 7 * 86400000
@@ -1448,12 +1521,12 @@ const Overview: Component<{
                             when={deadlines().length > 0}
                             fallback={<p class="text-sub/60 italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
                         >
-                            <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />}>
+                            <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} drag={drag} onOpen={openRow} />}>
                                 <Show
                                     when={vertical()}
-                                    fallback={<TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />}
+                                    fallback={<TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={openRow} />}
                                 >
-                                    <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={props.onOpen} />
+                                    <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={openRow} />
                                 </Show>
                             </Show>
                         </Show>
@@ -1464,7 +1537,7 @@ const Overview: Component<{
                         squeezed under the days was too shallow to read and
                         too shallow to aim at. */}
                     <Show when={timeline()}>
-                        <UnscheduledTray rows={unscheduled()} drag={drag} onOpen={props.onOpen} />
+                        <UnscheduledTray rows={unscheduled()} drag={drag} onOpen={openRow} />
                     </Show>
 
                     {/* Under the agenda: the standing picture of the
@@ -1575,9 +1648,9 @@ const Overview: Component<{
                                         <For each={recentlyFinished()}>
                                             {(row) => (
                                                 <button
-                                                    onClick={() => props.onOpen(row.project.id, 'board')}
+                                                    onClick={() => props.onOpenCard(row.card.id)}
                                                     class="hover:bg-element-matte/40 -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2.5 text-left transition-colors hover:cursor-pointer"
-                                                    title={`Open ${row.project.title} on the board`}
+                                                    title="Open the card"
                                                 >
                                                     <span class="material-symbols-outlined shrink-0 text-[17px]" style={{ color: row.project.accent }}>check_circle</span>
                                                     <div class="min-w-0 flex-1">
