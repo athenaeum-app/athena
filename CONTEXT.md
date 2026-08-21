@@ -61,19 +61,36 @@ _Avoid_: dashboard, home, summary
 **Timeline**:
 How the Overview's agenda draws its deadlines by default: a column per day for
 a fortnight, with what has already passed and what falls beyond the run held at
-either end. It runs across or down, per the button on the card, and the setting
-behind it (Settings, Modals, Projects) turns it back into a list grouped under
-Overdue, Today and This week. An empty day still takes its place in the run,
-because the gaps are half of what a timeline says. A deadline is dated by
-dragging it onto a day, and undated by dragging it back to the tray of
-unscheduled work under the run.
-_Avoid_: calendar, gantt, schedule
+either end. It runs across or down, per the button on the card. An empty day
+still takes its place in the run, because the gaps are half of what a timeline
+says. A deadline is dated by dragging it onto a day, and undated by dragging it
+back to the tray of unscheduled work under the run.
+_Avoid_: gantt, schedule. The Calendar is a different view, not another word
+for this one.
+
+**Calendar**:
+The Overview agenda drawn as a month of weeks, six rows always so paging does
+not move what you are aiming at. Every day takes a drop, including the days
+either side of the month, which is how work further out than the Timeline's
+fortnight gets a date at all. A day holds three chips and then says how many
+more. While something is held, the arrows and the rails at either side of the
+grid page the month for as long as the pointer rests on them, since a drag
+cannot let go to press a button.
+_Avoid_: month view, planner, schedule
+
+**Agenda view**:
+Which of the three the Overview is drawing: Timeline, Calendar or List. Chosen
+on the agenda card itself and mirrored in Settings (Modals, Projects), one
+value either way. List is the only one that is read rather than dropped onto,
+which is why the unscheduled tray goes with it.
+_Avoid_: mode, layout, display
 
 **Unscheduled**:
 Outstanding cards and milestones with no due date, in a card of their own
-directly under the timeline, close enough that a row can be dragged onto a day
-without losing sight of either. Work, not backlog: everything in it is live, it
-simply has no date yet.
+directly under the timeline or the calendar, close enough that a row can be
+dragged onto a day without losing sight of either. Work, not backlog:
+everything in it is live, it simply has no date yet. Ordered by project, by
+priority or by name, whichever was asked for last.
 _Avoid_: backlog, inbox, undated pile
 
 **Deadline**:
