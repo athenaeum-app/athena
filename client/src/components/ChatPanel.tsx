@@ -12,6 +12,7 @@ import { LinkPreviewList } from './LinkPreview'
 import { AttachmentList } from './AttachmentList'
 import { Editor, type EditorHandle } from './Editor'
 import { createLongPress } from '../longPress'
+import { copyText } from '../clipboard'
 
 // The chat surface (header, scrollback and composer) factored out of
 // ChatModal so it can be reused two ways:
@@ -395,7 +396,9 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
             await loadOlder()
         }
         if (!messages().some((m) => m.id === target.id)) {
-            ui.toast('That message is too far back in the history to jump to.', 'error')
+            // Naming what still works: the words are on screen either way, and
+            // the copy control beside the result is how they leave with you.
+            ui.toast('That message is too far back to jump to. Copy it from the result instead.', 'error')
             return
         }
         stickToBottom = false
@@ -404,6 +407,16 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
             listRef?.querySelector(`[data-message-id="${target.id}"]`)?.scrollIntoView({ block: 'center' })
         })
         setTimeout(() => setFlashId((id) => (id === target.id ? null : id)), 2500)
+    }
+
+    // What search definitely did for you is find the words, so they have to be
+    // takeable whether or not the jump can reach them.
+    const copyResult = async (msg: ChatMessage) => {
+        // The message as written, tokens and all: it is what was said, and it
+        // pastes back into Athena as the same message. The line a result draws
+        // is a flattened preview, and a flattened copy cannot be un-flattened.
+        if (await copyText(msg.content)) ui.toast('Message copied.', 'success')
+        else ui.toast('Could not reach the clipboard from this page.', 'error')
     }
 
     // Focus search belongs to whichever surface is in front, which in the
@@ -683,13 +696,39 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                             <div class="flex flex-col gap-1">
                                 <For each={results()}>
                                     {(msg) => (
-                                        <button
+                                        // A div, not a button: it holds the copy
+                                        // control, and a button cannot contain a
+                                        // button. Enter and Space are given back by
+                                        // hand, since only a real button has them.
+                                        <div
+                                            role="button"
+                                            tabindex={0}
+                                            data-testid="chat-search-result"
                                             onClick={() => void jumpTo(msg)}
+                                            onKeyDown={(e) => {
+                                                if (e.key !== 'Enter' && e.key !== ' ') return
+                                                e.preventDefault()
+                                                void jumpTo(msg)
+                                            }}
                                             class="border-element-accent hover:border-highlight w-full rounded-md border p-2 text-left transition-colors hover:cursor-pointer"
                                         >
                                             <div class="flex items-baseline gap-2">
                                                 <span class="text-highlight-strong text-xs font-bold">{authorLabel(msg)}</span>
                                                 <span class="text-sub text-[11px]">{formatTime(msg.created_at)}</span>
+                                                <button
+                                                    type="button"
+                                                    data-testid="chat-search-copy"
+                                                    onClick={(e) => {
+                                                        // The row jumps; this does not.
+                                                        e.stopPropagation()
+                                                        void copyResult(msg)
+                                                    }}
+                                                    title="Copy the text"
+                                                    aria-label={`Copy the message from ${authorLabel(msg)}`}
+                                                    class="text-sub hover:text-main ml-auto flex shrink-0 items-center self-center hover:cursor-pointer"
+                                                >
+                                                    <span class="material-symbols-outlined text-sm">content_copy</span>
+                                                </button>
                                             </div>
                                             {/* Plain text, not the render pipeline: a result is a
                                                 line to recognise, and the message itself is one
@@ -697,7 +736,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                             <p class="text-main line-clamp-3 whitespace-pre-wrap text-sm">
                                                 {stripEmbedTokens(msg.content).trim() || msg.content}
                                             </p>
-                                        </button>
+                                        </div>
                                     )}
                                 </For>
                             </div>
