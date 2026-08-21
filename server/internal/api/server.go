@@ -16,6 +16,7 @@ import (
 	"github.com/athenaeum-app/athena/server/internal/auth"
 	"github.com/athenaeum-app/athena/server/internal/config"
 	"github.com/athenaeum-app/athena/server/internal/permissions"
+	"github.com/athenaeum-app/athena/server/internal/ratelimit"
 	"github.com/athenaeum-app/athena/server/internal/storage"
 	"github.com/athenaeum-app/athena/server/internal/sync"
 	"github.com/athenaeum-app/athena/server/internal/version"
@@ -26,14 +27,38 @@ type Server struct {
 	mux       *http.ServeMux
 	storage   *storage.LocalStorage
 	startedAt time.Time // for uptime in the stats endpoint
+
+	// Guards for the two endpoints that hash a password before they have any
+	// reason to trust the caller. Held per Server rather than in a package
+	// variable so a test gets a fresh count with its own server.
+	loginByUser *ratelimit.Limiter
+	loginByAddr *ratelimit.Limiter
 }
+
+const (
+	// Guessing at one account. Tight, because the only caller who needs more
+	// than this in a quarter of an hour is not a caller who knows the
+	// password. Cleared the moment one attempt succeeds.
+	loginUserLimit  = 10
+	loginUserWindow = 15 * time.Minute
+
+	// Guessing from one address. Deliberately loose: self-hosted Athena
+	// usually sits behind a reverse proxy, where RemoteAddr is the proxy and
+	// every user of the library shares this bucket. It is a ceiling on how
+	// much bcrypt an unauthenticated flood can spend, not the thing that
+	// stops a targeted guess.
+	loginAddrLimit  = 60
+	loginAddrWindow = 5 * time.Minute
+)
 
 func NewServer(cfg *config.Config) *Server {
 	s := &Server{
-		cfg:       cfg,
-		mux:       http.NewServeMux(),
-		storage:   storage.New(cfg.UploadsPath),
-		startedAt: time.Now(),
+		cfg:         cfg,
+		mux:         http.NewServeMux(),
+		storage:     storage.New(cfg.UploadsPath),
+		startedAt:   time.Now(),
+		loginByUser: ratelimit.New(loginUserLimit, loginUserWindow),
+		loginByAddr: ratelimit.New(loginAddrLimit, loginAddrWindow),
 	}
 	s.routes()
 	return s

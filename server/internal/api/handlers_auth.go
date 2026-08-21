@@ -3,13 +3,68 @@ package api
 import (
 	"errors"
 	"log"
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/athenaeum-app/athena/server/internal/auth"
 	"github.com/athenaeum-app/athena/server/internal/models"
 	"github.com/athenaeum-app/athena/server/internal/permissions"
 	"github.com/athenaeum-app/athena/server/internal/sync"
 )
+
+// clientAddr is the host half of RemoteAddr. X-Forwarded-For is deliberately
+// not read: a header the caller sets is not an identity, and trusting it would
+// hand an attacker the bypass. Behind a reverse proxy this collapses to the
+// proxy's address, which is why the per-address budget is loose and the
+// per-username one does the real work.
+func clientAddr(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// refuse writes a 429 that says when to come back. Retry-After is in seconds
+// and rounds up, so it never advertises a moment that is still too early.
+func refuse(w http.ResponseWriter, retryAfter time.Duration) {
+	seconds := int(retryAfter.Seconds()) + 1
+	w.Header().Set("Retry-After", strconv.Itoa(seconds))
+	writeError(w, http.StatusTooManyRequests, "too many attempts, try again in "+strconv.Itoa(seconds)+" seconds")
+}
+
+// guardPasswordAttempt is the check both password-hashing endpoints run before
+// they hash anything, and spendPasswordAttempt is what a failure costs.
+//
+// Usernames are folded to lower case for counting only: whether the login
+// itself is case sensitive is auth's business, and counting "Owner" apart from
+// "owner" would be a free extra budget per capitalisation.
+func (s *Server) guardPasswordAttempt(w http.ResponseWriter, r *http.Request, username string) bool {
+	if ok, retry := s.loginByAddr.Allowed(clientAddr(r)); !ok {
+		refuse(w, retry)
+		return false
+	}
+	if username != "" {
+		if ok, retry := s.loginByUser.Allowed(strings.ToLower(username)); !ok {
+			refuse(w, retry)
+			return false
+		}
+	}
+	return true
+}
+
+// spendPasswordAttempt charges a failed attempt to both budgets. Only failures
+// are charged: a caller who keeps succeeding is not what these count, and a
+// busy afternoon of real logins should not look like an attack.
+func (s *Server) spendPasswordAttempt(r *http.Request, username string) {
+	s.loginByAddr.Record(clientAddr(r))
+	if username != "" {
+		s.loginByUser.Record(strings.ToLower(username))
+	}
+}
 
 type registerRequest struct {
 	Username     string  `json:"username"`
@@ -28,9 +83,16 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "username and password are required")
 		return
 	}
+	// Registration hashes a password too, so a flood here costs the same as a
+	// flood at login. The invite is a uuid and not worth guessing at; this is
+	// about the work, not the secret.
+	if !s.guardPasswordAttempt(w, r, req.Username) {
+		return
+	}
 
 	user, err := auth.Register(req.Username, req.Password, req.InviteID)
 	if err != nil {
+		s.spendPasswordAttempt(r, req.Username)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -62,12 +124,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "username and password are required")
 		return
 	}
+	if !s.guardPasswordAttempt(w, r, req.Username) {
+		return
+	}
 
 	session, err := auth.Login(req.Username, req.Password, req.StayLoggedIn, r.RemoteAddr, r.UserAgent())
 	if err != nil {
+		s.spendPasswordAttempt(r, req.Username)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+	// Proof this caller is not what the counter is for, so the wrong guesses
+	// that came before are forgiven. Only the account's count: clearing the
+	// address budget too would hand back a bypass to anyone holding one valid
+	// login.
+	s.loginByUser.Reset(strings.ToLower(req.Username))
 
 	user, err := auth.GetUser(session.UserID)
 	if err != nil {
