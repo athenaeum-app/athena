@@ -3793,7 +3793,12 @@ const DocumentView: Component<
     })
 
     return (
-        <div data-testid="document-view" class="flex min-h-0 flex-1 flex-col">
+        // Plain ground. The panel's bookcase watermark is a -z-10 layer under
+        // everything it holds; the tiles in the grid cover it because they are
+        // bg-element, but the reading column has no background of its own and
+        // the editor's textarea is transparent, so the shelves ran straight
+        // under the text. A document is a page, and pages are not textured.
+        <div data-testid="document-view" class="flex min-h-0 flex-1 flex-col" style={{ 'background-color': 'var(--theme-bg)' }}>
             <div class="border-element-accent flex flex-wrap items-center gap-x-2 gap-y-2 border-b px-4 py-3 sm:px-5">
                 <button onClick={props.onClose} class="text-sub hover:text-main shrink-0 hover:cursor-pointer" title="Back to the folder">
                     <span class="material-symbols-outlined">arrow_back</span>
