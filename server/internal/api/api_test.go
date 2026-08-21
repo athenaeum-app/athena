@@ -32,6 +32,10 @@ func newTestEnv(t *testing.T) *testEnv {
 		Port:              "0",
 		UploadsPath:       t.TempDir(),
 		SessionExpiryDays: 30,
+		// Without this every upload is refused: MaxBytesReader treats a zero
+		// ceiling as zero bytes allowed, so a harness that leaves it unset
+		// answers 413 to anything with a body.
+		MaxUploadBytes: 8 << 20,
 	}
 	auth.SetConfig(cfg)
 	domain.Config = cfg

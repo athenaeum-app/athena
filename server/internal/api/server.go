@@ -65,6 +65,24 @@ func NewServer(cfg *config.Config) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Set before the handler runs so every response carries them, including
+	// the ones that write an error and return early.
+	//
+	// nosniff is the one that matters: it stops a browser from deciding for
+	// itself that a file is HTML when we said it was not, which is the other
+	// half of the uploaded-document problem (issue #89).
+	//
+	// SAMEORIGIN rather than DENY, because the client previews a PDF in an
+	// iframe pointed at this same server (AttachmentList.tsx) and DENY blocks
+	// that too. Framing from anywhere else stays refused.
+	//
+	// No Content-Security-Policy here on purpose: it needs testing per surface
+	// (the Google Fonts stylesheet, blob: thumbnails, data: URIs, inline
+	// styles) and a CSP that breaks the app is worse than no CSP.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+
 	s.mux.ServeHTTP(w, r)
 }
 

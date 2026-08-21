@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/athenaeum-app/athena/server/internal/auth"
@@ -56,12 +57,41 @@ func (s *Server) handleGetAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", asset.MimeType)
-	// ?download=1 forces a download with the original filename; without
-	// it the asset is served inline so images/PDFs/media render in place.
-	if r.URL.Query().Get("download") == "1" {
+	// ?download=1 forces a download with the original filename. Without it an
+	// asset is served inline only if its type is one the client renders in
+	// place; anything else is handed over as a file rather than as a document
+	// on this origin (issue #89).
+	if r.URL.Query().Get("download") == "1" || !inlineSafe(asset.MimeType) {
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+sanitizeFilename(asset.FileName)+"\"")
 	}
 	http.ServeFile(w, r, s.storage.FullPath(asset.StoragePath))
+}
+
+// inlineSafe reports whether a stored type may be rendered in place.
+//
+// The list is what the client actually renders: an image, a player, or the PDF
+// preview. Everything else downloads, which costs nothing, because a type the
+// client cannot draw was never being rendered in place anyway.
+//
+// SVG is excluded despite being an image. An SVG is a document: it can carry
+// script, and a browser navigating to one runs that script on this origin,
+// with the API and the reader's session in reach. It still renders in an <img>
+// tag, where a browser ignores the disposition on a subresource and where
+// script in an SVG is inert; what it stops is opening the asset URL itself.
+//
+// PDF stays inline deliberately. Its script runs in the viewer's own sandbox
+// rather than on this origin, and taking it out would break the iframe preview
+// the client draws for it.
+func inlineSafe(mimeType string) bool {
+	if mimeType == "image/svg+xml" {
+		return false
+	}
+	if mimeType == "application/pdf" {
+		return true
+	}
+	return strings.HasPrefix(mimeType, "image/") ||
+		strings.HasPrefix(mimeType, "audio/") ||
+		strings.HasPrefix(mimeType, "video/")
 }
 
 // sanitizeFilename strips characters that would break the Content-Disposition
