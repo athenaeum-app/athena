@@ -225,3 +225,97 @@ export function timelineEnds(deadlines: ProjectDeadline[], span = TIMELINE_DAYS)
         later: deadlines.filter((d) => dueMs(d.dueAt) >= end),
     }
 }
+
+// How an agenda can be drawn. Three, because they answer different questions:
+// what is due in the next fortnight, where in a month something falls, and
+// what is overdue or landing this week.
+export const AGENDA_VIEWS = [
+    { v: 'timeline', label: 'Timeline', icon: 'view_week' },
+    { v: 'calendar', label: 'Calendar', icon: 'calendar_month' },
+    { v: 'list', label: 'List', icon: 'format_list_bulleted' },
+] as const
+
+export type AgendaView = (typeof AGENDA_VIEWS)[number]['v']
+
+// ---- the calendar ----
+
+// A month, the other way of aiming at a day. The timeline is the near future
+// in detail; a month is how anything further out gets a date at all, since a
+// run of fourteen columns cannot hold a day in October.
+
+export interface CalendarDay extends TimelineDay {
+    // False for the days either side of the month, which are drawn dimmed and
+    // still take a drop: the turn of a month should not be a wall.
+    inMonth: boolean
+}
+
+// Six weeks always, so the grid keeps its height as the months change under
+// it. A month needs five rows or six depending on which weekday it opens on,
+// and a grid that changes height when you page it is a grid that moves what
+// you were aiming at.
+export const CALENDAR_WEEKS = 6
+
+// Local midnight on the first of whatever month that instant falls in.
+export function monthStart(at: number): number {
+    const date = new Date(at)
+    date.setHours(0, 0, 0, 0)
+    date.setDate(1)
+    return date.getTime()
+}
+
+// Months, not days: setMonth on the first of a month cannot overshoot the way
+// it would on the 31st.
+export function shiftMonth(monthAt: number, by: number): number {
+    const date = new Date(monthStart(monthAt))
+    date.setMonth(date.getMonth() + by)
+    return date.getTime()
+}
+
+// Which weekday a week opens on here: 0 is Sunday, 6 is Saturday. Taken from
+// the reader's locale, where the engine knows it, because a Sunday-first grid
+// reads as wrong to half the world and Monday-first to the other half.
+export function weekStartDay(locale: string = navigator.language): number {
+    try {
+        const info = new Intl.Locale(locale) as unknown as {
+            weekInfo?: { firstDay?: number }
+            getWeekInfo?: () => { firstDay?: number }
+        }
+        const firstDay = info.getWeekInfo ? info.getWeekInfo().firstDay : info.weekInfo?.firstDay
+        // ISO numbering: 1 is Monday and 7 is Sunday.
+        if (typeof firstDay === 'number') return firstDay % 7
+    } catch {
+        // Older engines have no week info at all.
+    }
+    return 1
+}
+
+// The month as weeks of days, each carrying what falls due on it. Walked with
+// setDate rather than by adding a day's worth of milliseconds, for the same
+// reason the timeline is: an hour lost to daylight saving would slide every
+// day after it onto the wrong date.
+export function calendarWeeks(deadlines: ProjectDeadline[], monthAt: number, firstDay = weekStartDay()): CalendarDay[][] {
+    const first = new Date(monthStart(monthAt))
+    const month = first.getMonth()
+    const today = startOfToday()
+    const cursor = new Date(first)
+    cursor.setDate(1 - ((first.getDay() - firstDay + 7) % 7))
+
+    const weeks: CalendarDay[][] = []
+    for (let week = 0; week < CALENDAR_WEEKS; week++) {
+        const days: CalendarDay[] = []
+        for (let day = 0; day < 7; day++) {
+            const at = cursor.getTime()
+            const weekday = cursor.getDay()
+            days.push({
+                at,
+                inMonth: cursor.getMonth() === month,
+                today: at === today,
+                weekend: weekday === 0 || weekday === 6,
+                rows: deadlines.filter((d) => dueMs(d.dueAt) === at),
+            })
+            cursor.setDate(cursor.getDate() + 1)
+        }
+        weeks.push(days)
+    }
+    return weeks
+}

@@ -10,7 +10,7 @@
 import { createSignal } from 'solid-js'
 import type { TagColorPreset } from './tagColors'
 import { syncKey } from './appearance'
-import { isWorkSort, type WorkSort } from './projectAgenda'
+import { AGENDA_VIEWS, isWorkSort, type AgendaView, type WorkSort } from './projectAgenda'
 
 // Rich-menu widgets (§ desktop Menu revamp). Order in MENU_WIDGETS is the
 // default display order; `label`/`blurb` drive the Widgets settings category.
@@ -173,11 +173,12 @@ export interface Prefs {
     // titles. Defaults to the excerpt: a column you can read without opening
     // anything is the reason the hint exists.
     projectCardNoteHint: 'preview' | 'label'
-    // Draw the portfolio overview's agenda as a timeline of individual days
-    // rather than as a list grouped into overdue/today/this week. On by
-    // default: a run of days is easier to read a deadline off than a heading
-    // is, because the gaps are visible as gaps.
-    projectsAgendaTimeline: boolean
+    // How the portfolio overview draws its agenda. 'timeline' is a run of
+    // individual days, which reads a near deadline off better than a heading
+    // does because the gaps are visible as gaps; 'calendar' is a month at a
+    // time, which is the only one of the three that can reach a day in
+    // October; 'list' groups into overdue/today/this week.
+    projectsAgendaView: AgendaView
     // Which way that timeline runs. Horizontal by default, a column per day;
     // vertical stacks the days down the page for a narrow window.
     projectsAgendaVertical: boolean
@@ -219,7 +220,7 @@ export const DEFAULT_PREFS: Prefs = {
     bookcaseProjects: true,
     projectsWindowed: true,
     projectCardNoteHint: 'preview',
-    projectsAgendaTimeline: true,
+    projectsAgendaView: 'timeline',
     projectsAgendaVertical: false,
     projectsUnscheduledSort: 'project',
     todoWidth: 'large',
@@ -297,6 +298,14 @@ function load(): Prefs {
         }
         if (!isWorkSort(merged.projectsUnscheduledSort)) {
             merged.projectsUnscheduledSort = DEFAULT_PREFS.projectsUnscheduledSort
+        }
+        // Carried forward from the boolean this replaced: a reader who turned
+        // the timeline off asked for the list, and should still have it.
+        if (parsed.projectsAgendaView === undefined && parsed.projectsAgendaTimeline === false) {
+            merged.projectsAgendaView = 'list'
+        }
+        if (!AGENDA_VIEWS.some((v) => v.v === merged.projectsAgendaView)) {
+            merged.projectsAgendaView = DEFAULT_PREFS.projectsAgendaView
         }
         merged.menuWidgets = normalizeMenuWidgets(merged.menuWidgets)
         merged.inlineLinkPreviewsPerRow = clampPerRow(

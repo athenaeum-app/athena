@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createEffect, on, untrack, For, Show, onMount, onCleanup, type Component, type JSX } from 'solid-js'
+import { createSignal, createMemo, createEffect, on, untrack, For, Match, Show, Switch, onMount, onCleanup, type Component, type JSX } from 'solid-js'
 import { createStore, produce, reconcile } from 'solid-js/store'
 import {
     APIError,
@@ -31,9 +31,13 @@ import {
     type DocumentThread,
 } from '../projectDocuments'
 import {
+    AGENDA_VIEWS,
     WORK_SORTS,
     bucketByDue,
+    calendarWeeks,
+    monthStart,
     projectDeadlines,
+    shiftMonth,
     timelineDays,
     timelineEnds,
     unscheduledWork,
@@ -1353,6 +1357,211 @@ const TimelineVertical: Component<{
     )
 }
 
+// The month, which is the only view that can reach a day in October: a run of
+// fourteen columns cannot hold one, so anything further out than a fortnight
+// used to be undateable by hand entirely.
+//
+// A drag cannot let go to press a button, so the months turn under it: holding
+// the pointer against either arrow, or against either edge of the grid, pages
+// while it is held. The days either side of the month take drops too, so the
+// turn of a month is not a wall.
+const MONTH_PAGE_DWELL_MS = 700
+
+// How many chips a day can show before it stops and counts the rest. Six weeks
+// of cells have to fit a screen, so a busy day says how busy rather than
+// growing until the grid does not.
+const CALENDAR_DAY_ROWS = 3
+
+const CalendarMonth: Component<{
+    deadlines: ProjectDeadline[]
+    drag: AgendaDrag
+    onOpen: (row: ProjectWorkItem) => void
+}> = (props) => {
+    const [month, setMonth] = createSignal(monthStart(Date.now()))
+    const weeks = createMemo(() => calendarWeeks(props.deadlines, month()))
+    const label = () => new Intl.DateTimeFormat(navigator.language, { month: 'long', year: 'numeric' }).format(new Date(month()))
+    const weekdays = createMemo(() => {
+        const format = new Intl.DateTimeFormat(navigator.language, { weekday: 'short' })
+        return weeks()[0].map((day) => format.format(new Date(day.at)))
+    })
+    const thisMonth = () => month() === monthStart(Date.now())
+
+    // Pages while the pointer is held there, and re-arms itself, so a hand
+    // resting on the edge walks forward a month at a time rather than once.
+    // Deliberately not a drop target: releasing on an arrow should leave the
+    // date alone rather than guess at a day.
+    const pager = (by: number) => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const stop = () => {
+            clearTimeout(timer)
+            timer = undefined
+        }
+        onCleanup(stop)
+        return {
+            onDragOver: () => {
+                if (!props.drag.item() || timer) return
+                timer = setTimeout(() => {
+                    stop()
+                    setMonth((at) => shiftMonth(at, by))
+                }, MONTH_PAGE_DWELL_MS)
+            },
+            onDragLeave: stop,
+            onDragEnd: stop,
+            onDrop: stop,
+        }
+    }
+
+    const Arrow: Component<{ by: number; icon: string; label: string }> = (arrow) => (
+        <button
+            onClick={() => setMonth((at) => shiftMonth(at, arrow.by))}
+            {...pager(arrow.by)}
+            title={props.drag.item() ? `${arrow.label} (hold to keep going)` : arrow.label}
+            class="text-sub hover:text-main border-element-accent flex shrink-0 items-center rounded-md border px-1.5 py-1 transition-colors hover:cursor-pointer"
+        >
+            <span class="material-symbols-outlined text-base">{arrow.icon}</span>
+        </button>
+    )
+
+    return (
+        <div data-testid="agenda-calendar" class="flex flex-col">
+            <div class="mb-2 flex items-center gap-2">
+                <Arrow by={-1} icon="chevron_left" label="The month before" />
+                <p data-testid="calendar-month" class="text-main font-serif min-w-44 text-center text-lg font-semibold">
+                    {label()}
+                </p>
+                <Arrow by={1} icon="chevron_right" label="The month after" />
+                <Show when={!thisMonth()}>
+                    <button
+                        onClick={() => setMonth(monthStart(Date.now()))}
+                        title="Back to this month"
+                        class="text-sub hover:text-main border-element-accent shrink-0 rounded-md border px-2 py-1 text-xs transition-colors hover:cursor-pointer"
+                    >
+                        This month
+                    </button>
+                </Show>
+                <Show when={props.drag.enabled}>
+                    <p class="text-sub/70 ml-auto text-sm">Drop one on a day to date it. Hold at an edge to change month.</p>
+                </Show>
+            </div>
+
+            {/* The edges page too, and only while something is held: a hand
+                carrying a card is already at the side of the grid by the time
+                it wants the next month. */}
+            <div class="flex items-stretch gap-1">
+                <Show when={props.drag.item()}>
+                    <div
+                        {...pager(-1)}
+                        data-testid="calendar-page-back"
+                        class="border-element-accent bg-element text-sub/60 flex w-7 shrink-0 items-center justify-center rounded-md border border-dashed"
+                        title="Hold here to go back a month"
+                    >
+                        <span class="material-symbols-outlined text-base">chevron_left</span>
+                    </div>
+                </Show>
+                <div class="min-w-0 flex-1">
+                    <div class="mb-1 grid grid-cols-7 gap-1">
+                        <For each={weekdays()}>
+                            {(name) => <p class="text-sub/70 truncate px-1 text-xs font-bold uppercase tracking-wide">{name}</p>}
+                        </For>
+                    </div>
+                    <div class="grid grid-cols-7 gap-1">
+                        <For each={weeks().flat()}>
+                            {(day) => (
+                                <div
+                                    {...dropTarget(props.drag, day.at)}
+                                    data-testid="calendar-day"
+                                    class="flex min-h-24 flex-col gap-1 rounded-md border p-1 transition-colors"
+                                    classList={{
+                                        'border-highlight': day.today,
+                                        'border-element-accent/60': !day.today,
+                                        'bg-element': day.inMonth,
+                                        'opacity-50': !day.inMonth,
+                                        'bg-highlight/10 ring-highlight ring-1': props.drag.over() === day.at,
+                                    }}
+                                    title={props.drag.item() ? `Move to ${dayTitle(day)}` : dayTitle(day)}
+                                >
+                                    <p class="flex items-baseline gap-1 px-0.5">
+                                        <span
+                                            class="text-xs font-bold"
+                                            classList={{ 'text-highlight': day.today, 'text-main': !day.today && day.inMonth, 'text-sub': !day.inMonth }}
+                                        >
+                                            {new Date(day.at).getDate()}
+                                        </span>
+                                        <Show when={day.rows.length > CALENDAR_DAY_ROWS}>
+                                            <span class="text-sub/60 ml-auto font-mono text-[10px]">{day.rows.length}</span>
+                                        </Show>
+                                    </p>
+                                    <For each={day.rows.slice(0, CALENDAR_DAY_ROWS)}>
+                                        {(row) => <DeadlineChip row={row} drag={props.drag} onOpen={props.onOpen} />}
+                                    </For>
+                                    <Show when={day.rows.length > CALENDAR_DAY_ROWS}>
+                                        <p class="text-sub/60 px-0.5 text-[10px]">and {day.rows.length - CALENDAR_DAY_ROWS} more</p>
+                                    </Show>
+                                </div>
+                            )}
+                        </For>
+                    </div>
+                </div>
+                <Show when={props.drag.item()}>
+                    <div
+                        {...pager(1)}
+                        data-testid="calendar-page-on"
+                        class="border-element-accent bg-element text-sub/60 flex w-7 shrink-0 items-center justify-center rounded-md border border-dashed"
+                        title="Hold here to go on a month"
+                    >
+                        <span class="material-symbols-outlined text-base">chevron_right</span>
+                    </div>
+                </Show>
+            </div>
+        </div>
+    )
+}
+
+// A day in a month is a seventh of the width, which is no room for a row. The
+// chip keeps what survives that: the project's colour, the title, and whether
+// it is a milestone, which is filled rather than outlined because a container
+// should read as heavier than the work inside it.
+const DeadlineChip: Component<{
+    row: ProjectDeadline
+    drag: AgendaDrag
+    onOpen: (row: ProjectWorkItem) => void
+}> = (props) => {
+    const row = () => props.row
+    const milestone = () => row().kind === 'milestone'
+    return (
+        <button
+            draggable={props.drag.enabled}
+            onDragStart={(e) => {
+                e.dataTransfer?.setData('text/plain', row().id)
+                if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+                props.drag.start(row())
+            }}
+            onDragEnd={() => props.drag.end()}
+            onClick={() => props.onOpen(row())}
+            data-testid={milestone() ? 'calendar-milestone' : 'calendar-card'}
+            class="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] leading-tight transition-colors"
+            classList={{
+                'cursor-grab active:cursor-grabbing': props.drag.enabled,
+                'hover:cursor-pointer': !props.drag.enabled,
+                'opacity-40': props.drag.item()?.id === row().id,
+                'font-bold text-white': milestone(),
+                'text-main hover:bg-element-matte': !milestone(),
+            }}
+            style={
+                milestone()
+                    ? { 'background-color': row().accent }
+                    : { 'border-left': `3px solid ${row().accent}`, 'border-radius': '2px' }
+            }
+            title={`${row().title} (${row().projectTitle})`}
+        >
+            <Show when={milestone()}>
+                <span class="material-symbols-outlined shrink-0 text-[12px]">flag</span>
+            </Show>
+            <span class="truncate">{row().title}</span>
+        </button>
+    )
+}
+
 // The timeline off: the same deadlines under Overdue, Today, Tomorrow, This
 // week and Later, two abreast where there is room. Nothing is dragged here,
 // because a bucket is a range of days and a drop would have to guess which.
@@ -1557,7 +1766,7 @@ const Overview: Component<{
             })
             .sort((a, b) => dueMs(a.milestone.due_at) - dueMs(b.milestone.due_at)),
     )
-    const timeline = () => prefs().projectsAgendaTimeline
+    const view = () => prefs().projectsAgendaView
     const vertical = () => prefs().projectsAgendaVertical
     // The screen is the scroller, so a drag held near the top or bottom of
     // it walks down the run of days rather than stopping at the fold.
@@ -1629,52 +1838,86 @@ const Overview: Component<{
                             </span>
                         }
                         actions={
-                            <Show when={timeline()}>
-                                <div class="border-element-accent flex overflow-hidden rounded-md border">
-                                    <For
-                                        each={[
-                                            { v: false, icon: 'view_column', label: 'Timeline across' },
-                                            { v: true, icon: 'view_agenda', label: 'Timeline down' },
-                                        ]}
-                                    >
-                                        {(o) => (
+                            <div class="flex items-center gap-2">
+                                {/* The view lives on the card it changes, not
+                                    only in a settings panel two screens away.
+                                    The setting is the same value. */}
+                                <div data-testid="agenda-view" class="border-element-accent flex overflow-hidden rounded-md border">
+                                    <For each={AGENDA_VIEWS}>
+                                        {(option) => (
                                             <button
-                                                onClick={() => setPref('projectsAgendaVertical', o.v)}
+                                                onClick={() => setPref('projectsAgendaView', option.v)}
                                                 class="flex items-center px-2 py-1 transition-colors hover:cursor-pointer"
                                                 classList={{
-                                                    'bg-highlight-strongest text-white': vertical() === o.v,
-                                                    'text-sub hover:text-main': vertical() !== o.v,
+                                                    'bg-highlight-strongest text-white': view() === option.v,
+                                                    'text-sub hover:text-main': view() !== option.v,
                                                 }}
-                                                title={o.label}
+                                                title={option.label}
                                             >
-                                                <span class="material-symbols-outlined text-base">{o.icon}</span>
+                                                <span class="material-symbols-outlined text-base">{option.icon}</span>
                                             </button>
                                         )}
                                     </For>
                                 </div>
-                            </Show>
+                                <Show when={view() === 'timeline'}>
+                                    <div class="border-element-accent flex overflow-hidden rounded-md border">
+                                        <For
+                                            each={[
+                                                { v: false, icon: 'view_column', label: 'Timeline across' },
+                                                { v: true, icon: 'view_agenda', label: 'Timeline down' },
+                                            ]}
+                                        >
+                                            {(o) => (
+                                                <button
+                                                    onClick={() => setPref('projectsAgendaVertical', o.v)}
+                                                    class="flex items-center px-2 py-1 transition-colors hover:cursor-pointer"
+                                                    classList={{
+                                                        'bg-highlight-strongest text-white': vertical() === o.v,
+                                                        'text-sub hover:text-main': vertical() !== o.v,
+                                                    }}
+                                                    title={o.label}
+                                                >
+                                                    <span class="material-symbols-outlined text-base">{o.icon}</span>
+                                                </button>
+                                            )}
+                                        </For>
+                                    </div>
+                                </Show>
+                            </div>
                         }
                     >
-                        <Show
-                            when={deadlines().length > 0}
-                            fallback={<p class="text-sub/60 italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
-                        >
-                            <Show when={timeline()} fallback={<AgendaList deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />}>
+                        {/* The empty case belongs to the list alone. A run of
+                            days and a month are surfaces you drop onto, and a
+                            portfolio with nothing dated yet is exactly when
+                            you want to drop something: hiding the days behind
+                            a line of text is what made the first date the
+                            hardest one to set. */}
+                        <Switch>
+                            <Match when={view() === 'calendar'}>
+                                <CalendarMonth deadlines={deadlines()} drag={drag} onOpen={openRow} />
+                            </Match>
+                            <Match when={view() === 'list'}>
                                 <Show
-                                    when={vertical()}
-                                    fallback={<TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />}
+                                    when={deadlines().length > 0}
+                                    fallback={<p class="text-sub/60 italic">Nothing dated. Give a card or a milestone a due date to see it here.</p>}
                                 >
-                                    <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
+                                    <AgendaList deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
                                 </Show>
-                            </Show>
-                        </Show>
+                            </Match>
+                            <Match when={view() === 'timeline' && vertical()}>
+                                <TimelineVertical deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
+                            </Match>
+                            <Match when={view() === 'timeline'}>
+                                <TimelineHorizontal deadlines={deadlines()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
+                            </Match>
+                        </Switch>
                     </OverviewCard>
 
                     {/* Its own card under the agenda, not a strip inside it:
                         undated work is a list in its own right, and a drawer
                         squeezed under the days was too shallow to read and
                         too shallow to aim at. */}
-                    <Show when={timeline()}>
+                    <Show when={view() !== 'list'}>
                         <UnscheduledTray rows={unscheduled()} sort={unscheduledSort()} drag={drag} onOpen={openRow} onComplete={completeRow()} />
                     </Show>
 

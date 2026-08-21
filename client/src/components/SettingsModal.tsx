@@ -1097,6 +1097,12 @@ const TopbarSection: Component = () => (
 
 // --- Appearance tab: projects ---
 
+const AGENDA_VIEW_CHOICES: { id: Prefs['projectsAgendaView']; label: string; blurb: string }[] = [
+    { id: 'timeline', label: 'Timeline', blurb: 'A run of days, so the gaps between deadlines show' },
+    { id: 'calendar', label: 'Calendar', blurb: 'A month at a time, for dating anything further out' },
+    { id: 'list', label: 'List', blurb: 'Grouped under Overdue, Today and This week' },
+]
+
 const NOTE_HINTS: { id: Prefs['projectCardNoteHint']; label: string; blurb: string }[] = [
     { id: 'preview', label: 'Preview', blurb: 'The first two lines of the note, under the title' },
     { id: 'label', label: 'Just a mention', blurb: '"Contains notes" in the corner of the card' },
@@ -1120,22 +1126,28 @@ const ProjectsSection: Component = () => (
                     class="accent-highlight-strongest h-5 w-5 cursor-pointer"
                 />
             </label>
-            <label class="bg-element border-element-accent flex items-center justify-between gap-3 rounded-lg border p-4 cursor-pointer">
-                <div>
-                    <span class="text-main text-sm font-bold block">Overview agenda as a timeline</span>
-                    <span class="text-sub text-xs">
-                        The Projects overview lays its deadlines out along a run of days, one column per day, so the
-                        gaps between them are visible. Turn this off for a plain list grouped under Overdue, Today and
-                        This week. The button on the card itself swaps the timeline between across and down.
-                    </span>
+            <div class="bg-element border-element-accent rounded-lg border p-4">
+                <span class="text-main text-sm font-bold block">Overview agenda</span>
+                <span class="text-sub text-xs">
+                    How the Projects overview draws what is due. The same choice sits on the agenda itself, and the
+                    button beside it swaps a timeline between across and down.
+                </span>
+                <div data-testid="projects-agenda-view" class="mt-3 grid grid-cols-3 gap-2">
+                    <For each={AGENDA_VIEW_CHOICES}>
+                        {(o) => (
+                            <button
+                                onClick={() => setPref('projectsAgendaView', o.id)}
+                                class={`rounded-xl border-2 p-3 text-left transition-all hover:cursor-pointer ${
+                                    prefs().projectsAgendaView === o.id ? 'border-highlight bg-element-accent' : 'border-element-accent hover:border-highlight'
+                                }`}
+                            >
+                                <span class="text-main block text-xs font-black">{o.label}</span>
+                                <span class="text-sub block text-[10px] leading-tight mt-0.5">{o.blurb}</span>
+                            </button>
+                        )}
+                    </For>
                 </div>
-                <input
-                    type="checkbox"
-                    checked={prefs().projectsAgendaTimeline}
-                    onChange={(e) => setPref('projectsAgendaTimeline', e.currentTarget.checked)}
-                    class="accent-highlight-strongest h-5 w-5 cursor-pointer"
-                />
-            </label>
+            </div>
             <div class="bg-element border-element-accent rounded-lg border p-4">
                 <span class="text-main text-sm font-bold block">Notes on a board card</span>
                 <span class="text-sub text-xs">

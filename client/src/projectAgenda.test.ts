@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import type { Project, ProjectCard, ProjectMilestone } from './api'
 import {
+    CALENDAR_WEEKS,
     bucketByDue,
+    calendarWeeks,
+    monthStart,
     projectDeadlines,
+    shiftMonth,
+    weekStartDay,
     timelineDays,
     timelineEnds,
     unscheduledWork,
@@ -237,5 +242,69 @@ describe('unscheduledWork', () => {
         it('groups by project when nobody asked for an order', () => {
             expect(unscheduledWork(projects)).toEqual(unscheduledWork(projects, 'project'))
         })
+    })
+})
+
+describe('the calendar', () => {
+    // A fixed month, so the shape being asserted is a real month's shape and
+    // not this one's. March 2026 opens on a Sunday and runs 31 days.
+    const march = new Date(2026, 2, 1, 12).getTime()
+
+    it('starts a month at local midnight on the first, whatever day it is handed', () => {
+        const mid = new Date(2026, 2, 19, 17, 45).getTime()
+        expect(new Date(monthStart(mid)).toDateString()).toBe(new Date(2026, 2, 1).toDateString())
+        expect(new Date(monthStart(mid)).getHours()).toBe(0)
+    })
+
+    it('steps months without overshooting off the end of a short one', () => {
+        // The 31st of January plus a month is a date February does not have,
+        // which is why this counts from the first rather than from the day.
+        const january = monthStart(new Date(2026, 0, 31, 12).getTime())
+        expect(new Date(shiftMonth(january, 1)).getMonth()).toBe(1)
+        expect(new Date(shiftMonth(january, -1)).getFullYear()).toBe(2025)
+        expect(new Date(shiftMonth(january, -1)).getMonth()).toBe(11)
+    })
+
+    it('always draws six weeks of seven days, so the grid keeps its height', () => {
+        const weeks = calendarWeeks([], march)
+        expect(weeks).toHaveLength(CALENDAR_WEEKS)
+        expect(weeks.every((week) => week.length === 7)).toBe(true)
+    })
+
+    it('opens each week on the day the week opens on, and marks what is outside the month', () => {
+        for (const firstDay of [0, 1]) {
+            const weeks = calendarWeeks([], march, firstDay)
+            expect(weeks[0][0].at).toBeLessThanOrEqual(monthStart(march))
+            expect(new Date(weeks[0][0].at).getDay()).toBe(firstDay)
+            // Every day of the month is in it, and the run either side is not.
+            const inMonth = weeks.flat().filter((day) => day.inMonth)
+            expect(inMonth).toHaveLength(31)
+            expect(new Date(inMonth[0].at).getDate()).toBe(1)
+            expect(new Date(inMonth[30].at).getDate()).toBe(31)
+        }
+    })
+
+    it('hangs each deadline on the day it falls due, and leaves the rest empty', () => {
+        const on19th = new Date(2026, 2, 19, 9).toISOString()
+        const deadlines = projectDeadlines([
+            project({ milestones: [milestone('m1')], cards: [card('c1', { due_at: on19th }), card('c2', { due_at: on19th })] }),
+        ])
+        const days = calendarWeeks(deadlines, march).flat()
+        const nineteenth = days.find((day) => day.inMonth && new Date(day.at).getDate() === 19)
+        expect(nineteenth?.rows.map((r) => r.id)).toEqual(['c1', 'c2'])
+        expect(days.filter((day) => day.rows.length > 0)).toHaveLength(1)
+    })
+
+    it('marks the weekend, and today when today is in the month drawn', () => {
+        const weeks = calendarWeeks([], Date.now())
+        const days = weeks.flat()
+        expect(days.filter((day) => day.today)).toHaveLength(1)
+        expect(days.filter((day) => day.weekend)).toHaveLength(CALENDAR_WEEKS * 2)
+    })
+
+    it('opens the week where the locale opens it, and on Monday when it cannot tell', () => {
+        expect(weekStartDay('en-US')).toBe(0)
+        expect(weekStartDay('en-GB')).toBe(1)
+        expect(weekStartDay('nonsense-locale')).toBe(1)
     })
 })

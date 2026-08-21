@@ -205,7 +205,10 @@ for (const shell of [
             expect(await titles()).toEqual(['zebra', 'apple'])
         })
 
-        test('the setting turns it back into a grouped list', async ({ page }) => {
+        // The three views were a boolean until the calendar made a third. A
+        // reader who had turned the timeline off asked for the list, and the
+        // stored boolean still says so.
+        test('the old timeline setting still means the list', async ({ page }) => {
             await signIn(page)
             await seed(page, `Listed ${shell.name}`)
 
@@ -213,6 +216,7 @@ for (const shell of [
             await page.evaluate(() => {
                 const stored = JSON.parse(localStorage.getItem('athena-prefs') || '{}')
                 stored.projectsAgendaTimeline = false
+                delete stored.projectsAgendaView
                 localStorage.setItem('athena-prefs', JSON.stringify(stored))
             })
             await page.reload()
@@ -223,13 +227,53 @@ for (const shell of [
             await expect(page.getByTestId('agenda-timeline')).toHaveCount(0)
             // No timeline, nothing to point it in a direction.
             await expect(page.getByTitle('Timeline down')).toHaveCount(0)
+            // And the list is a reading surface: nothing is dropped into a
+            // range of days, so the tray goes with it.
+            await expect(page.getByTestId('agenda-unscheduled')).toHaveCount(0)
+        })
+
+        // The calendar is the only view that can reach a day two months out,
+        // which is the whole reason it exists.
+        test('the calendar draws a month, and pages it', async ({ page }) => {
+            await signIn(page)
+            const title = `Monthly ${shell.name}`
+            await seed(page, title)
+
+            await page.goto('/')
+            if (shell.mobile) await page.getByRole('button', { name: 'More' }).click()
+            await page.getByRole('button', { name: 'Projects' }).click()
+            await page.getByTestId('agenda-view').getByTitle('Calendar').click()
+
+            const calendar = page.getByTestId('agenda-calendar')
+            await expect(calendar).toBeVisible()
+            await expect(page.getByTestId('agenda-timeline')).toHaveCount(0)
+            // Six weeks always, so paging does not move what you are aiming at.
+            await expect(page.getByTestId('calendar-day')).toHaveCount(42)
+
+            const month = page.getByTestId('calendar-month')
+            const opened = await month.textContent()
+            await calendar.getByTitle(/The month after/).click()
+            await expect(month).not.toHaveText(opened!)
+            await calendar.getByTitle('Back to this month').click()
+            await expect(month).toHaveText(opened!)
+
+            // The undated tray stays: the calendar is a drop surface too.
+            await expect(page.getByTestId('agenda-unscheduled')).toBeVisible()
+
+            // Chosen once, kept: the view is a preference like the direction.
+            await page.reload()
+            if (shell.mobile) await page.getByRole('button', { name: 'More' }).click()
+            await page.getByRole('button', { name: 'Projects' }).click()
+            await expect(page.getByTestId('agenda-calendar')).toBeVisible()
+            await page.getByTestId('agenda-view').getByTitle('Timeline').click()
+            await expect(page.getByTestId('agenda-timeline')).toBeVisible()
         })
     })
 }
 
-// Dragging is the whole point of drawing the fortnight: a date is changed by
-// moving the thing to the day it belongs on. Desktop only, because this is
-// HTML5 drag and drop, the same mechanism the board's cards use.
+// Dragging is the whole point of drawing the days: a date is changed by moving
+// the thing to the day it belongs on. Desktop only, because this is HTML5 drag
+// and drop, the same mechanism the board's cards use.
 test.describe('scheduling by drag', () => {
     test.use({ viewport: { width: 1440, height: 900 } })
 
@@ -267,5 +311,28 @@ test.describe('scheduling by drag', () => {
         await page.reload()
         await page.getByRole('button', { name: 'Projects' }).click()
         await expect(page.getByTestId('agenda-unscheduled').getByRole('button', { name: new RegExp(`${title} undated`) })).toBeVisible()
+    })
+
+    test('a day in a month takes a drop, which is how anything far out gets a date', async ({ page }) => {
+        await signIn(page)
+        const title = 'Monthly drag'
+        await seed(page, title)
+
+        await page.goto('/')
+        await page.getByRole('button', { name: 'Projects' }).click()
+        await page.getByTestId('agenda-view').getByTitle('Calendar').click()
+        await expect(page.getByTestId('agenda-calendar')).toBeVisible()
+
+        // The last cell of the grid is weeks past the end of the timeline's
+        // fortnight, which is exactly the day that could not be reached.
+        const target = page.getByTestId('calendar-day').last()
+        await page.dragAndDrop(`[data-testid="agenda-unscheduled"] >> text=${title} undated`, '[data-testid="calendar-day"] >> nth=41')
+        await expect(target.getByText(`${title} undated`)).toBeVisible()
+        await expect(page.getByTestId('agenda-unscheduled').getByText(`${title} undated`)).toHaveCount(0)
+
+        // On the server, not only on the screen.
+        await page.reload()
+        await page.getByRole('button', { name: 'Projects' }).click()
+        await expect(page.getByTestId('calendar-day').last().getByText(`${title} undated`)).toBeVisible()
     })
 })
