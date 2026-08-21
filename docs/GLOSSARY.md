@@ -73,11 +73,20 @@ _Avoid_: buffer message, post.
 An embeddable checklist of items. A list is either `daily` (unchecks itself each
 cycle, either at midnight or 24 hours after each tick, and never deletes) or
 `general` (long-lived, multiple named lists, with a broom that deletes the
-completed ones). Items carry a priority, one level of subtasks, and an optional
-link to a Moment; general-list items add a due date and recurrence. See
+completed ones). Its items are Tasks: they carry a priority, one level of
+subtasks, and an optional link to a Moment; on a general list they add a due
+date and recurrence. See
 [ADR-0013](adr/0013-server-synced-embeddable-modules.md).
 _Avoid_: task list, checklist (as a proper noun), agenda (that is the view of
 what is due across every list and project, not one list).
+
+**Task**:
+One item on a Todo list: a line of text that is ticked off, carrying a priority,
+one level of subtasks, and (on a general list) a due date and a recurrence. This
+is the word the Tasks module uses for its own rows and the word the Agenda uses
+for them; a project's unit of work is a Card, and the two are kept apart on
+purpose.
+_Avoid_: card, todo, entry, ticket.
 
 **Canvas**:
 An embeddable free-form board: an infinite pan/zoom surface holding freely
@@ -103,12 +112,12 @@ _Avoid_: link node (that is the URL node), card, embed node.
 ## Embeds
 
 **Embed**:
-An inline reference to another entity (a Moment, Todo list, Canvas, Project or
-Document) or to a view (the Agenda), written as a token inside a Moment's or
-chat message's body and rendered as a Preview in read mode. Six kinds exist;
-each renders and behaves differently. Every kind but the Agenda addresses one
-row by id; the Agenda's token carries a scope, because what it points at is a
-question rather than a row. See
+An inline reference to another entity (a Moment, Todo list, Task, Canvas,
+Project, project Card or Document) or to a view (the Agenda), written as a token
+inside a Moment's or chat message's body and rendered as a Preview in read mode.
+Eight kinds exist; each renders and behaves differently. Every kind but the
+Agenda addresses one row by id; the Agenda's token carries a scope, because what
+it points at is a question rather than a row. See
 [ADR-0021](adr/0021-embeds-can-point-at-a-view.md).
 A Canvas text node runs the same pipeline, so the same tokens work there.
 _Avoid_: link, mention, transclusion, reference (as a proper noun). A moment
@@ -155,6 +164,20 @@ An Embed of the Agenda. Renders as a _live_ Preview: the same groups, capped
 with a count of what was left off, to-do rows tickable inline and project rows
 opening their project. Token: `::agenda::` for all of it, `::agenda:tasks::`
 or `::agenda:projects::` for one half.
+
+**Task embed**:
+An Embed of one Task, rather than of the list holding it. Renders as a _live_
+Preview: one row carrying a tick, the task's text, the list it came off and its
+due date, overdue in the danger colour. The tick writes through both ways, and
+the row stays after it is ticked rather than dropping off the way an Agenda row
+does, because a note explaining what it was waiting on is worth reading once the
+waiting is over. Token: `::task:id::`.
+
+**Card embed**:
+An Embed of one project Card (see `CONTEXT.md` for the Projects language).
+Renders the same _live_ row a Task embed does, in the project's accent, saying
+which project and milestone the card sits in; clicking opens the project.
+Token: `::card:id::`.
 
 **Document embed**:
 An Embed of a project Document (see `CONTEXT.md` for the Projects language).

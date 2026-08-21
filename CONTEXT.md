@@ -34,6 +34,12 @@ _Avoid_: notes, description
 project: completion meter in its accent, an excerpt of the overview, and the
 open/done counts.
 
+**Card embed**:
+`::card:id::` in any moment-pipeline text renders one card as a single row: a
+tick, its title, the project and milestone it sits in, and its due date. The
+tick finishes the card where it is read, the way the Overview does. A whole
+project is `::project:id::`; this is the one unit of work inside it.
+
 **Priority**:
 None, Low, Med, or High on a card. Shared vocabulary with the Tasks module;
 feeds sorting and the progress graphics.
