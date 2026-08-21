@@ -172,10 +172,12 @@ test.describe('the same two rows on a phone', () => {
         await signIn(page)
         await seed(page)
         await page.goto('/')
-        // The phone shows one moment at a time, so the feed is filtered to the
-        // archive this spec seeded rather than left on whatever is newest.
-        await page.getByRole('button', { name: 'Archives' }).click()
-        await page.getByRole('button', { name: 'WORKREF' }).click()
+        // The phone shows one moment at a time, and a pin from any other spec
+        // sits ahead of everything in the swiper. Searching drops the pinned
+        // prefix as well as narrowing, so the card on screen is this one.
+        await page.locator('i.fa-magnifying-glass').first().evaluate((el) => (el as HTMLElement).click())
+        await page.getByPlaceholder('Search Moments').fill(NOTE)
+        await expect(page.getByRole('heading', { name: NOTE })).toBeVisible()
 
         // The swiper card carries no live embeds by design, so the rows are read
         // where the moment is read: tapping the card opens the focused reader.
