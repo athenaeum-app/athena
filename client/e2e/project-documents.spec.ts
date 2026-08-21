@@ -237,6 +237,43 @@ for (const shell of [
             await expect(page.getByRole('heading', { name: 'Decision', exact: true })).toBeVisible()
             await expect(page.getByRole('heading', { name: 'Consequences' })).toBeVisible()
         })
+
+        // The outline used to call scrollIntoView, which scrolls every
+        // scrollable ancestor rather than one box. The panel root is
+        // overflow-hidden, which script can scroll and the reader cannot
+        // scroll back, so the whole module slid up under its own clipped edge.
+        test('the outline scrolls the document and not the panel', async ({ page }) => {
+            await signIn(page)
+            const project = `Outline ${shell.name}`
+            const projectId = await seedProject(page, project)
+            const filler = Array.from(
+                { length: 12 },
+                (_, i) => `Paragraph ${i + 1} of the section, long enough to push the next heading past the fold.`,
+            )
+            await post(page, `/api/v1/projects/${projectId}/documents`, {
+                kind: 'document',
+                title: 'The long one',
+                body: ['# Beginning', ...filler, '# Middle', ...filler, '# End', ...filler].join('\n\n'),
+            })
+            await openDocuments(page, project, shell.mobile)
+            await page.getByTestId('document-tile').click()
+            await expect(page.getByTestId('document-view')).toBeVisible()
+
+            const scrollTops = () =>
+                page.evaluate(() => ({
+                    panel: (document.querySelector('[data-testid="projects-panel"]') as HTMLElement).scrollTop,
+                    body: (document.querySelector('[data-testid="document-body"]') as HTMLElement).scrollTop,
+                }))
+            expect(await scrollTops()).toEqual({ panel: 0, body: 0 })
+
+            if (shell.mobile) await page.getByTitle('Outline').click()
+            await page.getByTestId('document-outline').first().getByRole('button', { name: 'End' }).click()
+            // The smooth scroll has to land before either number is worth
+            // reading.
+            await expect.poll(async () => (await scrollTops()).body).toBeGreaterThan(0)
+            expect((await scrollTops()).panel).toBe(0)
+            await expect(page.getByRole('heading', { name: 'End' })).toBeInViewport()
+        })
     })
 }
 

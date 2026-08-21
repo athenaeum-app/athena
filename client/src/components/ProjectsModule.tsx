@@ -3640,10 +3640,20 @@ const DocumentView: Component<
 
     // Embeds render their own headings inside a card; those are not this
     // document's outline, so they are skipped on the way to the nth one.
+    //
+    // Scrolled by hand rather than with scrollIntoView, which moves every
+    // scrollable ancestor until the heading is in view. The panel root is
+    // overflow-hidden, which script can scroll perfectly well and the reader
+    // has no scrollbar to put back, so the outline used to slide the whole
+    // module up under its own clipped edge. Only the column should move.
     const scrollToHeading = (index: number) => {
         setOutlineOpen(false)
         const found = [...(readEl?.querySelectorAll('h1, h2, h3, h4, h5, h6') ?? [])].filter((h) => !h.closest('[data-embed-card]'))
-        found[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        const heading = found[index]
+        if (!heading || !readEl) return
+        const top = heading.getBoundingClientRect().top - readEl.getBoundingClientRect().top + readEl.scrollTop
+        // A little room above it, so the heading does not sit on the edge.
+        readEl.scrollTo({ top: Math.max(0, top - 12), behavior: 'smooth' })
     }
 
     const stopEditing = () => {
@@ -3941,7 +3951,7 @@ const DocumentView: Component<
             </Show>
 
             <div class="flex min-h-0 flex-1 flex-col xl:flex-row">
-                <div ref={readEl} class="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8">
+                <div data-testid="document-body" ref={readEl} class="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8">
                     <Show when={locked()}>
                         <p
                             data-testid="document-locked"
