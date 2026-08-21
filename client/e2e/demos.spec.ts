@@ -316,7 +316,7 @@ test('capture README demo GIFs', async ({ page }) => {
         await page.waitForTimeout(1100)
         await checkbox('Water the office plants').check()
         await page.waitForTimeout(1100)
-        await page.getByTitle('Agenda view').click()
+        await page.getByTitle('Planner view').click()
         await page.waitForTimeout(1600)
     })
     const todosGif = encodeGif('todos', Number(todosFps.toFixed(2)))

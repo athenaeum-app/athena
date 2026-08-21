@@ -327,15 +327,15 @@ test('capture README screenshots of the main surfaces', async ({ page }) => {
     await page.waitForTimeout(600)
     await page.screenshot({ path: resolve(SHOT_DIR, 'focused-moment.png') })
 
-    // Agenda view (a toggle inside the board). Matched on its title rather than
+    // The planner (a toggle inside the board). Matched on its title rather than
     // its accessible name: the docked chat widget previews a seeded message
     // containing the word "agenda", which makes a name match ambiguous.
     await appearance('royal blue', 'ink')
     await openModule('Todos')
     await expect(page.getByRole('heading', { name: 'To-Do Board' })).toBeVisible()
-    await page.getByTitle('Agenda view').click()
+    await page.getByTitle('Planner view').click()
     await page.waitForTimeout(600)
-    await page.screenshot({ path: resolve(SHOT_DIR, 'agenda.png') })
+    await page.screenshot({ path: resolve(SHOT_DIR, 'planner.png') })
 
     // Canvas: open the module, then select the seeded canvas so the board
     // (not the "select a canvas" placeholder) is what gets captured. The
