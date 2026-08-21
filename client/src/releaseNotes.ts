@@ -168,6 +168,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'The unscheduled pile can be sorted by project, by priority or by name.',
         'A milestone no longer reads as just another card on the agenda: it has a surface of its own, its name in the project colour, and a meter for the work inside it.',
     ],
+    '2.31.0': [
+        'A single task can now be referenced anywhere, not just the list holding it: type [[ and its text. A project card works the same way.',
+        'A referenced task or card can be ticked off where it is read, and stays on the page once it is done.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
