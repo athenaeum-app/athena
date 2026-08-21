@@ -181,6 +181,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'It shows everything due, your tasks only, or project work only, and remembers which.',
         'A to-do list now reads as the thing holding its tasks on a day several of them fall on, with a meter for how far through it you are.',
     ],
+    '2.34.0': [
+        'Repeated wrong passwords are now refused for a while instead of being answered forever, and the refusal says when to try again.',
+        'An uploaded file that is not an image, a video, a sound or a PDF now downloads instead of opening in the page.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
