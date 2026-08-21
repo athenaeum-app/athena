@@ -116,7 +116,7 @@ for (const shell of [
 
             // A milestone still opens the board. A milestone is a column, and
             // a column has no modal of its own.
-            await page.getByTestId('agenda-unscheduled').getByRole('button', { name: new RegExp(`flag ${title} phase one`) }).click()
+            await page.getByTestId('agenda-unscheduled').getByTestId('agenda-milestone').first().click()
             await expect(page.getByRole('button', { name: 'Graveyard' })).toBeVisible()
         })
 
@@ -128,7 +128,9 @@ for (const shell of [
             await page.goto('/')
             if (shell.mobile) await page.getByRole('button', { name: 'More' }).click()
             await page.getByRole('button', { name: 'Projects' }).click()
-            const row = page.getByRole('button', { name: new RegExp(`${title} today`) })
+            // Scoped to the agenda: once it is finished the same words turn
+            // up again under Recently finished, which is the point.
+            const row = page.getByTestId('agenda-timeline').getByRole('button', { name: new RegExp(`${title} today`) })
             await expect(row).toBeVisible()
 
             // Ticking it finishes it, and finished work is not outstanding, so
@@ -145,10 +147,20 @@ for (const shell of [
             await expect(page.getByRole('button', { name: new RegExp(`${title} today`) })).toHaveCount(1)
             await expect(page.getByRole('button', { name: new RegExp(`check_circle ${title} today`) })).toBeVisible()
 
-            // A milestone carries no tick: it is finished by its cards.
-            const milestone = page.getByTestId('agenda-unscheduled').getByRole('button', { name: new RegExp(`flag ${title} phase one`) })
+            // A milestone carries no tick: it is finished by its cards. It is
+            // also drawn as a different kind of thing entirely, saying what it
+            // is and how far the work inside it has got.
+            const milestone = page.getByTestId('agenda-unscheduled').getByTestId('agenda-milestone').first()
             await expect(milestone).toBeVisible()
+            await expect(milestone).toContainText('Milestone')
+            // 1/5, not 0/5: the card ticked off a moment ago was one of the
+            // five inside this milestone, and the meter says so at once.
+            await expect(milestone).toContainText('1/5 done')
             await expect(milestone.getByTestId('agenda-complete')).toHaveCount(0)
+            // A card is not a milestone, and says which one it belongs to.
+            const card = page.getByTestId('agenda-unscheduled').getByTestId('agenda-card').first()
+            await expect(card).toContainText(`${title} phase one`)
+            await expect(card).not.toContainText('Milestone')
         })
 
         test('the setting turns it back into a grouped list', async ({ page }) => {

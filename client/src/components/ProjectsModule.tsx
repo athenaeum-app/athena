@@ -1016,6 +1016,13 @@ const dropTarget = (drag: AgendaDrag, key: number | 'none') => ({
 // day's row, in the plain list, or in the tray of undated work. Plain until
 // hovered, with the project's colour down its left edge so a column of
 // several projects is still readable.
+//
+// A milestone is drawn as what it is, which is not another card: it is the
+// container the cards around it feed into. It takes a surface of its own, says
+// MILESTONE outright, wears its title in the project's colour and carries a
+// meter for the work inside it. A card stays plain and points back at its
+// milestone with a chip, so the relationship is drawn once, in the direction
+// it actually runs.
 const DeadlineRow: Component<{
     row: ProjectWorkItem
     overdue: boolean
@@ -1031,7 +1038,8 @@ const DeadlineRow: Component<{
 }> = (props) => {
     const row = () => props.row
     const dragging = () => props.drag.item()?.id === row().id
-    const tickable = () => !!props.onComplete && row().kind === 'card'
+    const milestone = () => row().kind === 'milestone'
+    const tickable = () => !!props.onComplete && !milestone()
     return (
         // A div rather than a button, since it holds a button: the tick has to
         // be its own control, and a button inside a button is not markup a
@@ -1053,9 +1061,16 @@ const DeadlineRow: Component<{
             }}
             onDragEnd={() => props.drag.end()}
             onClick={() => props.onOpen(row())}
-            class="hover:bg-element-matte border-element-accent/50 hover:border-highlight/60 flex w-full items-start gap-2.5 rounded-md border border-transparent p-2 text-left transition-colors"
-            classList={{ 'cursor-grab active:cursor-grabbing': props.drag.enabled, 'hover:cursor-pointer': !props.drag.enabled, 'opacity-40': dragging() }}
-            style={{ 'border-left': `3px solid ${row().accent}` }}
+            data-testid={milestone() ? 'agenda-milestone' : 'agenda-card'}
+            class="hover:bg-element-matte hover:border-highlight/60 flex w-full items-start gap-2.5 rounded-md border p-2 text-left transition-colors"
+            classList={{
+                'cursor-grab active:cursor-grabbing': props.drag.enabled,
+                'hover:cursor-pointer': !props.drag.enabled,
+                'opacity-40': dragging(),
+                'bg-element-matte border-element-accent': milestone(),
+                'border-transparent': !milestone(),
+            }}
+            style={{ 'border-left': `${milestone() ? 5 : 3}px solid ${row().accent}` }}
             title={
                 props.drag.enabled
                     ? `Drag to a day to date it, or click to open ${row().kind === 'card' ? 'the card' : row().projectTitle}`
@@ -1092,16 +1107,42 @@ const DeadlineRow: Component<{
                 </button>
             </Show>
             <div class="min-w-0 flex-1">
-                <p class="text-main text-base leading-snug">{row().title}</p>
-                <p class="text-sub/80 truncate text-xs">
-                    {row().projectTitle}
-                    <Show
-                        when={row().kind === 'milestone'}
-                        fallback={<Show when={row().milestoneTitle}>{` · ${row().milestoneTitle}`}</Show>}
-                    >
-                        {` · milestone · ${row().done}/${row().total} done`}
+                <Show when={milestone()}>
+                    <p class="font-mono text-[10px] font-bold uppercase tracking-widest" style={{ color: row().accent }}>
+                        Milestone
+                    </p>
+                </Show>
+                <p
+                    class="text-base leading-snug"
+                    classList={{ 'text-main': !milestone(), 'font-semibold': milestone() }}
+                    style={milestone() ? { color: row().accent } : {}}
+                >
+                    {row().title}
+                </p>
+                <p class="text-sub/80 flex min-w-0 items-center gap-1.5 text-xs">
+                    {/* Capped rather than free: in a narrow column a long
+                        project name would eat the chip beside it entirely. */}
+                    <span class="max-w-[55%] shrink-0 truncate">{row().projectTitle}</span>
+                    {/* The card names its milestone as a chip rather than as
+                        more grey text: it is a place the card belongs to, not
+                        another line about the card. */}
+                    <Show when={!milestone() && row().milestoneTitle}>
+                        <span class="border-element-accent text-sub/70 flex min-w-0 shrink items-center gap-0.5 rounded border px-1 py-px">
+                            <span class="material-symbols-outlined shrink-0 text-[11px]">flag</span>
+                            <span class="truncate">{row().milestoneTitle}</span>
+                        </span>
                     </Show>
                 </p>
+                {/* What a milestone is worth saying: how far the work inside
+                    it has got. */}
+                <Show when={milestone()}>
+                    <div class="mt-1.5 flex items-center gap-2">
+                        <Meter done={row().done ?? 0} total={row().total ?? 0} class="w-24" color={row().accent} />
+                        <span class="text-sub/80 shrink-0 font-mono text-[11px]">
+                            {row().done ?? 0}/{row().total ?? 0} done
+                        </span>
+                    </div>
+                </Show>
             </div>
             <Show when={priorityIcon(row().priority)}>
                 <span
