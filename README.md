@@ -1,13 +1,10 @@
 # Athena
 
-Athena is a self-hosted application for journaling and archiving. Notes, tasks,
-and ideas live in one library that you run and control: a Go server that hosts
-it and serves the web client on the same origin, plus a desktop app that can
-manage several servers at once. No external account, no third-party service.
+ Athena is a self-hosted webapp that stores your notes, tasks, ideas, projects in a single unified interface that prioritizes accessibility, ease of use, and speed. Athena is designed to act as a universal solution to storing any kind of information. An optional electron client is available for desktop use that brings extended functionality like a library manager.
 
 ![The Athena feed](docs/screenshots/feed.png)
 
-<sub>Legacy theme, Legacy look</sub>
+<sub>Legacy Theme</sub>
 
 ## Features
 
@@ -15,26 +12,18 @@ manage several servers at once. No external account, no third-party service.
   attachments (images, PDFs, audio, and video preview inline). Grouped into
   archives, with full-text search, filtering by date and media, pinning, and
   links between moments.
-- **Tasks.** Lists with due dates, priorities, subtasks, and recurring items.
-  An agenda view collects everything due across every list onto one timeline,
-  and daily lists roll unfinished items into the next day.
-- **Projects.** Long-horizon efforts, each a cover on a portfolio that opens
-  into its own hub: an overview document with progress signals, a milestone
-  board, and a graveyard that keeps dismissed cards recoverable. Overviews and
-  cards use the same editor as moments, and a project embeds anywhere as a
-  live summary card.
-- **Canvas.** An infinite pan-and-zoom board joined by connectors. Text nodes
+- **Tasks.** Lists with due dates, priorities, subtasks, recurring items, and a planner to visualize them.
+- **Projects:** A dedicated workspace for projects, complete with a per-project and global-overview, timeline, documents, and a familiar interface.
+- **Canva:** An infinite pan-and-zoom board joined by connectors. Text nodes
   are written the way moments are, markdown and live embeds included, and
   reference nodes render what they point at: a moment in full, a checkable todo
   list, a project's progress, another board's layout.
-- **Chat.** A library-wide message log with the same formatting and embeds as
-  moments.
-- **Appearance.** Eleven color themes and six "Look" presets that compose
-  freely, both with editors for making your own.
-- **Administration.** Invite links with optional expiry, roles with
-  per-permission control, an audit log, and scheduled backups.
-- **Clients.** A browser PWA that installs to mobile, and a desktop app for
+- **Chat:** A library-wide message log with the same formatting and embeds as moments.
+- **Appearance:** Over then color themes and six visual presets that combine, both with editors for making your own.
+- **Administration:** Users can be invited with links, and roles are available with permission control, as well a backup manager.
+- **Clients:** An Athena instance can be accessed via a browser link, and a desktop app for
   Windows, macOS, and Linux.
+- **Universal References:** One of the core features of Athena's unified interface is its ability to reference any kind of content, including moments, task lists, individual tasks, projects, and canvases in any markdown-supported text.
 
 ## What it looks like
 
@@ -62,51 +51,6 @@ Blue, Sunset, Arctic, and Rosewood; looks as Legacy, Editorial, Glass, Ink,
 Aurora, and Slate-soft. A custom theme exports as one shareable string, and a
 theme can be pinned per archive. On a phone, moments read one at a time as
 swipeable cards and a bottom nav replaces the tag bar and side menu with sheets.
-
-## Getting started
-
-Requirements: Node.js 20 or newer and Go 1.25 or newer.
-
-```bash
-git clone https://github.com/athenaeum-app/athena.git && cd athena
-npm install
-npm run dev
-```
-
-`npm run dev` starts the Go server, the client with hot reload, and the desktop
-launcher together; `npm run dev:web` runs the client alone in a browser. The
-first account you create becomes the owner and names the library.
-
-### Demo library
-
-`npm run demo` wipes the database and seeds a full library through the real
-domain layer, so the sync events and audit entries are the genuine article. It
-covers every attachment type, pinned and legacy content, and active, expired,
-and used invites, under five personas spanning the roles:
-
-| Username | Password | Role |
-| --- | --- | --- |
-| `athena` | `demo-owner-2026` | Owner |
-| `ada_admin` | `demo-admin-2026` | Admin |
-| `eli_editor` | `demo-editor-2026` | Editor |
-| `mia_member` | `demo-member-2026` | Member |
-| `vic_viewer` | `demo-viewer-2026` | Viewer |
-
-Local evaluation only. It destroys the existing database, so never point it at
-real data or expose a demo-seeded server to a network.
-
-## Keyboard shortcuts
-
-| Shortcut | Action |
-| --- | --- |
-| `Ctrl+M` | New moment |
-| `Ctrl+F` | Focus search |
-| `Ctrl+/` | Open chat |
-| `Ctrl+,` | Open settings |
-| `Ctrl+S` | Save the moment being edited |
-| `Escape` | Close the top dialog |
-
-Rebindable in Settings, under Keybinds.
 
 ## Self-hosting
 
@@ -206,10 +150,8 @@ Two things to know before making changes:
 [`docs/GLOSSARY.md`](docs/GLOSSARY.md) has the domain glossary and
 [`docs/adr/`](docs/adr) the architectural decisions.
 
-## Status
-
-Version 2 rewrite, under active development. To report a vulnerability, see
-[SECURITY.md](SECURITY.md).
+## Security
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## License
 
