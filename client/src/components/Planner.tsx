@@ -15,6 +15,7 @@ import { PLANNER_SORTS, isContainer, isMovable, type PlannerDated, type PlannerR
 import { formatDue as fmtDue } from '../agenda'
 import { PRIORITIES, priorityColor, priorityIcon } from '../priority'
 import { Meter } from './Meter'
+import { useCanDrag } from '../media'
 
 // The planner: a run of days, a month, a list, and the tray of work with no
 // date yet, over the one row type both modules map onto (see planner.ts).
@@ -29,6 +30,12 @@ export interface PlannerDrag {
     // Whether dragging is allowed at all: a viewer reads the planner, it does
     // not schedule anything.
     enabled: boolean
+    // Whether this device can start a drag, which is a different question from
+    // whether it may. A finger cannot begin an HTML5 drag at all, so a phone
+    // must not be told to drag anything (issue #87). Rows stay draggable
+    // either way: this asks about the primary pointer, and a laptop with a
+    // touchscreen still has a mouse.
+    hasPointer: boolean
     item: () => PlannerRow | null
     start: (item: PlannerRow) => void
     end: () => void
@@ -47,9 +54,13 @@ export function createPlannerDrag(options: {
 }): PlannerDrag {
     const [item, setItem] = createSignal<PlannerRow | null>(null)
     const [over, setOver] = createSignal<number | 'none' | null>(null)
+    const canDrag = useCanDrag()
     return {
         get enabled() {
             return options.enabled()
+        },
+        get hasPointer() {
+            return canDrag()
         },
         item,
         start: (row) => setItem(row),
@@ -114,9 +125,13 @@ export interface PlannerHandlers {
 
 const defaultOpenTitle = (row: PlannerRow) => (isContainer(row) ? `Open ${row.homeTitle}` : `Open "${row.title}"`)
 
+// Whether to describe the gesture: allowed, and possible on this device. Both
+// halves, every time, or a phone is instructed to do something it cannot.
+const explainDrag = (drag: PlannerDrag) => drag.enabled && drag.hasPointer
+
 const rowTitle = (handlers: PlannerHandlers, row: PlannerRow) => {
     const open = (handlers.openTitle ?? defaultOpenTitle)(row)
-    return handlers.drag.enabled && isMovable(row)
+    return explainDrag(handlers.drag) && isMovable(row)
         ? `Drag to a day to date it, or click to ${open[0].toLowerCase()}${open.slice(1)}`
         : open
 }
@@ -543,7 +558,7 @@ const MonthGrid: Component<{ rows: PlannerDated[]; handlers: PlannerHandlers }> 
                         This month
                     </button>
                 </Show>
-                <Show when={drag().enabled}>
+                <Show when={explainDrag(drag())}>
                     <p class="text-sub/70 ml-auto text-sm">Drop one on a day to date it. Hold at an edge to change month.</p>
                 </Show>
             </div>
@@ -806,7 +821,7 @@ export const PlannerTray: Component<{
                 Not scheduled <span class="text-sub/60 font-mono text-base">{props.rows.length}</span>
             </h3>
             <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <Show when={props.handlers.drag.enabled}>
+                <Show when={explainDrag(props.handlers.drag)}>
                     <p class="text-sub/70 text-sm">Drag one onto a day to date it. Drag a dated one back here to take its date off.</p>
                 </Show>
                 {/* The order is the reader's, not the module's: a pile with no

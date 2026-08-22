@@ -69,6 +69,15 @@ async function seed(page: Page) {
     await patch(req, `/api/v1/project-cards/${cards[0].id}`, { due_at: today.toISOString() })
 }
 
+// Ticking is the one thing in this file that changes the seeded database, and
+// the database outlives the test that did it: the same tests run again at the
+// other viewport and find a chore already done. Put it back by hand.
+async function untick(page: Page, text: string) {
+    const lists = (await (await page.request.get('/api/v1/todos')).json()) as { items: { id: string; text: string }[] | null }[]
+    const item = (lists ?? []).flatMap((list) => list.items ?? []).find((i) => i.text === text)
+    if (item) await patch(page.request, `/api/v1/todo-items/${item.id}`, { done: false })
+}
+
 const planner = (page: Page) => page.getByTestId('tasks-planner')
 const scope = (page: Page, name: string) => page.getByTestId('planner-scope').getByText(name, { exact: true })
 
@@ -139,6 +148,8 @@ for (const [name, viewport, mobile] of [
                 .getByTestId('agenda-complete')
                 .click()
             await expect(planner(page).getByTestId('agenda-list').first()).toContainText('2/3 done')
+
+            await untick(page, CHORE)
         })
 
         test('keeps the undated in a tray, which is where a chore starts', async ({ page }) => {
@@ -151,6 +162,42 @@ for (const [name, viewport, mobile] of [
             await expect(tray).toContainText(UNDATED)
             // Dated work is on a day, not in the pile.
             await expect(tray).not.toContainText(CHORE)
+        })
+
+        // Issue #87. Being allowed to drag and being able to are different
+        // questions, and every surface here used to ask only the first, so a
+        // phone was told to make a gesture that fires no dragstart at all.
+        // `hasTouch: true` is what makes Chromium report (pointer: coarse),
+        // so the mobile half of this fails against the un-fixed client.
+        test('explains the drag only where a pointer can make one', async ({ page }) => {
+            await signIn(page)
+            await seed(page)
+            await openPlanner(page, mobile)
+            await scope(page, 'Tasks').click()
+
+            const trayHint = page.getByTestId('agenda-unscheduled').getByText(/Drag one onto a day/)
+            const row = page.getByTestId('agenda-unscheduled').getByTestId('agenda-task').first()
+
+            await page.getByTestId('agenda-view').getByTitle('Calendar').click()
+            const calendarHint = page.getByText(/Drop one on a day to date it/)
+
+            if (mobile) {
+                await expect(calendarHint).toHaveCount(0)
+                await page.getByTestId('agenda-view').getByTitle('Timeline').click()
+                await expect(trayHint).toHaveCount(0)
+                // The tooltip is the third surface saying it, and the one a
+                // fix aimed at the two paragraphs would leave behind.
+                await expect(row).toHaveAttribute('title', /^Open /)
+            } else {
+                await expect(calendarHint).toBeVisible()
+                await page.getByTestId('agenda-view').getByTitle('Timeline').click()
+                await expect(trayHint).toBeVisible()
+                await expect(row).toHaveAttribute('title', /^Drag to a day/)
+            }
+
+            // Either way the tray still lists what has no date: a chore is
+            // dated from the item itself where it cannot be dragged.
+            await expect(page.getByTestId('agenda-unscheduled')).toContainText(UNDATED)
         })
     })
 }
