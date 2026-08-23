@@ -374,6 +374,17 @@ components:
           type: string
         is_legacy:
           type: boolean
+        reply_to_id:
+          type: string
+          nullable: true
+          description: The message this one answers. Absent on an ordinary message.
+        reply_to:
+          allOf: [{ $ref: '#/components/schemas/ChatReply' }]
+          nullable: true
+          description: >-
+            A compact preview of the answered message, filled in on read so a
+            reply to something older than this page can still draw its own
+            first line. Absent once the answered message has been pruned.
         deleted_at:
           type: string
           format: date-time
@@ -385,12 +396,40 @@ components:
           type: string
           format: date-time
 
+    ChatReply:
+      type: object
+      required: [id, content, deleted]
+      description: >-
+        The message a reply answers, one level deep and never nested, so a reply
+        to a reply is one line on screen rather than a chain of them.
+      properties:
+        id:
+          type: string
+        author_id:
+          type: string
+          nullable: true
+        display_name:
+          type: string
+          nullable: true
+        content:
+          type: string
+          description: Empty when `deleted`.
+        deleted:
+          type: boolean
+          description: The answered message has been deleted; the client draws a tombstone.
+
     CreateChatMessageRequest:
       type: object
       required: [content]
       properties:
         content:
           type: string
+        reply_to_id:
+          type: string
+          description: >-
+            The message this one answers. Omit for an ordinary message. 400 if
+            no such message exists; a message deleted in the meantime is
+            accepted and reads as a reply to something gone.
 
     UpdateChatMessageRequest:
       type: object

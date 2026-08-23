@@ -1,11 +1,14 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@solidjs/testing-library'
-import { quoteFor, ChatPanel } from './ChatPanel'
+import { previewLine, ChatPanel } from './ChatPanel'
 import { AuthProvider } from '../auth'
 import { UIProvider } from '../ui'
 import { api } from '../api'
 
-vi.mock('../api', () => ({
+// The module's other exports stay real: APIError is one of them, and auth's
+// session check reaches for it through reachability the moment getMe settles.
+vi.mock('../api', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../api')>()),
     api: {
         getMe: vi.fn(),
         listChat: vi.fn(),
@@ -16,39 +19,135 @@ vi.mock('../api', () => ({
 }))
 vi.mock('../users', () => ({ loadUsers: vi.fn(), userName: (id: string) => id }))
 
-describe('quoteFor', () => {
-    it('prefixes a single line and leaves room to type under it', () => {
-        expect(quoteFor('Hello!')).toBe('> Hello!\n\n')
+describe('previewLine', () => {
+    it('gives a message back as one line', () => {
+        expect(previewLine('Hello!')).toBe('Hello!')
+        expect(previewLine('first\nsecond')).toBe('first second')
     })
 
-    it('keeps a multi-line message as one blockquote', () => {
-        expect(quoteFor('first\nsecond')).toBe('> first\n> second\n\n')
-    })
-
-    it('leaves no trailing space on a blank line inside the quote', () => {
-        // '> ' on its own would be trailing whitespace in the composer, and
-        // some markdown tooling treats it as a hard break.
-        expect(quoteFor('first\n\nsecond')).toBe('> first\n>\n> second\n\n')
-    })
-
-    it('quotes a quote rather than flattening it', () => {
-        expect(quoteFor('> already quoted')).toBe('> > already quoted\n\n')
-    })
-
-    it('drops embed tokens, which cannot survive being quoted', () => {
+    it('drops embed tokens, which are cards rather than words', () => {
         const id = '11111111-2222-3333-4444-555555555555'
-        expect(quoteFor(`see this ::todo:${id}::`)).toBe('> see this\n\n')
-        expect(quoteFor(`see this [[${id}]]`)).toBe('> see this\n\n')
+        expect(previewLine(`see this ::todo:${id}::`)).toBe('see this')
+        expect(previewLine(`see this [[${id}]]`)).toBe('see this')
     })
 
-    it('gives nothing back for a message that is only an embed', () => {
-        expect(quoteFor('::canvas:11111111-2222-3333-4444-555555555555::')).toBe('')
-        expect(quoteFor('')).toBe('')
-        expect(quoteFor('   ')).toBe('')
+    it('names an attachment instead of showing the markdown that fetches it', () => {
+        expect(previewLine('![kettle.png](/api/v1/assets/abc123)')).toBe('kettle.png')
+        expect(previewLine('look: [notes.pdf](/api/v1/assets/abc123)')).toBe('look: notes.pdf')
+        expect(previewLine('![](/api/v1/assets/abc123)')).toBe('Attachment')
     })
 
-    it('preserves markdown in the quoted text', () => {
-        expect(quoteFor('**bold** and `code`')).toBe('> **bold** and `code`\n\n')
+    // A message with nothing but an embed in it is still a message somebody is
+    // answering, and a reply line with nothing on it says nothing at all.
+    it('says what a message made only of embeds is', () => {
+        expect(previewLine('::canvas:11111111-2222-3333-4444-555555555555::')).toBe('Embed')
+        expect(previewLine('   ')).toBe('Embed')
+    })
+
+    it('leaves markdown alone, since the line is read as text', () => {
+        expect(previewLine('**bold** and `code`')).toBe('**bold** and `code`')
+    })
+})
+
+// Replying used to paste the message into the composer as a blockquote, so the
+// copy went stale, could not be followed back, and could be edited into
+// something the original never said. A reply holds the id instead.
+describe('replying', () => {
+    const owner = { id: 'u1', username: 'owner', is_owner: true, roles: [], permissions: 1 << 19 }
+    const at = (iso: string) => ({ created_at: iso, updated_at: iso })
+
+    // The composer asks the width whether Enter sends, and jsdom has no
+    // matchMedia at all: without this it throws on render, the panel falls back
+    // to the read-only footer, and there is nothing to reply into.
+    beforeEach(() => {
+        vi.stubGlobal('matchMedia', (media: string) => ({
+            media,
+            matches: false,
+            onchange: null,
+            addEventListener() {},
+            removeEventListener() {},
+            addListener() {},
+            removeListener() {},
+            dispatchEvent: () => false,
+        }))
+    })
+    afterEach(() => vi.unstubAllGlobals())
+
+    const renderPanel = () =>
+        render(() => (
+            <UIProvider>
+                <AuthProvider>
+                    <ChatPanel />
+                </AuthProvider>
+            </UIProvider>
+        ))
+
+    it('draws a line naming the message a reply answers', async () => {
+        vi.mocked(api.getMe).mockResolvedValue(owner)
+        vi.mocked(api.listChat).mockResolvedValue([
+            { id: 'm1', author_id: 'u1', content: 'the kettle needs descaling', is_legacy: false, ...at('2024-01-01T10:00:00Z') },
+            {
+                id: 'm2',
+                author_id: 'u2',
+                content: 'on it',
+                is_legacy: false,
+                reply_to_id: 'm1',
+                reply_to: { id: 'm1', author_id: 'u1', content: 'the kettle needs descaling', deleted: false },
+                ...at('2024-01-01T10:01:00Z'),
+            },
+        ])
+
+        renderPanel()
+
+        const line = await screen.findByTestId('chat-reply-line')
+        expect(line).toHaveTextContent('u1')
+        expect(line).toHaveTextContent('the kettle needs descaling')
+    })
+
+    it('says so where the answered message has been deleted', async () => {
+        vi.mocked(api.getMe).mockResolvedValue(owner)
+        vi.mocked(api.listChat).mockResolvedValue([
+            {
+                id: 'm2',
+                author_id: 'u2',
+                content: 'quite',
+                is_legacy: false,
+                reply_to_id: 'm1',
+                reply_to: { id: 'm1', author_id: 'u1', content: '', deleted: true },
+                ...at('2024-01-01T10:01:00Z'),
+            },
+        ])
+
+        renderPanel()
+
+        expect(await screen.findByTestId('chat-reply-gone')).toBeInTheDocument()
+        expect(screen.queryByTestId('chat-reply-line')).not.toBeInTheDocument()
+    })
+
+    // The whole point of the change: the composer is left alone, so nothing
+    // anybody else wrote can be edited into your own message on the way out.
+    it('names the target beside the composer instead of typing into it', async () => {
+        vi.mocked(api.getMe).mockResolvedValue(owner)
+        vi.mocked(api.listChat).mockResolvedValue([
+            { id: 'm1', author_id: 'u1', content: 'the kettle needs descaling', is_legacy: false, ...at('2024-01-01T10:00:00Z') },
+        ])
+
+        const { container } = renderPanel()
+        const draft = () => (container.querySelector('textarea') as HTMLTextAreaElement).value
+
+        const replyButton = await screen.findByRole('button', { name: 'Reply to u1' })
+        expect(draft()).toBe('')
+        replyButton.click()
+
+        const bar = await screen.findByTestId('chat-replying-to')
+        expect(bar).toHaveTextContent('Replying to')
+        expect(bar).toHaveTextContent('the kettle needs descaling')
+        expect(draft()).toBe('')
+
+        // And backing out leaves nothing behind either.
+        screen.getByRole('button', { name: 'Stop replying' }).click()
+        await waitFor(() => expect(screen.queryByTestId('chat-replying-to')).not.toBeInTheDocument())
+        expect(draft()).toBe('')
     })
 })
 

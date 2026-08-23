@@ -66,8 +66,19 @@ _Avoid_: embed, card, unfurl.
 
 **Chat message**:
 A message in the library-wide chat. Authored by a user; legacy (v1-imported)
-messages may carry a `display_name` instead of an author.
+messages may carry a `display_name` instead of an author. A message may answer
+another, which makes it a Reply.
 _Avoid_: buffer message, post.
+
+**Reply**:
+A Chat message that points at the one it answers, by id. It is drawn under a
+single line naming that message, which leads back to it. The link is one level
+and never a tree: a reply may answer a reply, and the line still shows only the
+message directly answered. Nothing of the answered message is copied into the
+reply, so the line says what that message says now, and reads as a tombstone
+once it is deleted. Distinct from a project document comment thread, which is a
+`parent_id` tree capped at one level of nesting.
+_Avoid_: quote, thread, mention.
 
 **Todo list**:
 An embeddable checklist of items. A list is either `daily` (unchecks itself each

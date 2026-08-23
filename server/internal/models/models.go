@@ -106,9 +106,29 @@ type ChatMessage struct {
 	DisplayName *string    `json:"display_name,omitempty"` // used when AuthorID is nil
 	Content     string     `json:"content"`
 	IsLegacy    bool       `json:"is_legacy"`
+	ReplyToID   *string    `json:"reply_to_id,omitempty"` // nil = not a reply
+	ReplyTo     *ChatReply `json:"reply_to,omitempty"`    // filled on read, never stored
 	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+// ChatReply is the message a reply answers, in the form the reply needs to draw
+// its own first line: who wrote it and what it said.
+//
+// Deliberately not a nested ChatMessage. A reply may answer a reply, and
+// nesting would hand the client a chain to walk and a page whose size depends
+// on how deep the conversation went. One level, compact, the way an embed
+// preview is (ADR-0015).
+//
+// Content is empty when Deleted: the client draws a tombstone from the flag,
+// and the text of something deleted for everyone should not travel to say so.
+type ChatReply struct {
+	ID          string  `json:"id"`
+	AuthorID    *string `json:"author_id,omitempty"`
+	DisplayName *string `json:"display_name,omitempty"`
+	Content     string  `json:"content"`
+	Deleted     bool    `json:"deleted"`
 }
 
 // Asset is a file uploaded to the server and referenced in moment content.

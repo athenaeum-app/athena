@@ -35,10 +35,23 @@ export { recentChat, chatFeedLoaded }
 // returns brand-new objects even for untouched rows, and handing <For> a new
 // reference per message per cycle rebuilds the whole visible list every five
 // seconds: flicker, lost hover state, replayed animations.
+// Whether two copies of a message say the same thing, and so whether the older
+// object can be kept. Exported because the panel merges its own scrollback the
+// same way and the two answers must not drift apart.
+//
+// The reply line counts as part of the message: editing what a reply answers
+// changes nothing on the reply's own row, so comparing content and updated_at
+// alone would keep a stale preview of it forever.
+export const sameChatMessage = (a: ChatMessage, b: ChatMessage): boolean =>
+    a.content === b.content &&
+    a.updated_at === b.updated_at &&
+    a.reply_to?.content === b.reply_to?.content &&
+    a.reply_to?.deleted === b.reply_to?.deleted
+
 const merge = (prev: ChatMessage[], fresh: ChatMessage[]): ChatMessage[] =>
     fresh.map((msg) => {
         const existing = prev.find((m) => m.id === msg.id)
-        return existing && existing.content === msg.content && existing.updated_at === msg.updated_at ? existing : msg
+        return existing && sameChatMessage(existing, msg) ? existing : msg
     })
 
 // Concurrent callers (a second subscriber mounting mid-poll) share one request

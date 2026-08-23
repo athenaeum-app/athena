@@ -1,9 +1,9 @@
 import { test, expect, type Page } from '@playwright/test'
 
-// Reply puts the message into the composer as a blockquote. quoteFor's own
-// shaping is covered by unit tests; what needs a browser is that the action is
-// reachable, reaches the composer it belongs to, and does not clobber what is
-// already typed there.
+// A reply points at the message it answers rather than copying its text into
+// the composer. What needs a browser is that the action is reachable, that it
+// leaves the draft alone, that the sent message draws the line back, and that
+// the line survives an edit of the message it names.
 
 async function signIn(page: Page): Promise<void> {
     const setup = (await (await page.request.get('/api/v1/setup')).json()) as { needs_setup: boolean }
@@ -28,39 +28,115 @@ async function seed(page: Page) {
 // message text, and the composer only exists inside the panel.
 const panel = (page: Page) => page.getByTestId('chat-panel')
 const composer = (page: Page) => panel(page).locator('textarea').first()
-const replyButton = (page: Page) => panel(page).getByRole('button', { name: /^Reply to / }).first()
+// Scoped to the message being answered rather than picked off the top of the
+// list: the throwaway database outlives the test that wrote it, so the oldest
+// message on screen belongs to whatever ran first.
+const messageRow = (page: Page, text: string) => panel(page).locator(`[data-message-id]:has-text(${JSON.stringify(text)})`)
+const replyButton = (page: Page, text: string) => messageRow(page, text).first().getByRole('button', { name: /^Reply to / })
+const replyingBar = (page: Page) => panel(page).getByTestId('chat-replying-to')
+
+// .first() throughout: once a reply to the greeting exists, its line says the
+// greeting too, so the bare text matches the message and the line naming it.
+const greeting = (page: Page) => panel(page).getByText(GREETING).first()
 
 async function openChat(page: Page) {
     await page.goto('/')
     await page.getByRole('button', { name: 'Chat' }).first().click()
-    await expect(panel(page).getByText(GREETING)).toBeVisible()
+    await expect(greeting(page)).toBeVisible()
 }
 
-test.describe('replying to a chat message', () => {
+// Sent by hand rather than through the composer: Enter sends on a desktop
+// width and is a newline on a phone, and this is about the reply, not the key.
+async function send(page: Page, text: string) {
+    await composer(page).fill(text)
+    await panel(page).getByRole('button', { name: 'Send' }).first().click()
+    await expect(panel(page).getByText(text).first()).toBeVisible()
+}
+
+for (const [name, viewport, touch] of [
+    ['desktop', { width: 1440, height: 900 }, false],
+    ['mobile', { width: 390, height: 844 }, true],
+] as const) {
+    test.describe(`replying to a chat message (${name})`, () => {
+        test.use({ viewport, hasTouch: touch })
+
+        test('names the message beside the composer without typing into it', async ({ page }) => {
+            await signIn(page)
+            await seed(page)
+            await openChat(page)
+
+            await composer(page).fill('half a thought')
+            await replyButton(page, GREETING).click()
+
+            // The draft is untouched, which is the whole point: nothing anyone
+            // else wrote can be edited into your own message on the way out.
+            await expect(composer(page)).toHaveValue('half a thought')
+            await expect(replyingBar(page)).toContainText('Replying to')
+            await expect(replyingBar(page)).toContainText(GREETING)
+
+            await page.getByRole('button', { name: 'Stop replying' }).click()
+            await expect(replyingBar(page)).toHaveCount(0)
+            await expect(composer(page)).toHaveValue('half a thought')
+        })
+
+        test('sends a reply that draws the line back to what it answers', async ({ page }) => {
+            await signIn(page)
+            await seed(page)
+            await openChat(page)
+
+            const answer = `yes indeed (${name})`
+            await replyButton(page, GREETING).click()
+            await send(page, answer)
+
+            // The bar goes with the message it belonged to, or the next one
+            // would answer the same target by accident.
+            await expect(replyingBar(page)).toHaveCount(0)
+
+            const sent = messageRow(page, answer).last()
+            const line = sent.getByTestId('chat-reply-line')
+            await expect(line).toContainText(GREETING)
+            // And it leads back: clicking flashes the message it names.
+            await line.click()
+            await expect(greeting(page)).toBeVisible()
+        })
+    })
+}
+
+test.describe('a reply follows what it answers', () => {
     test.use({ viewport: { width: 1440, height: 900 } })
 
-    test('quotes the message into the composer', async ({ page }) => {
+    // The case a quote could never survive: the copy said the old thing
+    // forever, and nothing marked it as out of date.
+    test('shows the answered message as it stands after an edit', async ({ page }) => {
         await signIn(page)
-        await seed(page)
-        await openChat(page)
 
-        await replyButton(page).click()
+        const original = await page.request.post('/api/v1/chat', { data: { content: 'thursday, I think' } })
+        const { id } = (await original.json()) as { id: string }
+        await page.request.post('/api/v1/chat', { data: { content: 'see you then', reply_to_id: id } })
+        await page.request.patch(`/api/v1/chat/${id}`, { data: { content: 'friday, sorry' } })
 
-        await expect(composer(page)).toHaveValue(`> ${GREETING}\n\n`)
-        // Ready to type: the caret is in the composer, past the quote.
-        await page.keyboard.type('yes indeed')
-        await expect(composer(page)).toHaveValue(`> ${GREETING}\n\nyes indeed`)
+        await page.goto('/')
+        await page.getByRole('button', { name: 'Chat' }).first().click()
+
+        const reply = messageRow(page, 'see you then').last()
+        await expect(reply.getByTestId('chat-reply-line')).toContainText('friday, sorry')
+        await expect(reply.getByTestId('chat-reply-line')).not.toContainText('thursday')
     })
 
-    test('keeps what was already typed, and starts the quote on its own line', async ({ page }) => {
+    test('says so once the answered message is deleted', async ({ page }) => {
         await signIn(page)
-        await seed(page)
-        await openChat(page)
 
-        await composer(page).fill('half a thought')
-        await replyButton(page).click()
+        const original = await page.request.post('/api/v1/chat', { data: { content: 'something regrettable' } })
+        const { id } = (await original.json()) as { id: string }
+        await page.request.post('/api/v1/chat', { data: { content: 'quite so', reply_to_id: id } })
+        await page.request.delete(`/api/v1/chat/${id}`)
 
-        await expect(composer(page)).toHaveValue(`half a thought\n> ${GREETING}\n\n`)
+        await page.goto('/')
+        await page.getByRole('button', { name: 'Chat' }).first().click()
+
+        const reply = messageRow(page, 'quite so').last()
+        await expect(reply.getByTestId('chat-reply-gone')).toBeVisible()
+        await expect(reply.getByTestId('chat-reply-line')).toHaveCount(0)
     })
 })
 
@@ -73,7 +149,7 @@ test.describe('replying on touch', () => {
         await page.goto('/')
         await page.getByRole('button', { name: 'Chat' }).first().click()
 
-        const message = panel(page).getByText(GREETING)
+        const message = greeting(page)
         await expect(message).toBeVisible()
         const box = await message.boundingBox()
         expect(box).not.toBeNull()
@@ -87,6 +163,7 @@ test.describe('replying on touch', () => {
         // Scoped: the message's own hover Reply is in the DOM too, just
         // invisible without a pointer, which is the reason the sheet exists.
         await page.getByTestId('action-sheet').getByRole('button', { name: 'Reply' }).click()
-        await expect(composer(page)).toHaveValue(`> ${GREETING}\n\n`)
+        await expect(replyingBar(page)).toContainText(GREETING)
+        await expect(composer(page)).toHaveValue('')
     })
 })

@@ -554,21 +554,25 @@ func (s *seeder) linkTodoToMoment() {
 // --- chat --------------------------------------------------------------------
 
 func (s *seeder) seedChat() {
-	s.chat(s.owner().ID, nil, "Welcome to the library chat! This is where we talk shop.", 11, false)
-	s.chat(s.admin().ID, nil, "Assets and moments are seeded. Take a look at the feed.", 10, false)
-	s.chat(s.editor().ID, nil, "Love the new canvas board. The todo embed is slick.", 8, false)
-	s.chat(s.member().ID, nil, "First post! Excited to be here.", 6, false)
+	s.chat(s.owner().ID, nil, "Welcome to the library chat! This is where we talk shop.", 11, false, nil)
+	s.chat(s.admin().ID, nil, "Assets and moments are seeded. Take a look at the feed.", 10, false, nil)
+	canvas := s.chat(s.editor().ID, nil, "Love the new canvas board. The todo embed is slick.", 8, false, nil)
+	// One seeded reply, so the demo library shows what one looks like without
+	// anyone having to send one first.
+	s.chat(s.member().ID, nil, "Agreed, the embed is the part that sold me.", 7, false, &canvas)
+	s.chat(s.member().ID, nil, "First post! Excited to be here.", 6, false, nil)
 	// A legacy chat message: no author, a preserved display name, is_legacy = 1.
-	s.chat("", strptr("OldTimer"), "Greetings from the archives of the old system.", 45, true)
-	s.chat(s.owner().ID, nil, "Reminder: the demo credentials are printed by `npm run demo`.", 1, false)
+	s.chat("", strptr("OldTimer"), "Greetings from the archives of the old system.", 45, true, nil)
+	s.chat(s.owner().ID, nil, "Reminder: the demo credentials are printed by `npm run demo`.", 1, false, nil)
 }
 
-func (s *seeder) chat(authorID string, displayName *string, content string, daysAgo int, legacy bool) {
+// Returns the id of the message it wrote, so a later one can answer it.
+func (s *seeder) chat(authorID string, displayName *string, content string, daysAgo int, legacy bool, replyToID *string) string {
 	var authorArg *string
 	if authorID != "" {
 		authorArg = &authorID
 	}
-	message := must1(domain.CreateChatMessage(authorArg, displayName, content))
+	message := must1(domain.CreateChatMessage(authorArg, displayName, content, replyToID))
 	timestamp := s.daysAgo(daysAgo)
 	if legacy {
 		s.exec(`UPDATE chat_messages SET is_legacy = 1, created_at = ?, updated_at = ? WHERE id = ?`, timestamp, timestamp, message.ID)
@@ -580,6 +584,7 @@ func (s *seeder) chat(authorID string, displayName *string, content string, days
 		sync.RecordAudit(authorID, "chat.create", "CHAT_MESSAGE", message.ID, nil)
 	}
 	s.chatCount++
+	return message.ID
 }
 
 // --- link previews & settings ------------------------------------------------

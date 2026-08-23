@@ -72,16 +72,21 @@ export interface EditorProps {
     // When set, unsaved work is mirrored to localStorage under this key and
     // restored on mount. See the draft block below.
     draftKey?: string
-    // Handed over on mount, for a host that has to put text into a composer it
-    // does not own (chat quoting a message it was asked to reply to). A prop
+    // Escape in the chat composer, offered to the host before the composer does
+    // its own thing with it. Return true to say it was used: chat cancels a
+    // reply with it, and blurring as well would take the caret out of a
+    // composer whose answer is still being typed.
+    onEscape?: () => boolean
+    // Handed over on mount, for a host that has to reach into a composer it
+    // does not own (chat putting the caret in it when you pick Reply). A prop
     // holding the content instead would make every keystroke the host's
-    // problem, for the sake of the rare write.
+    // problem, for the sake of the rare reach.
     onReady?: (handle: EditorHandle) => void
 }
 
 export interface EditorHandle {
-    // Insert at the caret, on a line of its own, and leave the caret after it.
-    insertBlock: (text: string) => void
+    // Put the caret in the body, ready to type.
+    focus: () => void
 }
 
 // --- drafts -----------------------------------------------------------------
@@ -381,16 +386,7 @@ export const Editor: Component<EditorProps> = (props) => {
         restoreSelection(pos, pos)
     }
 
-    // Insert starting on a line of its own. A blockquote glued to the tail of
-    // whatever was already typed is neither a quote nor prose, and the caret
-    // sits at the end of the composer far more often than at the start of a
-    // line.
-    const insertBlock = (text: string) => {
-        const before = content().slice(0, contentRef ? contentRef.selectionStart : content().length)
-        insertAtCursor(before === '' || before.endsWith('\n') ? text : '\n' + text)
-    }
-
-    onMount(() => props.onReady?.({ insertBlock }))
+    onMount(() => props.onReady?.({ focus: () => contentRef?.focus() }))
 
     // ---- `[[` embed picker ----
 
@@ -679,6 +675,7 @@ export const Editor: Component<EditorProps> = (props) => {
         if (props.chrome === 'chat' && e.key === 'Escape') {
             e.preventDefault()
             e.stopPropagation()
+            if (props.onEscape?.()) return
             e.currentTarget.blur()
             return
         }

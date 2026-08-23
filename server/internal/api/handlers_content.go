@@ -550,12 +550,20 @@ func (s *Server) handleListChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list chat messages")
 		return
 	}
+	// A reply is drawn with a line of what it answers, and what it answers is
+	// often older than the page it arrived in, so the page carries it.
+	if err := domain.AttachChatReplies(messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list chat messages")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, messages)
 }
 
 type createChatMessageRequest struct {
 	Content string `json:"content"`
+	// Which message this answers. Empty is an ordinary message.
+	ReplyToID string `json:"reply_to_id"`
 }
 
 func (s *Server) handleCreateChatMessage(w http.ResponseWriter, r *http.Request) {
@@ -569,9 +577,27 @@ func (s *Server) handleCreateChatMessage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// A reply to something that was never here at all is a bad request, not a
+	// message to write down. A reply to something soft-deleted in the moment
+	// between the click and the send is allowed through: it posts, and draws
+	// the same tombstone every other reply to a deleted message draws.
+	var replyToID *string
+	if req.ReplyToID != "" {
+		parent, err := domain.GetChatMessage(req.ReplyToID)
+		if err != nil || parent == nil {
+			writeError(w, http.StatusBadRequest, "the message being replied to does not exist")
+			return
+		}
+		replyToID = &parent.ID
+	}
+
 	user := auth.UserFromContext(r.Context())
-	msg, err := domain.CreateChatMessage(&user.ID, nil, req.Content)
+	msg, err := domain.CreateChatMessage(&user.ID, nil, req.Content, replyToID)
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create chat message")
+		return
+	}
+	if err := domain.AttachChatReply(msg); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create chat message")
 		return
 	}
@@ -612,6 +638,12 @@ func (s *Server) handleUpdateChatMessage(w http.ResponseWriter, r *http.Request)
 
 	updated, err := domain.UpdateChatMessage(id, req.Content)
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update chat message")
+		return
+	}
+	// An edit does not touch what the message answers, and the panel replaces
+	// its copy with this one, so the reply line has to come back with it.
+	if err := domain.AttachChatReply(updated); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update chat message")
 		return
 	}

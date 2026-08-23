@@ -90,13 +90,14 @@ const TOKEN = new RegExp(
 // The same shape with the kind left open, for text that only needs the tokens
 // gone rather than rendered. Deliberately looser than TOKEN: a kind this build
 // does not draw a card for is still a token, and leaving its raw text in a
-// preview or a quoted reply is worse than dropping it.
+// preview or a reply line is worse than dropping it.
 const ANY_TOKEN = new RegExp(`::\\w+:${ID}::|::agenda(?::\\w+)?::|\\[\\[${ID}\\]\\]`, 'g')
 
 // Drop every embed token from a piece of content. Exported because three
-// places need markdown with no live embeds in it: the swiper preview card, a
-// chat message quoted into a reply, and a flattened excerpt. Each one used to
-// carry its own copy of the pattern, and each copy went stale on its own.
+// places need markdown with no live embeds in it: the swiper preview card, the
+// line a chat reply draws of the message it answers, and a flattened excerpt.
+// Each one used to carry its own copy of the pattern, and each copy went stale
+// on its own.
 export function stripEmbedTokens(content: string): string {
     return (content || '').replace(ANY_TOKEN, '')
 }

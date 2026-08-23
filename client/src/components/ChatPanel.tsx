@@ -1,7 +1,7 @@
 import { createSignal, createMemo, createEffect, on, For, onMount, onCleanup, Show, type Component } from 'solid-js'
 import { api, type ChatMessage } from '../api'
 import { loadUsers, userName } from '../users'
-import { recentChat, watchChatFeed, refreshChatFeed, mutateChatFeed, CHAT_PAGE_SIZE } from '../chatFeed'
+import { recentChat, watchChatFeed, refreshChatFeed, mutateChatFeed, sameChatMessage, CHAT_PAGE_SIZE } from '../chatFeed'
 import { keybinds, matchEvent } from '../keybinds'
 import { formatTime } from '../format'
 import { useAuth } from '../auth'
@@ -48,17 +48,26 @@ interface GroupedMessage {
     showHeader: boolean
 }
 
-// The message as a markdown blockquote, ready to type a reply under. Every line
-// is prefixed, so a multi-line message stays one quote instead of a quote
-// followed by loose prose that reads as part of the reply.
+// An attachment as written in the content: `![kettle.png](/api/v1/assets/...)`
+// for a picture, the same without the bang for a file.
+const ATTACHMENT = /!?\[([^\]]*)\]\(\/api\/v1\/assets\/[0-9a-fA-F-]{6,}\)/g
+
+// A message as the single line a reply draws above itself, and the composer
+// shows while one is being written.
 //
-// Embed tokens are dropped: MomentBody splits `::todo:<id>::` and `[[<id>]]`
-// out of the text wherever they sit, so carrying one into a quote would leave
-// an empty `>` behind and render its card full size outside the quote.
-export function quoteFor(content: string): string {
-    const text = stripEmbedTokens(content).trim()
-    if (!text) return ''
-    return text.split('\n').map((line) => `> ${line}`.trimEnd()).join('\n') + '\n\n'
+// Embed tokens go, because MomentBody splits them out of the text wherever they
+// sit and a card is not a line. An attachment becomes its own name instead of
+// the markdown that fetches it: a preview reading `![kettle.png](/api/v1/...)`
+// says less than the picture it stands in for. Newlines collapse, since the
+// line is one line however many the message was.
+export function previewLine(content: string): string {
+    const flattened = stripEmbedTokens(content)
+        .replace(ATTACHMENT, (_match, label: string) => label || 'Attachment')
+        .replace(/\s+/g, ' ')
+        .trim()
+    // What is left is a message that was nothing but embed tokens. It is still
+    // a message somebody is answering, so it says the one word it is.
+    return flattened || 'Embed'
 }
 
 // A message counts as edited when its updated_at moved meaningfully past its
@@ -102,6 +111,10 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
     // The message a result jumped to, briefly highlighted so the eye can find
     // it in the scrollback it landed in.
     const [flashId, setFlashId] = createSignal<string | null>(null)
+    // The message the composer is answering, if any. The message rather than
+    // its id, because the bar over the composer says who wrote it and what it
+    // said, and the panel need not still hold the row by the time it is sent.
+    const [replyTo, setReplyTo] = createSignal<ChatMessage | null>(null)
     let searchInput: HTMLInputElement | undefined
 
     let scrollRef: HTMLDivElement | undefined
@@ -234,9 +247,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
             const older = prev.filter((m) => new Date(m.created_at).getTime() < cutoff)
             const merged = fetchedAsc.map((fresh) => {
                 const existing = prev.find((m) => m.id === fresh.id)
-                return existing && existing.content === fresh.content && existing.updated_at === fresh.updated_at
-                    ? existing
-                    : fresh
+                return existing && sameChatMessage(existing, fresh) ? existing : fresh
             })
             return [...older, ...merged]
         })
@@ -256,8 +267,13 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
     const sendMessage = async (content: string) => {
         const text = content.trim()
         if (!text) return
+        const answering = replyTo()
+        // Cleared before the request rather than after it: the bar belongs to
+        // the message that has just gone, and leaving it standing would hang
+        // the next one off the same target by accident.
+        setReplyTo(null)
         try {
-            const msg = await api.sendChat(text)
+            const msg = await api.sendChat(text, answering?.id)
             applyLocal((prev) => [...prev, msg])
             // Sending is an unambiguous "I want to be at the latest".
             stickToBottom = true
@@ -387,26 +403,38 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
     })
 
     // Walk older pages until the message is on the list, then put it under the
-    // reader's eye. The scrollback is the whole point of the jump: a result on
+    // reader's eye. The scrollback is the whole point of a jump: a message on
     // its own says what was said, not what it was said about.
-    const jumpTo = async (target: ChatMessage) => {
-        closeSearch()
+    const jumpTo = async (id: string, whenLost: string) => {
         let pages = 0
-        while (!messages().some((m) => m.id === target.id) && hasMoreOlder() && pages++ < JUMP_MAX_PAGES) {
+        while (!messages().some((m) => m.id === id) && hasMoreOlder() && pages++ < JUMP_MAX_PAGES) {
             await loadOlder()
         }
-        if (!messages().some((m) => m.id === target.id)) {
-            // Naming what still works: the words are on screen either way, and
-            // the copy control beside the result is how they leave with you.
-            ui.toast('That message is too far back to jump to. Copy it from the result instead.', 'error')
+        if (!messages().some((m) => m.id === id)) {
+            ui.toast(whenLost, 'error')
             return
         }
         stickToBottom = false
-        setFlashId(target.id)
+        setFlashId(id)
         requestAnimationFrame(() => {
-            listRef?.querySelector(`[data-message-id="${target.id}"]`)?.scrollIntoView({ block: 'center' })
+            listRef?.querySelector(`[data-message-id="${id}"]`)?.scrollIntoView({ block: 'center' })
         })
-        setTimeout(() => setFlashId((id) => (id === target.id ? null : id)), 2500)
+        setTimeout(() => setFlashId((current) => (current === id ? null : current)), 2500)
+    }
+
+    // Naming what still works: the words are on screen either way, and the copy
+    // control beside the result is how they leave with you.
+    const jumpToResult = async (target: ChatMessage) => {
+        closeSearch()
+        await jumpTo(target.id, 'That message is too far back to jump to. Copy it from the result instead.')
+    }
+
+    // The other way in: a reply says what it answers, and the line is how you
+    // get back to it. There is nothing to copy from here, so the toast says
+    // only what happened.
+    const jumpToAnswered = async (msg: ChatMessage) => {
+        if (!msg.reply_to_id) return
+        await jumpTo(msg.reply_to_id, 'That message is too far back in the conversation to jump to.')
     }
 
     // What search definitely did for you is find the words, so they have to be
@@ -434,18 +462,21 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
         onCleanup(() => window.removeEventListener('keydown', onKey, true))
     })
 
-    const authorLabel = (msg: ChatMessage) => (msg.author_id ? userName(msg.author_id) : msg.display_name || 'Unknown')
+    // Shared by a message and by the preview of the one a reply answers, which
+    // carries the same two fields for the same reason.
+    const nameOf = (who: { author_id?: string; display_name?: string }) => (who.author_id ? userName(who.author_id) : who.display_name || 'Unknown')
+    const authorLabel = (msg: ChatMessage) => nameOf(msg)
 
     // Handed over by the composer on mount. Undefined without SEND_CHAT_MESSAGE,
-    // where there is no composer to quote into and no Reply offered either.
+    // where there is no composer to answer into and no Reply offered either.
     let composer: EditorHandle | undefined
-    // A message with nothing but an embed in it quotes to nothing, and an
-    // action that silently does nothing is worse than one that isn't offered.
-    const canReply = (msg: ChatMessage) => canSend() && !!quoteFor(msg.content)
+    // Any message, including one that is nothing but a picture or an embed:
+    // the answer is a link to it now, not a copy of words it may not have.
+    const canReply = () => canSend()
     const reply = (msg: ChatMessage) => {
-        const quote = quoteFor(msg.content)
-        if (!quote) return
-        composer?.insertBlock(quote)
+        setReplyTo(msg)
+        // Nothing is typed for you, so the caret is the whole handover.
+        composer?.focus()
     }
 
     // Wrapper objects for <For>, which diffs by reference. messages() gets a
@@ -462,7 +493,10 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
         for (const msg of messages()) {
             const sameAuthor = prev ? (prev.author_id ? prev.author_id === msg.author_id : prev.display_name === msg.display_name) : false
             const withinWindow = prev ? new Date(msg.created_at).getTime() - new Date(prev.created_at).getTime() < GROUP_WINDOW_MS : false
-            const showHeader = !(sameAuthor && withinWindow)
+            // A reply always shows its header. The line above it names the
+            // message it answers, and hanging that under someone else's header
+            // reads as though they wrote it.
+            const showHeader = !(sameAuthor && withinWindow) || !!msg.reply_to_id
             const cached = groupedCache.get(msg.id)
             const entry = cached && cached.msg === msg && cached.showHeader === showHeader ? cached : { msg, showHeader }
             nextCache.set(msg.id, entry)
@@ -556,7 +590,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                             const actions = []
                             // First, and ungated: replying is the one action
                             // that applies to someone else's message too.
-                            if (canReply(msg)) actions.push({ label: 'Reply', icon: 'reply', onSelect: () => reply(msg) })
+                            if (canReply()) actions.push({ label: 'Reply', icon: 'reply', onSelect: () => reply(msg) })
                             if (canEdit(msg)) actions.push({ label: 'Edit', icon: 'edit', onSelect: () => startEdit(msg) })
                             if (canDelete(msg))
                                 actions.push({ label: 'Delete', icon: 'delete', danger: true, onSelect: () => deleteMessage(msg) })
@@ -576,6 +610,38 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                 }}
                                 class="group relative transition-colors duration-700"
                             >
+                                {/* What this message answers, drawn above it.
+                                    A line rather than a copy of the text: the
+                                    id is the link, so it says what the message
+                                    says now and can be followed back to it. */}
+                                <Show when={msg.reply_to_id}>
+                                    <div class="text-sub/80 flex min-w-0 items-center gap-1 pl-0.5 text-[11px]">
+                                        <span class="material-symbols-outlined text-[13px] leading-none">reply</span>
+                                        <Show
+                                            when={msg.reply_to && !msg.reply_to.deleted ? msg.reply_to : null}
+                                            fallback={
+                                                <span data-testid="chat-reply-gone" class="italic">
+                                                    That message was deleted.
+                                                </span>
+                                            }
+                                        >
+                                            {(answered) => (
+                                                <button
+                                                    type="button"
+                                                    data-testid="chat-reply-line"
+                                                    onClick={() => void jumpToAnswered(msg)}
+                                                    title="Go to the message this answers"
+                                                    aria-label={`Go to the message from ${nameOf(answered())} this answers`}
+                                                    class="hover:text-main flex min-w-0 items-center gap-1 text-left hover:cursor-pointer"
+                                                >
+                                                    <span class="text-highlight-strong shrink-0 font-bold">{nameOf(answered())}</span>
+                                                    <span class="min-w-0 truncate">{previewLine(answered().content)}</span>
+                                                </button>
+                                            )}
+                                        </Show>
+                                    </div>
+                                </Show>
+
                                 <Show when={showHeader}>
                                     <div class="flex items-baseline gap-2">
                                         <span class="text-highlight-strong text-xs font-bold">{authorLabel(msg)}</span>
@@ -651,11 +717,11 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                     </Show>
 
                                     {/* Hover actions, each gated on its own permission */}
-                                    <Show when={(canReply(msg) || canEdit(msg) || canDelete(msg)) && editingId() !== msg.id}>
+                                    <Show when={(canReply() || canEdit(msg) || canDelete(msg)) && editingId() !== msg.id}>
                                         <div class="shrink-0 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                                            {/* Ungated by author: quoting someone
-                                                else is the whole point. */}
-                                            <Show when={canReply(msg)}>
+                                            {/* Ungated by author: answering
+                                                someone else is the whole point. */}
+                                            <Show when={canReply()}>
                                                 <button
                                                     onClick={() => reply(msg)}
                                                     title="Reply"
@@ -704,11 +770,11 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                             role="button"
                                             tabindex={0}
                                             data-testid="chat-search-result"
-                                            onClick={() => void jumpTo(msg)}
+                                            onClick={() => void jumpToResult(msg)}
                                             onKeyDown={(e) => {
                                                 if (e.key !== 'Enter' && e.key !== ' ') return
                                                 e.preventDefault()
-                                                void jumpTo(msg)
+                                                void jumpToResult(msg)
                                             }}
                                             class="border-element-accent hover:border-highlight w-full rounded-md border p-2 text-left transition-colors hover:cursor-pointer"
                                         >
@@ -759,9 +825,41 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                 }
             >
                 <div class="bg-element border-element-accent border-t p-3">
+                    {/* Nothing is put in the draft: the target is state beside
+                        it, so what gets sent is only what was typed. */}
+                    <Show when={replyTo()}>
+                        {(answering) => (
+                            <div
+                                data-testid="chat-replying-to"
+                                class="bg-element-matte border-element-accent text-sub mb-2 flex min-w-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px]"
+                            >
+                                <span class="material-symbols-outlined text-[13px] leading-none">reply</span>
+                                <span class="shrink-0">Replying to</span>
+                                <span class="text-highlight-strong shrink-0 font-bold">{authorLabel(answering())}</span>
+                                <span class="min-w-0 truncate">{previewLine(answering().content)}</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setReplyTo(null)}
+                                    title="Stop replying"
+                                    aria-label="Stop replying"
+                                    class="text-sub hover:text-main ml-auto shrink-0 hover:cursor-pointer"
+                                >
+                                    <span class="material-symbols-outlined text-sm">close</span>
+                                </button>
+                            </div>
+                        )}
+                    </Show>
                     <Editor
                         chrome="chat"
                         onSubmit={(_t, content) => sendMessage(content)}
+                        onEscape={() => {
+                            // Escape backs out of the reply first and the
+                            // composer second, so a mistaken Reply costs one
+                            // key rather than a hunt for the close button.
+                            if (!replyTo()) return false
+                            setReplyTo(null)
+                            return true
+                        }}
                         onReady={(handle) => (composer = handle)}
                     />
                 </div>

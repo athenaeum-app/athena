@@ -403,8 +403,8 @@ export const api = {
         return request<ChatMessage[]>(`/api/v1/chat${queryString ? '?' + queryString : ''}`)
     },
 
-    sendChat: (content: string) =>
-        request<ChatMessage>('/api/v1/chat', { method: 'POST', body: JSON.stringify({ content }) }),
+    sendChat: (content: string, replyToId?: string) =>
+        request<ChatMessage>('/api/v1/chat', { method: 'POST', body: JSON.stringify({ content, reply_to_id: replyToId ?? '' }) }),
     updateChat: (id: string, content: string) =>
         request<ChatMessage>(`/api/v1/chat/${id}`, { method: 'PATCH', body: JSON.stringify({ content }) }),
     deleteChat: (id: string) => request(`/api/v1/chat/${id}`, { method: 'DELETE' }),
@@ -761,9 +761,25 @@ export interface ChatMessage {
     display_name?: string
     content: string
     is_legacy: boolean
+    reply_to_id?: string
+    // Filled in by the server on read, so a reply to a message older than the
+    // loaded scrollback can still draw its own first line. Absent once the
+    // answered message has been pruned, which is when the reply stops being one.
+    reply_to?: ChatReply
     deleted_at?: string
     created_at: string
     updated_at: string
+}
+
+// The message a reply answers, one level deep and never nested: a reply to a
+// reply is one line on screen rather than a chain of them.
+export interface ChatReply {
+    id: string
+    author_id?: string
+    display_name?: string
+    // Empty when `deleted`.
+    content: string
+    deleted: boolean
 }
 
 export interface Event {

@@ -20,20 +20,22 @@ type ChatCursor struct {
 
 // CreateChatMessage inserts a new chat message. authorID nil marks a legacy
 // message (used during migration only); new messages always carry an author.
-func CreateChatMessage(authorID *string, displayName *string, content string) (*models.ChatMessage, error) {
+// replyToID nil is an ordinary message; set makes it a reply to that message.
+func CreateChatMessage(authorID *string, displayName *string, content string, replyToID *string) (*models.ChatMessage, error) {
 	now := time.Now().UTC()
 	message := &models.ChatMessage{
 		ID:          uuid.NewString(),
 		AuthorID:    authorID,
 		DisplayName: displayName,
 		Content:     content,
+		ReplyToID:   replyToID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 	_, err := db.DB.Exec(
-		`INSERT INTO chat_messages (id, author_id, display_name, content, is_legacy, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, 0, ?, ?)`,
-		message.ID, message.AuthorID, message.DisplayName, message.Content, message.CreatedAt, message.UpdatedAt,
+		`INSERT INTO chat_messages (id, author_id, display_name, content, is_legacy, reply_to_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
+		message.ID, message.AuthorID, message.DisplayName, message.Content, message.ReplyToID, message.CreatedAt, message.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert chat message: %w", err)
@@ -46,10 +48,10 @@ func GetChatMessage(id string) (*models.ChatMessage, error) {
 	message := &models.ChatMessage{}
 	var deletedAt sql.NullTime
 	err := db.DB.QueryRow(
-		`SELECT id, author_id, display_name, content, is_legacy, deleted_at, created_at, updated_at
+		`SELECT id, author_id, display_name, content, is_legacy, reply_to_id, deleted_at, created_at, updated_at
 		 FROM chat_messages WHERE id = ?`,
 		id,
-	).Scan(&message.ID, &message.AuthorID, &message.DisplayName, &message.Content, &message.IsLegacy, &deletedAt, &message.CreatedAt, &message.UpdatedAt)
+	).Scan(&message.ID, &message.AuthorID, &message.DisplayName, &message.Content, &message.IsLegacy, &message.ReplyToID, &deletedAt, &message.CreatedAt, &message.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -69,7 +71,7 @@ func ListChatMessages(cursor *ChatCursor, limit int) ([]models.ChatMessage, erro
 		limit = 50
 	}
 
-	query := `SELECT id, author_id, display_name, content, is_legacy, deleted_at, created_at, updated_at
+	query := `SELECT id, author_id, display_name, content, is_legacy, reply_to_id, deleted_at, created_at, updated_at
 	      FROM chat_messages
 	      WHERE deleted_at IS NULL`
 	args := []any{}
@@ -93,7 +95,7 @@ func scanChatMessages(rows *sql.Rows) ([]models.ChatMessage, error) {
 	for rows.Next() {
 		var message models.ChatMessage
 		var deletedAt sql.NullTime
-		if err := rows.Scan(&message.ID, &message.AuthorID, &message.DisplayName, &message.Content, &message.IsLegacy, &deletedAt, &message.CreatedAt, &message.UpdatedAt); err != nil {
+		if err := rows.Scan(&message.ID, &message.AuthorID, &message.DisplayName, &message.Content, &message.IsLegacy, &message.ReplyToID, &deletedAt, &message.CreatedAt, &message.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan chat message: %w", err)
 		}
 		if deletedAt.Valid {
@@ -102,6 +104,90 @@ func scanChatMessages(rows *sql.Rows) ([]models.ChatMessage, error) {
 		out = append(out, message)
 	}
 	return out, rows.Err()
+}
+
+// AttachChatReplies fills in the ReplyTo preview of every message in a page
+// that is a reply, in one query for the whole page.
+//
+// Done as a second query rather than a join. The row a reply points at is very
+// often another message in the same page, and a join would send its text down
+// twice; it also has to reach soft-deleted rows, which the page itself excludes,
+// so the join would be an outer one against a different WHERE. Ids repeat too:
+// ten answers to the same message read it once here.
+//
+// A reply whose parent has been pruned outright keeps no preview and no
+// reply_to_id either, because the foreign key nulls the column, so it reads as
+// the ordinary message it now is.
+func AttachChatReplies(messages []models.ChatMessage) error {
+	wanted := map[string]bool{}
+	for _, message := range messages {
+		if message.ReplyToID != nil {
+			wanted[*message.ReplyToID] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+
+	ids := make([]any, 0, len(wanted))
+	placeholders := make([]string, 0, len(wanted))
+	for id := range wanted {
+		ids = append(ids, id)
+		placeholders = append(placeholders, "?")
+	}
+
+	rows, err := db.DB.Query(
+		`SELECT id, author_id, display_name, content, deleted_at
+		 FROM chat_messages WHERE id IN (`+strings.Join(placeholders, ", ")+`)`,
+		ids...,
+	)
+	if err != nil {
+		return fmt.Errorf("list replied-to chat messages: %w", err)
+	}
+	defer rows.Close()
+
+	previews := map[string]models.ChatReply{}
+	for rows.Next() {
+		var preview models.ChatReply
+		var deletedAt sql.NullTime
+		if err := rows.Scan(&preview.ID, &preview.AuthorID, &preview.DisplayName, &preview.Content, &deletedAt); err != nil {
+			return fmt.Errorf("scan replied-to chat message: %w", err)
+		}
+		if deletedAt.Valid {
+			// The flag is the whole answer: a message deleted for everyone
+			// must not travel on in the reply that quoted it by id.
+			preview.Deleted = true
+			preview.Content = ""
+		}
+		previews[preview.ID] = preview
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("scan replied-to chat messages: %w", err)
+	}
+
+	for i := range messages {
+		if messages[i].ReplyToID == nil {
+			continue
+		}
+		if preview, ok := previews[*messages[i].ReplyToID]; ok {
+			messages[i].ReplyTo = &preview
+		}
+	}
+	return nil
+}
+
+// AttachChatReply is the one-message form, for a create or an edit answering
+// with the row it just wrote.
+func AttachChatReply(message *models.ChatMessage) error {
+	if message == nil {
+		return nil
+	}
+	page := []models.ChatMessage{*message}
+	if err := AttachChatReplies(page); err != nil {
+		return err
+	}
+	*message = page[0]
+	return nil
 }
 
 // SearchChatMessages returns a page of non-deleted chat messages whose content
@@ -124,7 +210,7 @@ func SearchChatMessages(query string, cursor *ChatCursor, limit int) ([]models.C
 		return []models.ChatMessage{}, nil
 	}
 
-	selectSQL := `SELECT id, author_id, display_name, content, is_legacy, deleted_at, created_at, updated_at
+	selectSQL := `SELECT id, author_id, display_name, content, is_legacy, reply_to_id, deleted_at, created_at, updated_at
 	      FROM chat_messages
 	      WHERE deleted_at IS NULL AND content LIKE ? ESCAPE '\'`
 	args := []any{"%" + escapeLike(needle) + "%"}
