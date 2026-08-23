@@ -185,6 +185,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Repeated wrong passwords are now refused for a while instead of being answered forever, and the refusal says when to try again.',
         'An uploaded file that is not an image, a video, a sound or a PDF now downloads instead of opening in the page.',
     ],
+    '2.35.0': [
+        'Replying in chat now points at the message you are answering instead of copying it into your own.',
+        'A reply shows a line naming that message, which leads back to it and follows any edit to it.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
