@@ -7,7 +7,7 @@ import { common } from 'lowlight'
 import luau from 'highlightjs-luau'
 import gdscript from '@exercism/highlightjs-gdscript'
 import 'highlight.js/styles/atom-one-dark.css'
-import { openLightbox } from '../lightbox'
+import { openLightbox, downloadHref } from '../lightbox'
 import { inlineFormatting, inlineFormattingHtml } from '../markdownFormatting'
 import { copyText } from '../clipboard'
 
@@ -112,6 +112,33 @@ export function hardBreaks(container: HTMLElement): void {
     }
 }
 
+// Every uploaded image gets a download button in its corner. Images render
+// inline through the markdown pipeline and have no chip, and the Lightbox's
+// download is one icon in a toolbar; this puts the original file next to the
+// picture itself. The anchor carries the download attribute for the same
+// reason the attachment chip does: it is what the router's anchor interceptor
+// checks before deciding a click is a route change rather than a file to save.
+// Idempotent, since render() rebuilds the tree and runs this after it.
+function attachImageDownloads(container: HTMLElement): void {
+    for (const img of Array.from(container.querySelectorAll('img'))) {
+        if (img.parentElement?.classList.contains('md-img-download-wrap')) continue
+        // External images are not uploads; leave them alone.
+        if (!img.src.includes('/api/v1/assets/')) continue
+        const wrap = document.createElement('span')
+        wrap.className = 'md-img-download-wrap'
+        img.replaceWith(wrap)
+        wrap.appendChild(img)
+        const link = document.createElement('a')
+        link.className = 'md-img-download'
+        link.href = downloadHref(img.src)
+        link.download = ''
+        link.title = 'Download'
+        link.setAttribute('aria-label', 'Download image')
+        link.innerHTML = '<span class="material-symbols-outlined">download</span>'
+        wrap.appendChild(link)
+    }
+}
+
 // A keyboard has no em dash key, so the double hyphen is how one gets typed,
 // and markdown has no opinion about it: `a -- b` renders as the two hyphens the
 // author could not avoid typing. Both the spaced form and the joined
@@ -208,6 +235,7 @@ export const MarkdownText: Component<MarkdownTextProps> = (props) => {
         emDashes(containerRef)
         groupGalleries(containerRef)
         wrapTables(containerRef)
+        attachImageDownloads(containerRef)
     }
 
     // Delegated click: any content image opens the Lightbox with the full set

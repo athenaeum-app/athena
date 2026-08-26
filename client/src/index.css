@@ -662,6 +662,48 @@ input[type='checkbox']:not(.native-checkbox):focus-visible {
     border: 1px solid var(--color-element-accent);
 }
 
+/* Download button on every uploaded image (MarkdownText attaches the wrap).
+   Inline-block so the wrap shrinks to the image, which keeps the corner
+   button on the image. Revealed on hover where a hover exists; always shown
+   on touch screens, which have none. */
+.md-img-download-wrap {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+}
+.md-img-download {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    transition: opacity 0.15s ease;
+}
+.md-img-download .material-symbols-outlined {
+    font-size: 1.25rem;
+}
+@media (hover: hover) {
+    .md-img-download {
+        opacity: 0;
+    }
+    .md-img-download-wrap:hover .md-img-download,
+    .md-img-download:focus-visible {
+        opacity: 1;
+    }
+}
+@media (hover: none) {
+    .md-img-download {
+        opacity: 1;
+    }
+}
+
 /* Mobile swiper preview card: a clipped glance at a moment, not a document.
    Media renders at its document size by default, so one image or a long code
    block would fill the card on its own and push the text that gives the moment
@@ -679,7 +721,8 @@ input[type='checkbox']:not(.native-checkbox):focus-visible {
 }
 /* The preview is pointer-events: none, so this button could never be pressed
    even where it is offered. Showing it would be a lie about what the card does. */
-.moment-preview .copy-btn {
+.moment-preview .copy-btn,
+.moment-preview .md-img-download {
     display: none;
 }
 

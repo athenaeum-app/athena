@@ -189,6 +189,9 @@ export const RELEASE_NOTES: Record<string, string[]> = {
         'Replying in chat now points at the message you are answering instead of copying it into your own.',
         'A reply shows a line naming that message, which leads back to it and follows any edit to it.',
     ],
+    '2.35.1': [
+        'Every attachment can now be downloaded: the button on a file saves it to disk, and an image carries its own download button right where it appears.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:

@@ -249,6 +249,13 @@ const Attachment: Component<{
                 </Show>
                 <a
                     href={downloadUrl()}
+                    // download is what stops the router's anchor interceptor
+                    // from treating the click as a route change: an anchor
+                    // without it is preventDefault-ed and client-side-navigated
+                    // to the asset URL, which renders this same app. With it,
+                    // the browser saves the file the server names in
+                    // Content-Disposition.
+                    download=""
                     class="bg-element-accent text-sub hover:text-main flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-bold"
                     title="Download"
                 >
