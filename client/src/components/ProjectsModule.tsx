@@ -3713,8 +3713,8 @@ const DocumentView: Component<
                         >
                             <span class="material-symbols-outlined text-highlight text-base">lock</span>
                             {props.canManage
-                                ? 'Locked. The title and body are frozen; set the status back to Draft or Final to edit it. Comments still work.'
-                                : 'Locked. This document is frozen as it stands.'}
+                                ? 'Locked. Only commenting is allowed.'
+                                : 'Locked. This document may not be edited.'}
                         </p>
                     </Show>
                     <Show
