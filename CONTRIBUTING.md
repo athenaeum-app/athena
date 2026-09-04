@@ -1,15 +1,10 @@
 # Contributing
 
-Thanks for looking. Athena is a personal project that happens to be open
-source, so the honest expectation is that issues get read and pull requests get
-considered rather than that either gets a fast answer.
+Thanks for looking. Contributions are welcome! But as this is a personal side project, pull requests are not guaranteed to be merged.
 
 ## Before opening a pull request
 
-Open an issue first for anything larger than a fix. Not ceremony: this codebase
-has opinions that are not obvious from the diff, and it is easier to say
-"that belongs in `planner.ts`, not in the module" before you have written it
-than after.
+Open an issue first for anything larger than a fix, for documentation purposes.
 
 Security problems do not go in an issue at all. See
 [SECURITY.md](SECURITY.md).
