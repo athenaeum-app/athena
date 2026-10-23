@@ -3,7 +3,7 @@ import { api, type ChatMessage } from '../api'
 import { loadUsers, userName } from '../users'
 import { recentChat, watchChatFeed, refreshChatFeed, mutateChatFeed, sameChatMessage, CHAT_PAGE_SIZE } from '../chatFeed'
 import { keybinds, matchEvent } from '../keybinds'
-import { formatTime } from '../format'
+import { formatTime, formatDayHeading, formatNumericDateTime } from '../format'
 import { useAuth } from '../auth'
 import { hasPermission } from '../permissions'
 import { useUI } from '../ui'
@@ -39,13 +39,29 @@ interface ChatPanelProps {
     class?: string
 }
 
-// Messages within this window from the same author are grouped under a single
-// header, so a burst of same-minute messages no longer repeats the name/time.
-const GROUP_WINDOW_MS = 5 * 60 * 1000
-
+// Discord's grouping: same-author messages share one header while they stay in
+// the same local calendar minute, and a new minute starts a fresh header even
+// though the author has not changed, because the time is the point of the
+// header. A new day always starts a header and a divider.
 interface GroupedMessage {
     msg: ChatMessage
     showHeader: boolean
+    // The day's heading on the first message of that day, null on every other.
+    dayHeading: string | null
+}
+
+const localDay = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+
+const sameLocalMinute = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate() &&
+    a.getHours() === b.getHours() &&
+    a.getMinutes() === b.getMinutes()
+
+const isToday = (input: string | number | Date) => {
+    const date = input instanceof Date ? input : new Date(input)
+    return localDay(date) === localDay(new Date())
 }
 
 // An attachment as written in the content: `![kettle.png](/api/v1/assets/...)`
@@ -481,24 +497,32 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
 
     // Wrapper objects for <For>, which diffs by reference. messages() gets a
     // new array on every poll (see mergeRecent), so recomputing this naively
-    // would wrap every message in a fresh {msg, showHeader} object each time,
-    // even ones mergeRecent kept stable, and <For> would still rebuild their
-    // DOM. Reuse the previous wrapper when both the message and its computed
-    // showHeader are unchanged, so only genuine adds/edits/removes re-render.
+    // would wrap every message in a fresh {msg, showHeader, dayHeading} object
+    // each time, even ones mergeRecent kept stable, and <For> would still
+    // rebuild their DOM. Reuse the previous wrapper when the message and its
+    // computed flags are unchanged, so only genuine adds/edits/removes
+    // re-render.
     let groupedCache = new Map<string, GroupedMessage>()
     const grouped = createMemo<GroupedMessage[]>(() => {
         const out: GroupedMessage[] = []
         const nextCache = new Map<string, GroupedMessage>()
         let prev: ChatMessage | null = null
         for (const msg of messages()) {
+            const created = new Date(msg.created_at)
+            const prevCreated = prev ? new Date(prev.created_at) : null
             const sameAuthor = prev ? (prev.author_id ? prev.author_id === msg.author_id : prev.display_name === msg.display_name) : false
-            const withinWindow = prev ? new Date(msg.created_at).getTime() - new Date(prev.created_at).getTime() < GROUP_WINDOW_MS : false
+            const withinMinute = prevCreated ? sameLocalMinute(prevCreated, created) : false
+            const newDay = !prevCreated || localDay(prevCreated) !== localDay(created)
             // A reply always shows its header. The line above it names the
             // message it answers, and hanging that under someone else's header
             // reads as though they wrote it.
-            const showHeader = !(sameAuthor && withinWindow) || !!msg.reply_to_id
+            const showHeader = !(sameAuthor && withinMinute) || !!msg.reply_to_id
+            const dayHeading = newDay ? formatDayHeading(created) : null
             const cached = groupedCache.get(msg.id)
-            const entry = cached && cached.msg === msg && cached.showHeader === showHeader ? cached : { msg, showHeader }
+            const entry =
+                cached && cached.msg === msg && cached.showHeader === showHeader && cached.dayHeading === dayHeading
+                    ? cached
+                    : { msg, showHeader, dayHeading }
             nextCache.set(msg.id, entry)
             out.push(entry)
             prev = msg
@@ -582,7 +606,7 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                     <p class="text-sub/60 text-center text-sm italic">No messages yet. Type a quick thought!</p>
                 </Show>
                 <For each={grouped()}>
-                    {({ msg, showHeader }) => {
+                    {({ msg, showHeader, dayHeading }) => {
                         // Long-press own messages → edit/delete on touch (the
                         // hover buttons below are invisible without a pointer).
                         const lp = createLongPress(() => {
@@ -597,7 +621,19 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                             if (!actions.length) return
                             ui.actionSheet({ title: 'Message', actions })
                         })
-                        return (
+                        return [
+                            <Show when={dayHeading}>
+                                <div
+                                    data-testid="chat-day-divider"
+                                    role="separator"
+                                    aria-label={dayHeading ?? undefined}
+                                    class="mt-6 mb-1 flex items-center gap-3"
+                                >
+                                    <div class="bg-element-accent h-px flex-1" />
+                                    <span class="text-sub shrink-0 text-[11px] font-semibold">{dayHeading}</span>
+                                    <div class="bg-element-accent h-px flex-1" />
+                                </div>
+                            </Show>,
                             <div
                                 {...lp.handlers}
                                 data-message-id={msg.id}
@@ -643,12 +679,16 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                 </Show>
 
                                 <Show when={showHeader}>
-                                    <div class="flex items-baseline gap-2">
+                                    <div data-testid="chat-message-header" class="flex items-baseline gap-2">
                                         <span class="text-highlight-strong text-xs font-bold">{authorLabel(msg)}</span>
                                         <Show when={msg.is_legacy}>
                                             <span class="rounded bg-yellow-900/40 px-1 text-[10px] text-yellow-400">Legacy</span>
                                         </Show>
-                                        <span class="text-sub text-[11px]">{formatTime(msg.created_at)}</span>
+                                        <span class="text-sub text-[11px]">
+                                            {isToday(msg.created_at)
+                                                ? formatTime(msg.created_at)
+                                                : formatNumericDateTime(msg.created_at)}
+                                        </span>
                                     </div>
                                 </Show>
 
@@ -710,12 +750,6 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                         </Show>
                                     </div>
 
-                                    <Show when={showHeader && editingId() !== msg.id}>
-                                        <span class="text-sub/70 mt-0.5 shrink-0 text-[10px] opacity-0 transition-opacity group-hover:opacity-100">
-                                            {formatTime(msg.created_at)}
-                                        </span>
-                                    </Show>
-
                                     {/* Hover actions, each gated on its own permission */}
                                     <Show when={(canReply() || canEdit(msg) || canDelete(msg)) && editingId() !== msg.id}>
                                         <div class="shrink-0 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -744,8 +778,8 @@ export const ChatPanel: Component<ChatPanelProps> = (props) => {
                                         </div>
                                     </Show>
                                 </div>
-                            </div>
-                        )
+                            </div>,
+                        ]
                     }}
                 </For>
               </div>

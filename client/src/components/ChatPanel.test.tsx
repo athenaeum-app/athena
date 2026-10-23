@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@solidjs/testing-library'
 import { previewLine, ChatPanel } from './ChatPanel'
+import { formatDayHeading, formatNumericDateTime, formatTime } from '../format'
 import { AuthProvider } from '../auth'
 import { UIProvider } from '../ui'
 import { api } from '../api'
@@ -148,6 +149,122 @@ describe('replying', () => {
         screen.getByRole('button', { name: 'Stop replying' }).click()
         await waitFor(() => expect(screen.queryByTestId('chat-replying-to')).not.toBeInTheDocument())
         expect(draft()).toBe('')
+    })
+})
+
+// Discord's grouping, which this follows: a header carries the time, so it is
+// repeated when the clock minute changes, and the first message of a day
+// carries a divider naming that day. Stamps from another day carry the date.
+describe('message grouping', () => {
+    const owner = { id: 'u1', username: 'owner', is_owner: true, roles: [], permissions: 0 }
+    type Msg = {
+        id: string
+        author_id: string
+        content: string
+        is_legacy: boolean
+        created_at: string
+        updated_at: string
+    }
+
+    const message = (id: string, author: string, when: Date): Msg => ({
+        id,
+        author_id: author,
+        content: id,
+        is_legacy: false,
+        created_at: when.toISOString(),
+        updated_at: when.toISOString(),
+    })
+
+    // listChat answers newest first, as the server does. A fresh array each
+    // call: refreshChatFeed reverse()s what it gets, and handing it the same
+    // array twice would flip the order back on the next poll.
+    const feed = (newestFirst: Msg[]) => {
+        vi.mocked(api.listChat).mockImplementation(async () => newestFirst.map((m) => ({ ...m })))
+    }
+
+    const local = (year: number, month: number, day: number, hour: number, minute: number, second = 0) =>
+        new Date(year, month - 1, day, hour, minute, second)
+
+    beforeEach(() => {
+        vi.stubGlobal('matchMedia', (media: string) => ({
+            media,
+            matches: false,
+            onchange: null,
+            addEventListener() {},
+            removeEventListener() {},
+            addListener() {},
+            removeListener() {},
+            dispatchEvent: () => false,
+        }))
+        vi.mocked(api.getMe).mockResolvedValue(owner)
+    })
+    afterEach(() => vi.unstubAllGlobals())
+
+    const renderPanel = () =>
+        render(() => (
+            <UIProvider>
+                <AuthProvider>
+                    <ChatPanel />
+                </AuthProvider>
+            </UIProvider>
+        ))
+
+    it('shares one header while the author keeps writing in the same minute', async () => {
+        feed([
+            message('minute-b', 'u1', local(2024, 5, 2, 10, 0, 45)),
+            message('minute-a', 'u1', local(2024, 5, 2, 10, 0, 5)),
+        ])
+
+        renderPanel()
+
+        const headers = await screen.findAllByTestId('chat-message-header')
+        expect(headers).toHaveLength(1)
+    })
+
+    it('starts a new header when the clock minute changes', async () => {
+        feed([
+            message('rollover-b', 'u1', local(2024, 5, 2, 10, 1, 0)),
+            message('rollover-a', 'u1', local(2024, 5, 2, 10, 0, 59)),
+        ])
+
+        renderPanel()
+
+        const headers = await screen.findAllByTestId('chat-message-header')
+        expect(headers).toHaveLength(2)
+    })
+
+    it('draws a divider on the first message of each day', async () => {
+        const firstDay = local(2024, 5, 2, 23, 59)
+        const secondDay = local(2024, 5, 3, 0, 1)
+        feed([
+            message('day-b2', 'u2', secondDay),
+            message('day-b1', 'u1', firstDay),
+        ])
+
+        renderPanel()
+
+        const dividers = await screen.findAllByTestId('chat-day-divider')
+        expect(dividers).toHaveLength(2)
+        expect(dividers[0]).toHaveTextContent(formatDayHeading(firstDay))
+        expect(dividers[1]).toHaveTextContent(formatDayHeading(secondDay))
+    })
+
+    it('stamps another day with the date, and today with only the time', async () => {
+        const now = new Date()
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 5)
+        const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 9, 5)
+        feed([
+            message('stamp-today', 'u1', today),
+            message('stamp-yesterday', 'u1', yesterday),
+        ])
+
+        renderPanel()
+
+        const headers = await screen.findAllByTestId('chat-message-header')
+        expect(headers).toHaveLength(2)
+        expect(headers[0]).toHaveTextContent(formatNumericDateTime(yesterday))
+        expect(headers[1]).toHaveTextContent(formatTime(today))
+        expect(headers[1]).not.toHaveTextContent(formatNumericDateTime(today))
     })
 })
 

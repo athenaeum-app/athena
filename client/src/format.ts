@@ -40,6 +40,29 @@ export function formatDate(input: string | number | Date): string {
     })
 }
 
+// formatDayHeading renders a full calendar date for the divider above the
+// first message of a day (e.g. "October 20, 2026").
+export function formatDayHeading(input: string | number | Date): string {
+    return toDate(input).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+    })
+}
+
+// formatNumericDateTime renders a numeric date followed by the clock, for a
+// message stamp from any day but today (e.g. "8/21/2026 5:19 PM"). It is
+// numeric because it shares an 11px line with the author's name.
+export function formatNumericDateTime(input: string | number | Date): string {
+    const date = toDate(input)
+    const day = date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+    })
+    return `${day} ${formatTime(date)}`
+}
+
 // formatDateTime renders date + time, used where a precise stamp matters
 // (audit log). Seconds are included for disambiguation.
 export function formatDateTime(input: string | number | Date): string {
