@@ -192,6 +192,10 @@ export const RELEASE_NOTES: Record<string, string[]> = {
     '2.35.1': [
         'Every attachment can now be downloaded: the button on a file saves it to disk, and an image carries its own download button right where it appears.',
     ],
+    '2.36.0': [
+        'Chat now marks the start of each day with a divider, and repeats the author and time whenever the clock minute changes.',
+        'Messages from an earlier day show their date beside the time.',
+    ],
 }
 
 // Which build this browser last ran. localStorage rather than sessionStorage:
