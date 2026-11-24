@@ -63,14 +63,18 @@ export function createPlannerDrag(options: {
             return canDrag()
         },
         item,
-        start: (row) => setItem(row),
+        start: (row) => {
+            if (isMovable(row)) setItem(row)
+        },
         end: () => {
             setItem(null)
             setOver(null)
         },
         over,
         setOver,
-        schedule: (row, at) => options.schedule(row, at),
+        schedule: (row, at) => {
+            if (isMovable(row)) options.schedule(row, at)
+        },
     }
 }
 
@@ -172,6 +176,7 @@ const Row: Component<{
             }}
             draggable={movable()}
             onDragStart={(e) => {
+                if (!movable()) return
                 // Firefox starts no drag at all without payload on the event.
                 e.dataTransfer?.setData('text/plain', row().id)
                 if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
@@ -649,6 +654,7 @@ const Chip: Component<{ row: PlannerDated; handlers: PlannerHandlers }> = (props
         <button
             draggable={movable()}
             onDragStart={(e) => {
+                if (!movable()) return
                 e.dataTransfer?.setData('text/plain', row().id)
                 if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
                 drag().start(row())

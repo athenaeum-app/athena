@@ -47,6 +47,10 @@ export interface PlannerRow {
     // elsewhere. Only the Tasks side sets them today.
     repeats?: string
     momentId?: string
+    // True when a row's day is determined by where it lives rather than stored
+    // on the row itself, so it cannot be dragged to another day or cleared into
+    // the undated tray. Daily list tasks set this: they always land on today.
+    fixedDate?: boolean
 }
 
 // A row with a day on it, which is what every view but the tray draws.
@@ -59,8 +63,9 @@ export const isContainer = (row: PlannerRow): boolean => row.kind === 'milestone
 // Whether the row is a thing with a date of its own. A milestone is: it has a
 // due date on the server and dragging it moves that date. A list container is
 // not: it is drawn from the tasks under it, exists only on the day they fall
-// on, and has nothing of its own to move.
-export const isMovable = (row: PlannerRow): boolean => row.kind !== 'list'
+// on, and has nothing of its own to move. A daily task is not either: its list
+// fixes it to today and carries no per-item due date to move.
+export const isMovable = (row: PlannerRow): boolean => row.kind !== 'list' && !row.fixedDate
 
 const fromWorkItem = (item: ProjectWorkItem): PlannerRow => ({
     id: item.id,
@@ -98,20 +103,32 @@ export function listAccent(title: string): string {
     return LIST_ACCENTS[hash % LIST_ACCENTS.length]
 }
 
-const fromTodoItem = (item: TodoItem, list: TodoList): PlannerRow => ({
-    id: item.id,
-    kind: 'task',
-    source: 'task',
-    title: item.text,
-    dueAt: item.due_at,
-    priority: item.priority,
-    homeId: list.id,
-    homeTitle: list.title || 'Untitled list',
-    accent: listAccent(list.title || ''),
-    icon: 'task_alt',
-    repeats: item.recurrence || undefined,
-    momentId: item.moment_id || undefined,
-})
+// Today at local noon, matching isoAtNoon in Planner.tsx so timezone offsets
+// never slide a daily list's effective day onto yesterday.
+const todayAtNoon = (): string => {
+    const date = new Date()
+    date.setHours(12, 0, 0, 0)
+    return date.toISOString()
+}
+
+const fromTodoItem = (item: TodoItem, list: TodoList, dueAt?: string): PlannerRow => {
+    const daily = list.kind === 'daily'
+    return {
+        id: item.id,
+        kind: 'task',
+        source: 'task',
+        title: item.text,
+        dueAt,
+        priority: item.priority,
+        homeId: list.id,
+        homeTitle: list.title || 'Untitled list',
+        accent: listAccent(list.title || ''),
+        icon: 'task_alt',
+        repeats: daily ? 'daily' : item.recurrence || undefined,
+        momentId: item.moment_id || undefined,
+        fixedDate: daily || undefined,
+    }
+}
 
 // How many tasks a list needs due on one day before it is worth drawing as the
 // thing that holds them. One is a task, not a container with one thing in it.
@@ -124,13 +141,13 @@ const CONTAINER_MIN = 2
 // what is inside it. The meter counts everything on that list due that day,
 // finished included, which is what makes it a meter rather than a tally: tick
 // one off and the bar fills instead of the row disappearing.
-const containerRow = (list: TodoList, day: TodoItem[]): PlannerRow => ({
+const containerRow = (list: TodoList, day: TodoItem[], dueAt: string): PlannerRow => ({
     // Not an entity id: this row exists only for this list on this day.
-    id: `list:${list.id}:${dueMs(day[0].due_at)}`,
+    id: `list:${list.id}:${dueMs(dueAt)}`,
     kind: 'list',
     source: 'task',
     title: list.title || 'Untitled list',
-    dueAt: day[0].due_at,
+    dueAt,
     priority: 0,
     homeId: list.id,
     homeTitle: list.title || 'Untitled list',
@@ -143,18 +160,26 @@ const containerRow = (list: TodoList, day: TodoItem[]): PlannerRow => ({
 // Everything outstanding on the to-do lists, plus a container row per list per
 // day where several tasks land together.
 //
-// Daily lists are left out, the same exclusion the agenda makes and for the
-// same reason: their items carry no due date you can see or set, so they would
-// arrive as rows nothing can be done to, in a tray whose whole purpose is
-// giving something a date.
+// Daily lists land on today: their items carry no editable due date on the
+// server (any stale due_at from older data is ignored), and their rows are
+// fixed to today rather than movable onto other days or into the undated tray.
 export function plannerFromLists(lists: TodoList[]): PlannerRow[] {
     const out: PlannerRow[] = []
+    const today = todayAtNoon()
     for (const list of lists) {
-        if (list.kind === 'daily') continue
+        const daily = list.kind === 'daily'
         const items = list.items || []
         for (const item of items) {
             if (item.done) continue
-            out.push(fromTodoItem(item, list))
+            const dueAt = daily ? today : item.due_at
+            out.push(fromTodoItem(item, list, dueAt))
+        }
+
+        if (daily) {
+            if (items.length >= CONTAINER_MIN && items.some((item) => !item.done)) {
+                out.push(containerRow(list, items, today))
+            }
+            continue
         }
 
         const byDay = new Map<number, TodoItem[]>()
@@ -169,7 +194,7 @@ export function plannerFromLists(lists: TodoList[]): PlannerRow[] {
             // A day whose work is all behind you needs no container: the list
             // would sit there on a Tuesday in the past with nothing under it.
             if (day.length < CONTAINER_MIN || day.every((item) => item.done)) continue
-            out.push(containerRow(list, day))
+            out.push(containerRow(list, day, day[0].due_at!))
         }
     }
     return out

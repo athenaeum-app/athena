@@ -29,7 +29,9 @@ const LIST = 'House'
 const CHORE = 'Descale the kettle'
 const SECOND_CHORE = 'Bleed the radiators'
 const UNDATED = 'Book the chimney sweep'
+const DAILY_LIST = 'Every day'
 const DAILY_ITEM = 'Take the vitamins'
+const SECOND_DAILY_ITEM = 'Water the ferns'
 const PROJECT = 'The reading room'
 const CARD = 'Plane the door'
 
@@ -54,11 +56,11 @@ async function seed(page: Page) {
     await patch(req, `/api/v1/todo-items/${finished.id}`, { done: true })
     await post(req, `/api/v1/todos/${list.id}/items`, { text: UNDATED })
 
-    // A daily list, which the planner leaves out entirely: its items carry no
-    // date you can see or set, so a tray offering to schedule one would be
-    // offering something that cannot be done.
-    const daily = await post<{ id: string }>(req, '/api/v1/todos', { title: 'Every day', kind: 'daily' })
+    // A daily list: its open items land on today, fixed in place, with a list
+    // container meter once at least two items sit on it.
+    const daily = await post<{ id: string }>(req, '/api/v1/todos', { title: DAILY_LIST, kind: 'daily' })
     await post(req, `/api/v1/todos/${daily.id}/items`, { text: DAILY_ITEM })
+    await post(req, `/api/v1/todos/${daily.id}/items`, { text: SECOND_DAILY_ITEM })
 
     const project = await post<{ id: string }>(req, '/api/v1/projects', { title: PROJECT })
     const milestone = await post<{ id: string }>(req, `/api/v1/projects/${project.id}/milestones`, { title: 'Shelving' })
@@ -105,15 +107,16 @@ for (const [name, viewport, mobile] of [
             // too narrow to read a title in, and dropping is a pointer gesture.
             await expect(page.getByTestId('agenda-timeline')).toBeVisible()
 
-            // Everything, which is the point: a chore beside a project's card.
+            // Everything, which is the point: a chore beside a project's card,
+            // plus the daily list's items on today.
             await expect(planner(page).getByTestId('agenda-task').first()).toContainText(CHORE)
             await expect(planner(page).getByTestId('agenda-card').first()).toContainText(CARD)
-            // A daily item is not schedulable, so it is not here.
-            await expect(planner(page)).not.toContainText(DAILY_ITEM)
+            await expect(planner(page).getByTestId('agenda-day').first()).toContainText(DAILY_ITEM)
 
             await scope(page, 'Tasks').click()
             await expect(planner(page).getByTestId('agenda-card')).toHaveCount(0)
             await expect(planner(page).getByTestId('agenda-task').first()).toContainText(CHORE)
+            await expect(planner(page).getByTestId('agenda-day').first()).toContainText(DAILY_ITEM)
 
             await scope(page, 'Projects').click()
             await expect(planner(page).getByTestId('agenda-task')).toHaveCount(0)
@@ -132,8 +135,8 @@ for (const [name, viewport, mobile] of [
             await scope(page, 'Tasks').click()
 
             // Two of the seeded chores fall on today, so the list is worth
-            // drawing as what holds them. One of the two is already done.
-            const container = planner(page).getByTestId('agenda-list').first()
+            // drawing as what holds them. One of the three is already done.
+            const container = planner(page).getByTestId('agenda-list').filter({ hasText: LIST }).first()
             await expect(container).toContainText(LIST)
             await expect(container).toContainText('1/3 done')
             // It has no date of its own, so there is nothing to pick up.
@@ -147,9 +150,37 @@ for (const [name, viewport, mobile] of [
                 .first()
                 .getByTestId('agenda-complete')
                 .click()
-            await expect(planner(page).getByTestId('agenda-list').first()).toContainText('2/3 done')
+            await expect(container).toContainText('2/3 done')
 
             await untick(page, CHORE)
+        })
+
+        test('shows daily list tasks on today, fixed in place, with a container meter', async ({ page }) => {
+            await signIn(page)
+            await seed(page)
+            await openPlanner(page, mobile)
+            await scope(page, 'Tasks').click()
+
+            const todayColumn = planner(page).getByTestId('agenda-day').first()
+            const container = todayColumn.getByTestId('agenda-list').filter({ hasText: DAILY_LIST }).first()
+            await expect(container).toContainText(DAILY_LIST)
+            await expect(container).toContainText('0/2 done')
+            await expect(container).toHaveAttribute('draggable', 'false')
+
+            const dailyRow = todayColumn.getByTestId('agenda-task').filter({ hasText: DAILY_ITEM }).first()
+            await expect(dailyRow).toBeVisible()
+            await expect(dailyRow).toHaveAttribute('draggable', 'false')
+            await expect(dailyRow).toHaveAttribute('title', /^Open /)
+            await expect(dailyRow.getByTitle('Repeats daily')).toBeVisible()
+
+            // Daily tasks land on today, never in the undated tray.
+            await expect(page.getByTestId('agenda-unscheduled')).not.toContainText(DAILY_ITEM)
+
+            await dailyRow.getByTestId('agenda-complete').click()
+            await expect(container).toContainText('1/2 done')
+            await expect(todayColumn).not.toContainText(DAILY_ITEM)
+
+            await untick(page, DAILY_ITEM)
         })
 
         test('keeps the undated in a tray, which is where a chore starts', async ({ page }) => {

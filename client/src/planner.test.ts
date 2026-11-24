@@ -10,6 +10,7 @@ import {
     undatedRows,
     type PlannerRow,
 } from './planner'
+import { dueMs } from './projectAgenda'
 
 const iso = (daysFromToday: number) => {
     const date = new Date()
@@ -253,11 +254,47 @@ describe('a list as a container', () => {
         expect(rows).toEqual([])
     })
 
-    it('leaves daily lists out entirely, dates or no dates', () => {
+    it('puts daily list tasks on today, fixed in place, with a repeat mark and a container meter', () => {
+        const today = dueMs(iso(0))
         const rows = plannerFromLists([
-            list({ kind: 'daily', items: [item('a', { due_at: iso(1) }), item('b', { due_at: iso(1) })] }),
+            list({
+                kind: 'daily',
+                title: 'Every day',
+                items: [
+                    // Stale due_at values from older data are ignored: a daily
+                    // task always lands on today, never overdue or in the future.
+                    item('a', { due_at: iso(-5), priority: 2 }),
+                    item('b', { due_at: iso(4) }),
+                    item('c', { done: true }),
+                ],
+            }),
         ])
-        expect(rows).toEqual([])
+        expect(undatedRows(rows)).toEqual([])
+        const ordered = datedRows(rows)
+        expect(ordered.map((r) => r.kind)).toEqual(['list', 'task', 'task'])
+        expect(ordered.every((r) => dueMs(r.dueAt) === today)).toBe(true)
+
+        const container = ordered[0]
+        expect(container.title).toBe('Every day')
+        expect([container.done, container.total]).toEqual([1, 3])
+        expect(isMovable(container)).toBe(false)
+
+        const tasks = ordered.slice(1)
+        expect(tasks.map((r) => r.id)).toEqual(['a', 'b'])
+        expect(tasks.every((r) => r.repeats === 'daily')).toBe(true)
+        expect(tasks.every((r) => !isMovable(r))).toBe(true)
+    })
+
+    it('leaves a single daily task without a container and drops a finished daily list', () => {
+        const single = plannerFromLists([list({ kind: 'daily', items: [item('only')] })])
+        expect(single.map((r) => r.kind)).toEqual(['task'])
+        expect(dueMs(single[0].dueAt)).toBe(dueMs(iso(0)))
+        expect(isMovable(single[0])).toBe(false)
+
+        const finished = plannerFromLists([
+            list({ kind: 'daily', items: [item('a', { done: true }), item('b', { done: true })] }),
+        ])
+        expect(finished).toEqual([])
     })
 
     it('is not a thing that can be moved, having no date of its own', () => {
